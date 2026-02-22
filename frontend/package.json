@@ -7,7 +7,11 @@
     "dev": "vite",
     "build": "vue-tsc && vite build",
     "preview": "vite preview",
-    "lint": "eslint . --ext .vue,.ts,.tsx --fix"
+    "lint": "eslint . --ext .vue,.ts,.tsx --fix",
+    "lint:check": "eslint . --ext .vue,.ts,.tsx",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "type-check": "vue-tsc --noEmit"
   },
   "dependencies": {
     "vue": "^3.4.15",
