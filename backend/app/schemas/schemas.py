@@ -123,3 +123,40 @@ class AIChatRequest(BaseModel):
     document_id: int
     messages: List[ChatMessage]
     include_memory: bool = True
+
+# ========== Event Schemas ==========
+class EventBase(BaseModel):
+    name: str
+    description: Optional[str] = None
+    chapter: Optional[str] = None
+    timeline_position: Optional[str] = None
+    order_index: int = 0
+    involved_characters: List[int] = []
+    importance: str = "normal"  # minor, normal, major, critical
+    event_type: str = "plot"  # plot, conflict, revelation, climax, ending
+    is_completed: bool = False
+    content_notes: Optional[str] = None
+
+class EventCreate(EventBase):
+    pass
+
+class EventUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    chapter: Optional[str] = None
+    timeline_position: Optional[str] = None
+    order_index: Optional[int] = None
+    involved_characters: Optional[List[int]] = None
+    importance: Optional[str] = None
+    event_type: Optional[str] = None
+    is_completed: Optional[bool] = None
+    content_notes: Optional[str] = None
+
+class EventResponse(EventBase):
+    id: int
+    project_id: int
+    created_at: datetime
+    updated_at: datetime
+    
+    class Config:
+        from_attributes = True

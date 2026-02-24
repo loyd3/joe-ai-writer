@@ -31,6 +31,25 @@ export const memoryApi = {
   update: (projectId: number, data: any) => api.put(`/projects/${projectId}/memory`, data)
 }
 
+// 事件设定 API
+export const eventApi = {
+  list: (projectId: number) => api.get(`/projects/${projectId}/events`),
+  get: (projectId: number, eventId: number) => api.get(`/projects/${projectId}/events/${eventId}`),
+  create: (projectId: number, data: any) => api.post(`/projects/${projectId}/events`, data),
+  update: (projectId: number, eventId: number, data: any) => api.put(`/projects/${projectId}/events/${eventId}`, data),
+  delete: (projectId: number, eventId: number) => api.delete(`/projects/${projectId}/events/${eventId}`),
+  reorder: (projectId: number, eventId: number, newIndex: number) => 
+    api.post(`/projects/${projectId}/events/${eventId}/reorder`, null, { params: { new_index: newIndex } })
+}
+
+// 系统 API
+export const systemApi = {
+  health: () => api.get('/system/health'),
+  aiConfig: () => api.get('/system/ai-config'),
+  providers: () => api.get('/system/ai-config/providers'),
+  testAI: (data: any) => api.post('/system/ai-config/test', data)
+}
+
 // AI 写作 API
 export const aiApi = {
   assist: (data: any) => api.post('/ai/assist', data),

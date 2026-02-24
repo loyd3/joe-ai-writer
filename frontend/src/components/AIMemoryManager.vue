@@ -1,6 +1,11 @@
 <template>
   <div class="memory-manager">
     <el-tabs v-model="activeTab" type="border-card">
+      <el-tab-pane label="事件设定" name="events">
+        <div class="tab-content">
+          <EventManager :project-id="projectId" :characters="memory.characters" />
+        </div>
+      </el-tab-pane>
       <el-tab-pane label="文章大纲" name="outline">
         <div class="tab-content">
           <p class="hint">定义文章的整体结构，帮助 AI 理解内容框架</p>
@@ -124,13 +129,14 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { useProjectStore, type AIMemory } from '@/stores/project'
 import { ElMessage } from 'element-plus'
+import EventManager from './EventManager.vue'
 
 const props = defineProps<{
   projectId: number
 }>()
 
 const store = useProjectStore()
-const activeTab = ref('outline')
+const activeTab = ref('events')
 const saving = ref(false)
 
 const memory = ref<Partial<AIMemory>>({

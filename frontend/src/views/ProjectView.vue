@@ -6,6 +6,9 @@
         <p class="desc">{{ project?.description }}</p>
       </div>
       <div class="actions">
+        <el-button @click="showConfigDrawer = true">
+          <el-icon><Setting /></el-icon> AI 配置
+        </el-button>
         <el-button @click="showMemoryDrawer = true">
           <el-icon><Collection /></el-icon> AI 记忆
         </el-button>
@@ -43,11 +46,21 @@
       </el-row>
     </div>
 
+    <!-- AI 配置抽屉 -->
+    <el-drawer
+      v-model="showConfigDrawer"
+      title="AI 模型配置"
+      size="500px"
+      :destroy-on-close="false"
+    >
+      <AIConfigPanel />
+    </el-drawer>
+
     <!-- AI 记忆抽屉 -->
     <el-drawer
       v-model="showMemoryDrawer"
       title="AI 记忆管理"
-      size="500px"
+      size="650px"
       :destroy-on-close="false"
     >
       <AIMemoryManager :project-id="Number(projectId)" />
@@ -74,6 +87,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useProjectStore, type Document } from '@/stores/project'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import AIMemoryManager from '@/components/AIMemoryManager.vue'
+import AIConfigPanel from '@/components/AIConfigPanel.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -84,6 +98,7 @@ const project = computed(() => store.currentProject)
 const documents = computed(() => store.currentProject?.documents || [])
 
 const showMemoryDrawer = ref(false)
+const showConfigDrawer = ref(false)
 const showCreateDocDialog = ref(false)
 const newDoc = ref({ title: '' })
 

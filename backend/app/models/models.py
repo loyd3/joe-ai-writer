@@ -64,6 +64,40 @@ class AIMemory(Base):
     
     project = relationship("Project", back_populates="ai_memory")
 
+class Event(Base):
+    """事件设定 - 管理故事中的关键事件"""
+    __tablename__ = "events"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    project_id = Column(Integer, ForeignKey("projects.id"))
+    
+    # 事件基本信息
+    name = Column(String, nullable=False)  # 事件名称
+    description = Column(Text, nullable=True)  # 事件描述
+    chapter = Column(String, nullable=True)  # 所属章节
+    
+    # 时间信息
+    timeline_position = Column(String, nullable=True)  # 时间线位置（如：第三章、倒叙等）
+    order_index = Column(Integer, default=0)  # 排序索引
+    
+    # 参与角色
+    involved_characters = Column(JSON, default=list)  # 参与的角色ID列表
+    
+    # 事件属性
+    importance = Column(String, default="normal")  # 重要程度: minor, normal, major, critical
+    event_type = Column(String, default="plot")  # 事件类型: plot, conflict, revelation, climax, ending
+    
+    # 状态
+    is_completed = Column(Boolean, default=False)  # 是否已完成写作
+    
+    # 内容
+    content_notes = Column(Text, nullable=True)  # 内容备注/草稿
+    
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    project = relationship("Project")
+
 class AIInteraction(Base):
     """AI 交互历史记录"""
     __tablename__ = "ai_interactions"

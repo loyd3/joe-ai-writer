@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import { projectApi, documentApi, memoryApi } from '@/api'
+import { projectApi, documentApi, memoryApi, eventApi } from '@/api'
 
 export interface Project {
   id: number
@@ -49,11 +49,30 @@ export interface AIMemory {
   notes?: string
 }
 
+export interface Event {
+  id: number
+  project_id: number
+  name: string
+  description?: string
+  chapter?: string
+  timeline_position?: string
+  order_index: number
+  involved_characters: number[]
+  importance: 'minor' | 'normal' | 'major' | 'critical'
+  event_type: 'plot' | 'conflict' | 'revelation' | 'climax' | 'ending'
+  is_completed: boolean
+  content_notes?: string
+  created_at: string
+  updated_at: string
+}
+
 export const useProjectStore = defineStore('project', () => {
   // State
   const projects = ref<Project[]>([])
   const currentProject = ref<Project | null>(null)
   const currentDocument = ref<Document | null>(null)
+  const events = ref<Event[]>([])
+  const currentEvent = ref<Event | null>(null)
   const loading = ref(false)
 
   // Getters
@@ -152,10 +171,51 @@ export const useProjectStore = defineStore('project', () => {
     return res.data
   }
 
+  // Event actions
+  async function fetchEvents(projectId: number) {
+    const res = await eventApi.list(projectId)
+    events.value = res.data
+    return res.data
+  }
+
+  async function fetchEvent(projectId: number, eventId: number) {
+    const res = await eventApi.get(projectId, eventId)
+    currentEvent.value = res.data
+    return res.data
+  }
+
+  async function createEvent(projectId: number, data: Partial<Event>) {
+    const res = await eventApi.create(projectId, data)
+    events.value.push(res.data)
+    return res.data
+  }
+
+  async function updateEvent(projectId: number, eventId: number, data: Partial<Event>) {
+    const res = await eventApi.update(projectId, eventId, data)
+    const index = events.value.findIndex(e => e.id === eventId)
+    if (index !== -1) {
+      events.value[index] = { ...events.value[index], ...res.data }
+    }
+    if (currentEvent.value?.id === eventId) {
+      currentEvent.value = { ...currentEvent.value, ...res.data }
+    }
+    return res.data
+  }
+
+  async function deleteEvent(projectId: number, eventId: number) {
+    await eventApi.delete(projectId, eventId)
+    events.value = events.value.filter(e => e.id !== eventId)
+    if (currentEvent.value?.id === eventId) {
+      currentEvent.value = null
+    }
+  }
+
   return {
     projects,
     currentProject,
     currentDocument,
+    events,
+    currentEvent,
     loading,
     projectList,
     fetchProjects,
@@ -168,6 +228,11 @@ export const useProjectStore = defineStore('project', () => {
     updateDocument,
     deleteDocument,
     fetchMemory,
-    updateMemory
+    updateMemory,
+    fetchEvents,
+    fetchEvent,
+    createEvent,
+    updateEvent,
+    deleteEvent
   }
 })
