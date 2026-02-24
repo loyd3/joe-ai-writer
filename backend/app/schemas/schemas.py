@@ -184,3 +184,32 @@ class EventResponse(EventBase):
 
     class Config:
         from_attributes = True
+
+
+# ========== System Config Schemas ==========
+class SystemConfigBase(BaseModel):
+    key: str
+    value: str
+
+
+class SystemConfigUpdate(BaseModel):
+    key: str
+    value: str
+
+
+class SystemConfigResponse(SystemConfigBase):
+    id: int
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class UserAIConfig(BaseModel):
+    """用户保存的 AI 配置"""
+    provider: str
+    model: str
+    api_key: str
+    base_url: Optional[str] = None
+    temperature: float = 0.7
+    max_tokens: int = 4096

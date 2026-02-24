@@ -120,3 +120,14 @@ class AIInteraction(Base):
     ai_response = Column(Text)
     context_used = Column(JSON, default=dict)  # 使用的上下文信息
     created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class SystemConfig(Base):
+    """系统配置 - 保存 AI 等设置"""
+
+    __tablename__ = "system_configs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    key = Column(String, unique=True, index=True)  # 配置键
+    value = Column(Text)  # 配置值（JSON 字符串）
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

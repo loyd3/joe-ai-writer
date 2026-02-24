@@ -47,7 +47,9 @@ export const systemApi = {
   health: () => api.get('/system/health'),
   aiConfig: () => api.get('/system/ai-config'),
   providers: () => api.get('/system/ai-config/providers'),
-  testAI: (data: any) => api.post('/system/ai-config/test', data)
+  testAI: (data: any) => api.post('/system/ai-config/test', data),
+  getUserAIConfig: () => api.get('/system/user-ai-config'),
+  saveUserAIConfig: (data: any) => api.post('/system/user-ai-config', data)
 }
 
 // AI 写作 API

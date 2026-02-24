@@ -11,7 +11,7 @@ class Settings(BaseSettings):
     database_url: str = "sqlite:///./joe_writer.db"
 
     # AI Provider Configuration (支持多个大模型)
-    ai_provider: Literal["openai", "deepseek", "siliconflow", "custom"] = "openai"
+    ai_provider: Literal["openai", "deepseek", "siliconflow", "custom"] = "deepseek"
 
     # OpenAI 配置
     openai_api_key: str = ""

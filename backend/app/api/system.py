@@ -178,8 +178,108 @@ async def test_ai_connection(config: AIConfigUpdate):
 @router.get("/health")
 def health_check():
     """系统健康检查"""
+    settings = get_settings()
     return {
         "status": "ok",
         "version": "1.1.0",
-        "features": ["multi-provider-ai", "memory-system", "streaming"],
+        "features": ["multi-provider-ai", "memory-system", "streaming", "config-persistence"],
+        "default_provider": settings.ai_provider,
     }
+
+
+# ========== 用户 AI 配置管理 ==========
+@router.get("/user-ai-config")
+def get_user_ai_config():
+    """获取用户保存的 AI 配置（从前端 localStorage 同步到后端）"""
+    # 返回默认配置供前端参考
+    settings = get_settings()
+    return {
+        "provider": settings.ai_provider,
+        "model": settings.deepseek_model if settings.ai_provider == "deepseek" else 
+                 settings.openai_model if settings.ai_provider == "openai" else
+                 settings.siliconflow_model if settings.ai_provider == "siliconflow" else
+                 settings.custom_model,
+        "temperature": settings.ai_temperature,
+        "max_tokens": settings.ai_max_tokens,
+        "message": "配置从前端读取，后端默认值仅供参考"
+    }
+
+
+@router.post("/user-ai-config")
+def save_user_ai_config(config: AIConfigUpdate):
+    """保存用户 AI 配置（用于后端动态切换）"""
+    from app.core.ai_client import ai_client
+    
+    # 重新初始化 AI 客户端
+    try:
+        settings = get_settings()
+        
+        # 创建临时配置类
+        class TempSettings:
+            def __init__(self, **kwargs):
+                for k, v in kwargs.items():
+                    setattr(self, k, v)
+        
+        new_settings = {
+            "ai_provider": config.provider,
+            "openai_api_key": settings.openai_api_key,
+            "openai_base_url": settings.openai_base_url,
+            "openai_model": settings.openai_model,
+            "deepseek_api_key": settings.deepseek_api_key,
+            "deepseek_base_url": settings.deepseek_base_url,
+            "deepseek_model": settings.deepseek_model,
+            "siliconflow_api_key": settings.siliconflow_api_key,
+            "siliconflow_base_url": settings.siliconflow_base_url,
+            "siliconflow_model": settings.siliconflow_model,
+            "custom_api_key": settings.custom_api_key,
+            "custom_base_url": settings.custom_base_url,
+            "custom_model": settings.custom_model,
+            "ai_temperature": config.temperature or settings.ai_temperature,
+            "ai_max_tokens": settings.ai_max_tokens,
+        }
+        
+        # 应用新配置
+        if config.api_key:
+            if config.provider == "openai":
+                new_settings["openai_api_key"] = config.api_key
+            elif config.provider == "deepseek":
+                new_settings["deepseek_api_key"] = config.api_key
+            elif config.provider == "siliconflow":
+                new_settings["siliconflow_api_key"] = config.api_key
+            else:
+                new_settings["custom_api_key"] = config.api_key
+        
+        if config.base_url:
+            if config.provider == "openai":
+                new_settings["openai_base_url"] = config.base_url
+            elif config.provider == "deepseek":
+                new_settings["deepseek_base_url"] = config.base_url
+            elif config.provider == "siliconflow":
+                new_settings["siliconflow_base_url"] = config.base_url
+            else:
+                new_settings["custom_base_url"] = config.base_url
+        
+        if config.model:
+            if config.provider == "openai":
+                new_settings["openai_model"] = config.model
+            elif config.provider == "deepseek":
+                new_settings["deepseek_model"] = config.model
+            elif config.provider == "siliconflow":
+                new_settings["siliconflow_model"] = config.model
+            else:
+                new_settings["custom_model"] = config.model
+        
+        # 重新初始化客户端
+        from app.core.ai_client import AIClient, _ai_client_instance
+        global _ai_client_instance
+        _ai_client_instance = AIClient(TempSettings(**new_settings))
+        
+        return {
+            "success": True,
+            "message": f"AI 配置已更新为 {config.provider} - {config.model}",
+            "provider": config.provider,
+            "model": config.model
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"配置更新失败: {str(e)}")
