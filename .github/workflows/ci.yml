@@ -57,9 +57,8 @@ jobs:
   build-and-push:
     needs: [backend-test, frontend-test]
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
     # 私有仓库禁用自动推送（需要 Secrets）
-    # 如需启用，取消下面注释并设置 DOCKER_USERNAME 和 DOCKER_PASSWORD secrets
+    # 如需启用，设置为: github.ref == 'refs/heads/main'
     if: false  # 暂时禁用
     
     steps:
