@@ -117,6 +117,7 @@ docker-compose up -d
 ```
 joe-ai-writer/
 ├── start.py              # 一键启动脚本
+├── init_db.py            # 数据库初始化脚本
 ├── .env.example          # 环境变量模板
 ├── backend/              # FastAPI 后端
 │   ├── app/
@@ -125,11 +126,13 @@ joe-ai-writer/
 │   │   │   ├── events.py       # 事件管理接口
 │   │   │   ├── projects.py     # 项目/文档接口
 │   │   │   └── system.py       # 系统配置接口
-│   │   ├── core/        
+│   │   ├── core/
 │   │   │   ├── ai_client.py    # 多模型 AI 客户端
 │   │   │   └── config.py       # 配置管理
 │   │   ├── models/      # 数据库模型
 │   │   └── services/    # 业务逻辑
+│   ├── database/
+│   │   └── init.sql     # 数据库建表 SQL
 │   └── requirements.txt
 ├── frontend/            # Vue3 前端
 │   └── src/
@@ -154,7 +157,7 @@ joe-ai-writer/
 
 ```bash
 # MySQL 配置（默认）
-DATABASE_URL=mysql+pymysql://root:password@localhost:3306/joe_writer?charset=utf8mb4
+DATABASE_URL=mysql+pymysql://root:password@localhost:3306/aiwriter?charset=utf8mb4
 
 # 连接池配置
 DB_POOL_SIZE=5          # 连接池大小
@@ -164,7 +167,7 @@ DB_POOL_RECYCLE=3600    # 连接回收时间（秒）
 
 如果需要使用 SQLite（仅用于测试）：
 ```bash
-DATABASE_URL=sqlite:///./joe_writer.db
+DATABASE_URL=sqlite:///./aiwriter.db
 ```
 
 ### 环境变量

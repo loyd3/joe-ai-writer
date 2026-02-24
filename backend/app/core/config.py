@@ -8,7 +8,7 @@ class Settings(BaseSettings):
     debug: bool = True
 
     # Database - MySQL 配置（默认使用本地 MySQL）
-    database_url: str = "mysql+pymysql://root:password@localhost:3306/joe_writer?charset=utf8mb4"
+    database_url: str = "mysql+pymysql://root:password@localhost:3306/aiwriter?charset=utf8mb4"
     
     # MySQL 连接池配置
     db_pool_size: int = 5

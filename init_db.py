@@ -5,6 +5,7 @@
 import subprocess
 import sys
 import os
+from pathlib import Path
 
 # 颜色输出
 class Colors:
@@ -35,7 +36,7 @@ def check_mysql_installed():
     log("未检测到 MySQL 客户端", Colors.YELLOW)
     return False
 
-def create_mysql_database(db_name="joe_writer", user="root", password="password", host="localhost"):
+def create_mysql_database(db_name="aiwriter", user="root", password="password", host="localhost"):
     """创建 MySQL 数据库"""
     log(f"正在创建 MySQL 数据库: {db_name}")
     
@@ -85,15 +86,75 @@ CREATE DATABASE IF NOT EXISTS {db_name}
 {Colors.YELLOW}或者使用 .env 文件中的配置：{Colors.END}
 mysql -u root -p
 
-CREATE DATABASE IF NOT EXISTS joe_writer 
+CREATE DATABASE IF NOT EXISTS aiwriter 
     CHARACTER SET utf8mb4 
     COLLATE utf8mb4_unicode_ci;
         """)
         return False
 
-def init_tables():
-    """初始化数据库表结构"""
-    log("正在初始化数据库表...")
+def execute_sql_file(db_name="aiwriter", user="root", password="password", host="localhost"):
+    """执行 SQL 文件创建表"""
+    log("正在执行建表 SQL...")
+    
+    # 查找 SQL 文件
+    sql_paths = [
+        Path(__file__).parent / "backend" / "database" / "init.sql",
+        Path(__file__).parent / "database" / "init.sql",
+        Path.cwd() / "backend" / "database" / "init.sql",
+        Path.cwd() / "database" / "init.sql",
+    ]
+    
+    sql_file = None
+    for path in sql_paths:
+        if path.exists():
+            sql_file = path
+            break
+    
+    if not sql_file:
+        log("未找到 init.sql 文件，将使用 SQLAlchemy 自动创建表", Colors.YELLOW)
+        return init_tables_with_sqlalchemy()
+    
+    log(f"找到 SQL 文件: {sql_file}")
+    
+    try:
+        # 执行 SQL 文件
+        cmd = [
+            "mysql",
+            f"-h{host}",
+            f"-u{user}",
+            f"-D{db_name}"
+        ]
+        
+        if password:
+            cmd.append(f"-p{password}")
+        
+        with open(sql_file, 'r', encoding='utf-8') as f:
+            sql_content = f.read()
+        
+        result = subprocess.run(
+            cmd,
+            input=sql_content,
+            capture_output=True,
+            text=True
+        )
+        
+        if result.returncode == 0:
+            log("数据表创建成功！", Colors.GREEN)
+            if result.stdout:
+                print(result.stdout)
+            return True
+        else:
+            log(f"执行 SQL 失败: {result.stderr}", Colors.RED)
+            log("尝试使用 SQLAlchemy 创建表...", Colors.YELLOW)
+            return init_tables_with_sqlalchemy()
+            
+    except Exception as e:
+        log(f"执行 SQL 文件失败: {e}", Colors.RED)
+        return init_tables_with_sqlalchemy()
+
+def init_tables_with_sqlalchemy():
+    """使用 SQLAlchemy 初始化表结构"""
+    log("使用 SQLAlchemy 创建表...")
     
     try:
         # 切换到 backend 目录
@@ -128,17 +189,16 @@ def main():
     print("="*60)
     
     # 读取环境变量
-    db_url = os.getenv("DATABASE_URL", "mysql+pymysql://root:password@localhost:3306/joe_writer?charset=utf8mb4")
+    db_url = os.getenv("DATABASE_URL", "mysql+pymysql://root:password@localhost:3306/aiwriter?charset=utf8mb4")
     
     if "sqlite" in db_url.lower():
         log("使用 SQLite 数据库")
         log("数据库文件将自动创建")
-        init_tables()
+        init_tables_with_sqlalchemy()
     elif "mysql" in db_url.lower():
         log("使用 MySQL 数据库")
         
         # 解析数据库 URL
-        # mysql+pymysql://user:password@host:port/dbname
         try:
             # 简单解析 URL
             parts = db_url.replace("mysql+pymysql://", "").split("/")[0]
@@ -153,16 +213,18 @@ def main():
                 host = host_port[0]
                 port = host_port[1] if len(host_port) > 1 else "3306"
                 
-                db_name = host_port_db[1].split("?")[0] if len(host_port_db) > 1 else "joe_writer"
+                db_name = host_port_db[1].split("?")[0] if len(host_port_db) > 1 else "aiwriter"
                 
                 log(f"数据库配置: {user}@{host}:{port}/{db_name}")
                 
+                # 1. 创建数据库
                 if check_mysql_installed():
                     if create_mysql_database(db_name, user, password, host):
-                        init_tables()
+                        # 2. 执行 SQL 文件创建表
+                        execute_sql_file(db_name, user, password, host)
                 else:
                     log("请确保 MySQL 已安装并运行")
-                    log("然后手动创建数据库并运行: python init_db.py --tables-only")
+                    log("然后手动执行 backend/database/init.sql")
             else:
                 log("无法解析数据库 URL，请检查配置", Colors.RED)
         except Exception as e:
