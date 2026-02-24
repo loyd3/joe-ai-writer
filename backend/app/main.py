@@ -9,7 +9,7 @@ Base.metadata.create_all(bind=engine)
 app = FastAPI(
     title="Joe AI Writer API",
     description="AI-powered writing assistant with memory - 支持多模型 AI",
-    version="1.1.0"
+    version="1.1.0",
 )
 
 # CORS 配置
@@ -27,10 +27,11 @@ app.include_router(ai.router)
 app.include_router(system.router)
 app.include_router(events.router)
 
+
 @app.get("/")
 def root():
     return {
         "message": "Joe AI Writer API",
         "version": "1.1.0",
-        "features": ["multi-provider-ai", "memory-system", "streaming", "event-tracking"]
+        "features": ["multi-provider-ai", "memory-system", "streaming", "event-tracking"],
     }
