@@ -43,6 +43,25 @@
 
 ## 🚀 快速开始
 
+### 前置要求
+
+1. **MySQL 数据库**（默认使用本地 MySQL）
+   ```bash
+   # macOS
+   brew install mysql
+   brew services start mysql
+   
+   # Ubuntu/Debian
+   sudo apt-get install mysql-server
+   sudo systemctl start mysql
+   
+   # 创建数据库
+   mysql -u root -p
+   CREATE DATABASE joe_writer CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+   ```
+
+2. **Node.js** (v20+) 和 **Python** (v3.11+)
+
 ### 方式一：一键启动（推荐）
 
 ```bash
@@ -52,7 +71,10 @@ cd joe-ai-writer
 
 # 配置环境变量
 cp .env.example .env
-# 编辑 .env，配置你的 AI API Key
+# 编辑 .env，配置你的 AI API Key 和数据库连接
+
+# 初始化数据库（自动创建表）
+python init_db.py
 
 # 一键启动（自动安装依赖）
 python start.py
@@ -126,12 +148,31 @@ joe-ai-writer/
 
 ## 🔧 配置说明
 
+### 数据库配置
+
+默认使用 **MySQL**，支持自动连接池管理。
+
+```bash
+# MySQL 配置（默认）
+DATABASE_URL=mysql+pymysql://root:password@localhost:3306/joe_writer?charset=utf8mb4
+
+# 连接池配置
+DB_POOL_SIZE=5          # 连接池大小
+DB_MAX_OVERFLOW=10      # 最大溢出连接
+DB_POOL_RECYCLE=3600    # 连接回收时间（秒）
+```
+
+如果需要使用 SQLite（仅用于测试）：
+```bash
+DATABASE_URL=sqlite:///./joe_writer.db
+```
+
 ### 环境变量
 
 | 变量 | 说明 | 默认值 |
 |------|------|--------|
-| `AI_PROVIDER` | AI 提供商: `openai`, `deepseek`, `siliconflow`, `custom` | `openai` |
-| `DATABASE_URL` | 数据库连接 | `sqlite:///./joe_writer.db` |
+| `AI_PROVIDER` | AI 提供商: `openai`, `deepseek`, `siliconflow`, `custom` | `deepseek` |
+| `DATABASE_URL` | 数据库连接 | MySQL 连接字符串 |
 | `AI_TEMPERATURE` | AI 创造性参数 | `0.7` |
 | `AI_MAX_TOKENS` | 最大生成长度 | `4096` |
 
@@ -175,6 +216,11 @@ CUSTOM_MODEL=your-model
 ---
 
 ## 📝 更新日志
+
+### v1.2.0 (2024-02)
+- ✅ MySQL 数据库支持（默认）
+- ✅ 数据库连接池管理
+- ✅ 数据库初始化脚本
 
 ### v1.1.0 (2024-02)
 - ✅ 多模型 AI 支持（OpenAI, DeepSeek, SiliconFlow）

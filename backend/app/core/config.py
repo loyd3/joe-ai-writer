@@ -7,8 +7,13 @@ class Settings(BaseSettings):
     app_name: str = "Joe AI Writer"
     debug: bool = True
 
-    # Database
-    database_url: str = "sqlite:///./joe_writer.db"
+    # Database - MySQL 配置（默认使用本地 MySQL）
+    database_url: str = "mysql+pymysql://root:password@localhost:3306/joe_writer?charset=utf8mb4"
+    
+    # MySQL 连接池配置
+    db_pool_size: int = 5
+    db_max_overflow: int = 10
+    db_pool_recycle: int = 3600
 
     # AI Provider Configuration (支持多个大模型)
     ai_provider: Literal["openai", "deepseek", "siliconflow", "custom"] = "deepseek"
