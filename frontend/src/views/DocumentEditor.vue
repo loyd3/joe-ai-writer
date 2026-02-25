@@ -37,6 +37,12 @@
           <el-icon><Check /></el-icon>
           <span>保存</span>
         </el-button>
+        <!-- 导出按钮 -->
+        <ExportMenu
+          :document-id="Number(documentId)"
+          :project-id="document?.project_id"
+          :document-title="documentTitle"
+        />
         <el-dropdown trigger="click" @command="handleDocCommand" class="doc-actions-dropdown">
           <el-button class="more-btn">
             <el-icon><MoreFilled /></el-icon>
@@ -86,6 +92,7 @@ import { useProjectStore, type Block } from '@/stores/project'
 import { ElMessage } from 'element-plus'
 import BlockEditor from '@/components/BlockEditor.vue'
 import AIChatPanel from '@/components/AIChatPanel.vue'
+import ExportMenu from '@/components/ExportMenu.vue'
 import { ElMessageBox } from 'element-plus'
 import { ArrowLeft, ArrowRight, ChatDotRound, Check, Loading, CircleCheck, MoreFilled, Edit, Delete } from '@element-plus/icons-vue'
 

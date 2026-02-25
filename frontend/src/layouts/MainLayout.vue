@@ -5,11 +5,16 @@
         <div class="logo">
           <el-icon class="logo-icon"><EditPen /></el-icon>
           <div class="logo-text-wrap">
-          <span class="logo-text">墨言</span>
-          <span class="logo-sub">AI 辅助写作</span>
+            <span class="logo-text">墨言</span>
+            <span class="logo-sub">AI 辅助写作</span>
+          </div>
         </div>
+
+        <!-- 全局搜索 -->
+        <div class="search-section">
+          <GlobalSearch />
         </div>
-        
+
         <div class="sidebar-content">
           <ProjectSidebar />
         </div>
@@ -61,6 +66,7 @@ import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import ProjectSidebar from '@/components/ProjectSidebar.vue'
 import ThemeSettingsDialog from '@/components/ThemeSettingsDialog.vue'
+import GlobalSearch from '@/components/GlobalSearch.vue'
 import { EditPen, UserFilled, ArrowDown, User, Setting, SwitchButton } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
@@ -157,6 +163,11 @@ async function handleUserCommand(command: string) {
   flex: 1;
   overflow-y: auto;
   padding: 16px 0;
+}
+
+.search-section {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--coffee-border-light);
 }
 
 .user-section {

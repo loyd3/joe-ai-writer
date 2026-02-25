@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.database import engine, Base
-from app.api import projects, ai, auth
+from app.api import projects, ai, auth, search, export
 
 # 创建数据库表
 Base.metadata.create_all(bind=engine)
@@ -31,6 +31,8 @@ app.add_middleware(
 app.include_router(auth.router)
 app.include_router(projects.router)
 app.include_router(ai.router)
+app.include_router(search.router)
+app.include_router(export.router)
 
 @app.get("/")
 def root():

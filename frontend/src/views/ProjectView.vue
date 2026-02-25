@@ -36,6 +36,11 @@
             <el-icon><Plus /></el-icon>
             <span>新建文档</span>
           </el-button>
+          <!-- 导出项目按钮 -->
+          <ExportMenu
+            :project-id="Number(projectId)"
+            :project-title="project?.title"
+          />
         </div>
       </div>
     </div>
@@ -170,6 +175,7 @@ import { useProjectStore, type Document } from '@/stores/project'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import AIMemoryManager from '@/components/AIMemoryManager.vue'
 import { ArrowLeft, Collection, Plus, Document as DocumentIcon, MoreFilled, Edit, Delete, Calendar } from '@element-plus/icons-vue'
+import ExportMenu from '@/components/ExportMenu.vue'
 
 const route = useRoute()
 const router = useRouter()
