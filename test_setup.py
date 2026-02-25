@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Joe AI Writer - 测试脚本
+墨言 - 测试脚本
 验证所有组件是否正确配置
 """
 import sys
@@ -91,7 +91,7 @@ def test_env_template():
 
 def main():
     print("="*60)
-    print("Joe AI Writer - Configuration Test")
+    print("墨言 - Configuration Test")
     print("="*60)
     
     results = [

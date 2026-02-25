@@ -7,7 +7,7 @@ from app.api import projects, ai, auth
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(
-    title="Joe AI Writer API",
+    title="墨言 API（AI 辅助写作）",
     description="AI-powered writing assistant with memory",
     version="2.0.0"
 )
@@ -34,7 +34,7 @@ app.include_router(ai.router)
 
 @app.get("/")
 def root():
-    return {"message": "Joe AI Writer API", "version": "2.0.0"}
+    return {"message": "墨言 API · AI 辅助写作", "version": "2.0.0"}
 
 @app.get("/health")
 def health():

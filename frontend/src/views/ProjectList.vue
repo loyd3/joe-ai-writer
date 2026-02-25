@@ -5,10 +5,10 @@
         <h1>我的创作空间</h1>
         <p class="subtitle">在这里记录您的灵感与故事</p>
       </div>
-      <el-button type="primary" class="create-btn" @click="showCreateDialog = true">
+      <!-- <el-button type="primary" class="create-btn" @click="showCreateDialog = true">
         <el-icon><Plus /></el-icon>
         <span>新建项目</span>
-      </el-button>
+      </el-button> -->
     </div>
     
     <div v-if="projects.length > 0" class="projects-grid">

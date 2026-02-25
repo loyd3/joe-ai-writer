@@ -5,7 +5,8 @@
         <div class="logo">
           <el-icon><EditPen /></el-icon>
         </div>
-        <h1>Joe AI Writer</h1>
+        <h1>墨言</h1>
+        <p class="tagline">AI 辅助写作</p>
         <p class="tagline">用文字书写灵魂</p>
       </div>
 
@@ -83,7 +84,7 @@
 
       <div class="auth-quote">
         <p>"写作是一种灵魂的独白，每一行字都是心灵的印记。"</p>
-        <span class="author">— Joe AI Writer</span>
+        <span class="author">— 墨言</span>
       </div>
     </div>
 

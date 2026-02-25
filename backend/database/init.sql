@@ -1,4 +1,4 @@
--- Joe AI Writer 数据库初始化 SQL
+-- 墨言 数据库初始化 SQL
 -- 数据库: aiwriter
 -- 字符集: utf8mb4
 

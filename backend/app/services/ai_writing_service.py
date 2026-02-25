@@ -94,10 +94,9 @@ class AIWritingService:
         
         response = await ai_client.chat_completion(messages)
         
-        # 记录交互（关联用户ID）
+        # 记录交互
         interaction = AIInteraction(
             document_id=request.document_id,
-            user_id=user_id,
             interaction_type=request.action,
             user_input=request.instruction or request.selected_text or "",
             ai_response=response,
@@ -136,10 +135,9 @@ class AIWritingService:
             full_response.append(chunk)
             yield chunk
         
-        # 记录交互（关联用户ID）
+        # 记录交互
         interaction = AIInteraction(
             document_id=request.document_id,
-            user_id=user_id,
             interaction_type=request.action,
             user_input=request.instruction or request.selected_text or "",
             ai_response="".join(full_response),

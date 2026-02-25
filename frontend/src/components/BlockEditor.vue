@@ -4,8 +4,50 @@
       v-for="(block, index) in modelValue"
       :key="block.id"
       class="block-wrapper"
-      :class="{ 'is-focused': focusedIndex === index, [`type-${block.type}`]: true }"
+      :class="{ 'is-focused': focusedIndex === index, 'is-toolbar-visible': toolbarVisibleIndex === index, [`type-${block.type}`]: true }"
+      @mouseenter="onBlockMouseEnter(index)"
+      @mouseleave="onBlockMouseLeave"
     >
+      <!-- 快捷操作栏：悬停 3s 或选中内容 3s 后显示 -->
+      <Transition name="toolbar">
+        <div v-show="toolbarVisibleIndex === index" class="quick-toolbar" @mousedown.prevent>
+          <button type="button" class="toolbar-btn" :class="{ active: block.type === 'heading' }" @click.stop="handleCommand('heading', index)" title="标题 (Ctrl+1)">
+            <el-icon><Top /></el-icon>
+            <span>标题</span>
+          </button>
+          <button type="button" class="toolbar-btn" :class="{ active: block.type === 'quote' }" @click.stop="handleCommand('quote', index)" title="引用 (Ctrl+2)">
+            <el-icon><ChatDotRound /></el-icon>
+            <span>引用</span>
+          </button>
+          <button type="button" class="toolbar-btn" :class="{ active: block.type === 'list' }" @click.stop="handleCommand('list', index)" title="列表 (Ctrl+3)">
+            <el-icon><List /></el-icon>
+            <span>列表</span>
+          </button>
+          <button type="button" class="toolbar-btn" :class="{ active: block.type === 'paragraph' }" @click.stop="handleCommand('paragraph', index)" title="正文 (Ctrl+0)">
+            <el-icon><Document /></el-icon>
+            <span>正文</span>
+          </button>
+          <span class="toolbar-divider" />
+          <button type="button" class="toolbar-btn ai-btn" @click.stop="emitPolish(index)" title="AI 润色">
+            <el-icon><Brush /></el-icon>
+            <span>AI 润色</span>
+          </button>
+          <span class="toolbar-divider" />
+          <button type="button" class="toolbar-btn format-btn" :class="{ active: isFormatActive(index, 'bold') }" @click.stop="applyFormat(index, 'bold')" title="加粗 (Ctrl+B)">
+            <span class="fmt-bold">B</span>
+          </button>
+          <button type="button" class="toolbar-btn format-btn" :class="{ active: isFormatActive(index, 'italic') }" @click.stop="applyFormat(index, 'italic')" title="斜体 (Ctrl+I)">
+            <span class="fmt-italic">I</span>
+          </button>
+          <button type="button" class="toolbar-btn format-btn" :class="{ active: isFormatActive(index, 'underline') }" @click.stop="applyFormat(index, 'underline')" title="下划线 (Ctrl+U)">
+            <span class="fmt-underline">U</span>
+          </button>
+          <span class="toolbar-divider" />
+          <button type="button" class="toolbar-btn delete" :disabled="modelValue.length <= 1" @click.stop="handleCommand('delete', index)" title="删除块 (Ctrl+Shift+D)">
+            <el-icon><Delete /></el-icon>
+          </button>
+        </div>
+      </Transition>
       <div class="block-handle" @click.stop="addBlock(index)">
         <el-icon><Plus /></el-icon>
       </div>
@@ -22,24 +64,25 @@
         @keydown.backspace="handleBackspace(index, $event)"
         @keydown.up="moveFocus(index, -1, $event)"
         @keydown.down="moveFocus(index, 1, $event)"
+        @keydown="handleKeydown(index, $event)"
       />
       
       <div class="block-actions">
-        <el-dropdown trigger="click" @command="(cmd) => handleCommand(cmd, index)">
+        <el-dropdown trigger="click" @command="(cmd: string) => handleCommand(cmd, index)">
           <el-icon class="action-icon" @click.stop><MoreFilled /></el-icon>
           <template #dropdown>
             <el-dropdown-menu>
               <el-dropdown-item command="heading">
-                <el-icon><Top /></el-icon> 转为标题
+                <el-icon><Top /></el-icon> 转为标题 <span class="shortcut">Ctrl+1</span>
               </el-dropdown-item>
               <el-dropdown-item command="quote">
-                <el-icon><ChatDotRound /></el-icon> 转为引用
+                <el-icon><ChatDotRound /></el-icon> 转为引用 <span class="shortcut">Ctrl+2</span>
               </el-dropdown-item>
               <el-dropdown-item command="list">
-                <el-icon><List /></el-icon> 转为列表
+                <el-icon><List /></el-icon> 转为列表 <span class="shortcut">Ctrl+3</span>
               </el-dropdown-item>
               <el-dropdown-item divided command="paragraph">
-                <el-icon><Document /></el-icon> 转为正文
+                <el-icon><Document /></el-icon> 转为正文 <span class="shortcut">Ctrl+0</span>
               </el-dropdown-item>
               <el-dropdown-item command="delete" class="delete-item">
                 <el-icon><Delete /></el-icon> 删除
@@ -55,14 +98,16 @@
         <el-icon><EditPen /></el-icon>
       </div>
       <span>点击开始写作，记录您的灵感...</span>
+      <span class="shortcut-hint">Ctrl+1 标题 · Ctrl+2 引用 · Ctrl+3 列表 · Ctrl+0 正文 · Ctrl+B/I/U 加粗/斜体/下划线</span>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, nextTick, onMounted, watch } from 'vue'
+import { ref, nextTick, onMounted, onUnmounted, watch } from 'vue'
 import type { Block } from '@/stores/project'
-import { Plus, MoreFilled, Top, ChatDotRound, List, Document, Delete, EditPen } from '@element-plus/icons-vue'
+import { ElMessage } from 'element-plus'
+import { Plus, MoreFilled, Top, ChatDotRound, List, Document, Delete, EditPen, Brush } from '@element-plus/icons-vue'
 
 const props = defineProps<{
   modelValue: Block[]
@@ -70,15 +115,98 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'update:modelValue', value: Block[]): void
+  (e: 'polish', payload: { index: number; text: string }): void
 }>()
 
 const focusedIndex = ref(-1)
 const blockRefs = ref<Map<number, HTMLElement>>(new Map())
+/** 当前显示快捷栏的块索引，-1 为不显示。悬停 3s 或选中 3s 后赋值 */
+const toolbarVisibleIndex = ref(-1)
+const TOOLBAR_DELAY_MS = 3000
+const TOOLBAR_HIDE_DELAY_MS = 250
+let hoverTimer: ReturnType<typeof setTimeout> | null = null
+let selectionTimer: ReturnType<typeof setTimeout> | null = null
+let leaveTimer: ReturnType<typeof setTimeout> | null = null
 
 // 初始化块内容
 onMounted(() => {
   initBlockContents()
+  document.addEventListener('selectionchange', onSelectionChange)
 })
+
+onUnmounted(() => {
+  document.removeEventListener('selectionchange', onSelectionChange)
+  if (hoverTimer) clearTimeout(hoverTimer)
+  if (selectionTimer) clearTimeout(selectionTimer)
+  if (leaveTimer) clearTimeout(leaveTimer)
+})
+
+function onBlockMouseEnter(index: number) {
+  if (leaveTimer) {
+    clearTimeout(leaveTimer)
+    leaveTimer = null
+  }
+  if (selectionTimer) {
+    clearTimeout(selectionTimer)
+    selectionTimer = null
+  }
+  if (hoverTimer) clearTimeout(hoverTimer)
+  hoverTimer = setTimeout(() => {
+    hoverTimer = null
+    toolbarVisibleIndex.value = index
+  }, TOOLBAR_DELAY_MS)
+}
+
+function onBlockMouseLeave() {
+  if (hoverTimer) {
+    clearTimeout(hoverTimer)
+    hoverTimer = null
+  }
+  if (leaveTimer) clearTimeout(leaveTimer)
+  leaveTimer = setTimeout(() => {
+    leaveTimer = null
+    toolbarVisibleIndex.value = -1
+  }, TOOLBAR_HIDE_DELAY_MS)
+}
+
+function onSelectionChange() {
+  const sel = window.getSelection()
+  if (!sel || sel.rangeCount === 0) {
+    if (selectionTimer) {
+      clearTimeout(selectionTimer)
+      selectionTimer = null
+    }
+    toolbarVisibleIndex.value = -1
+    return
+  }
+  const anchor = sel.anchorNode
+  if (!anchor || !sel.toString().trim()) {
+    if (selectionTimer) {
+      clearTimeout(selectionTimer)
+      selectionTimer = null
+    }
+    toolbarVisibleIndex.value = -1
+    return
+  }
+  let blockIndex = -1
+  for (const [idx, el] of blockRefs.value) {
+    if (el && el.contains(anchor)) {
+      blockIndex = idx
+      break
+    }
+  }
+  if (blockIndex < 0) {
+    if (selectionTimer) clearTimeout(selectionTimer)
+    selectionTimer = null
+    toolbarVisibleIndex.value = -1
+    return
+  }
+  if (selectionTimer) clearTimeout(selectionTimer)
+  selectionTimer = setTimeout(() => {
+    selectionTimer = null
+    toolbarVisibleIndex.value = blockIndex
+  }, TOOLBAR_DELAY_MS)
+}
 
 // 监听数据变化，只在块数量变化时更新
 watch(() => props.modelValue.length, () => {
@@ -96,8 +224,13 @@ function setBlockRef(el: any, index: number) {
 function initBlockContents() {
   props.modelValue.forEach((block, index) => {
     const el = blockRefs.value.get(index)
-    if (el && el.textContent !== block.content) {
-      el.textContent = block.content || ''
+    if (!el) return
+    const raw = block.content || ''
+    const hasHtml = /<(b|i|u|strong|em)\b/i.test(raw)
+    if (!hasHtml) {
+      if (el.textContent !== raw) el.textContent = raw
+    } else {
+      if (el.innerHTML !== raw) el.innerHTML = raw
     }
   })
 }
@@ -129,8 +262,7 @@ function addBlock(index: number, type = 'paragraph') {
 function updateBlock(index: number) {
   const el = blockRefs.value.get(index)
   if (!el) return
-  
-  const content = el.textContent || ''
+  const content = el.innerHTML || ''
   const newBlocks = [...props.modelValue]
   newBlocks[index] = { ...newBlocks[index], content }
   emit('update:modelValue', newBlocks)
@@ -145,33 +277,51 @@ function handleBlur() {
 
 function handleEnter(index: number, event: Event) {
   const target = event.target as HTMLElement
-  const cursorPosition = getCursorPosition(target)
-  const text = target.textContent || ''
-  const before = text.slice(0, cursorPosition)
-  const after = text.slice(cursorPosition)
-  
-  // 更新当前块
+  const selection = window.getSelection()
+  if (!selection || selection.rangeCount === 0) return
+  const range = selection.getRangeAt(0)
+  const hasHtml = /<(b|i|u|strong|em)\b/i.test(target.innerHTML || '')
+  let beforeContent: string
+  let afterContent: string
+  if (hasHtml) {
+    const beforeRange = document.createRange()
+    beforeRange.setStart(target, 0)
+    beforeRange.setEnd(range.startContainer, range.startOffset)
+    const afterRange = document.createRange()
+    afterRange.setStart(range.endContainer, range.endOffset)
+    afterRange.setEnd(target, target.childNodes.length)
+    beforeContent = rangeToHtml(beforeRange)
+    afterContent = rangeToHtml(afterRange)
+  } else {
+    const text = target.textContent || ''
+    const cursorPosition = getCursorPosition(target)
+    beforeContent = text.slice(0, cursorPosition)
+    afterContent = text.slice(cursorPosition)
+  }
   const newBlocks = [...props.modelValue]
-  newBlocks[index] = { ...newBlocks[index], content: before }
-  
-  // 创建新块
+  newBlocks[index] = { ...newBlocks[index], content: beforeContent }
   const newBlock: Block = {
     id: generateId(),
     type: 'paragraph',
-    content: after,
+    content: afterContent,
     props: {}
   }
   newBlocks.splice(index + 1, 0, newBlock)
   emit('update:modelValue', newBlocks)
-  
   nextTick(() => {
-    const newIndex = index + 1
-    const el = blockRefs.value.get(newIndex)
+    const el = blockRefs.value.get(index + 1)
     if (el) {
       el.focus()
       setCursorToStart(el)
     }
   })
+}
+
+function rangeToHtml(range: Range): string {
+  const fragment = range.cloneContents()
+  const div = document.createElement('div')
+  div.appendChild(fragment)
+  return div.innerHTML
 }
 
 function handleBackspace(index: number, event: Event) {
@@ -206,8 +356,85 @@ function moveFocus(index: number, direction: number, event: Event) {
   }
 }
 
+function handleKeydown(index: number, event: KeyboardEvent) {
+  const isMod = event.ctrlKey || event.metaKey
+  if (!isMod) return
+  const key = event.key
+  if (key === '1') {
+    event.preventDefault()
+    handleCommand('heading', index)
+    return
+  }
+  if (key === '2') {
+    event.preventDefault()
+    handleCommand('quote', index)
+    return
+  }
+  if (key === '3') {
+    event.preventDefault()
+    handleCommand('list', index)
+    return
+  }
+  if (key === '0') {
+    event.preventDefault()
+    handleCommand('paragraph', index)
+    return
+  }
+  if (key === 'd' && event.shiftKey) {
+    event.preventDefault()
+    if (props.modelValue.length > 1) handleCommand('delete', index)
+    return
+  }
+  if (key === 'b') {
+    event.preventDefault()
+    applyFormat(index, 'bold')
+    return
+  }
+  if (key === 'i') {
+    event.preventDefault()
+    applyFormat(index, 'italic')
+    return
+  }
+  if (key === 'u') {
+    event.preventDefault()
+    applyFormat(index, 'underline')
+    return
+  }
+}
+
+function emitPolish(index: number) {
+  const block = props.modelValue[index]
+  const text = block?.content ? stripHtml(block.content) : ''
+  if (!text.trim()) {
+    ElMessage.warning('请先输入要润色的内容')
+    return
+  }
+  emit('polish', { index, text })
+}
+
+function stripHtml(html: string): string {
+  const div = document.createElement('div')
+  div.innerHTML = html
+  return div.textContent || ''
+}
+
+function applyFormat(index: number, command: 'bold' | 'italic' | 'underline') {
+  const el = blockRefs.value.get(index)
+  if (!el) return
+  el.focus()
+  document.execCommand(command, false)
+  updateBlock(index)
+}
+
+function isFormatActive(index: number, command: 'bold' | 'italic' | 'underline'): boolean {
+  const el = blockRefs.value.get(index)
+  if (!el || document.activeElement !== el) return false
+  return document.queryCommandState(command)
+}
+
 function handleCommand(command: string, index: number) {
   if (command === 'delete') {
+    if (props.modelValue.length <= 1) return
     const newBlocks = props.modelValue.filter((_, i) => i !== index)
     emit('update:modelValue', newBlocks)
   } else {
@@ -379,6 +606,86 @@ function setCursorToEnd(element: HTMLElement) {
   }
 }
 
+/* 快捷操作栏：绝对定位浮动在块上方 */
+.quick-toolbar {
+  position: absolute;
+  left: 32px;
+  bottom: 100%;
+  margin-bottom: 6px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-wrap: nowrap;
+  padding: 4px 6px;
+  background: var(--coffee-bg-card);
+  border: 1px solid var(--coffee-border);
+  border-radius: 8px;
+  box-shadow: 0 4px 12px var(--coffee-shadow);
+  z-index: 20;
+}
+
+.toolbar-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 10px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--coffee-text-secondary);
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+  &:hover {
+    background: rgba(93, 58, 26, 0.08);
+    color: var(--coffee-primary);
+  }
+  &.active {
+    background: rgba(139, 90, 43, 0.15);
+    color: var(--coffee-primary);
+    font-weight: 500;
+  }
+  &.delete:hover:not(:disabled) {
+    background: rgba(245, 108, 108, 0.12);
+    color: #f56c6c;
+  }
+  &:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+  .el-icon { font-size: 16px; }
+  &.ai-btn {
+    color: var(--coffee-primary);
+    &:hover { color: var(--coffee-primary); }
+  }
+  &.format-btn {
+    min-width: 28px;
+    padding: 6px 8px;
+    font-weight: 600;
+    .fmt-bold { font-weight: 700; }
+    .fmt-italic { font-style: italic; font-weight: 600; }
+    .fmt-underline { text-decoration: underline; font-weight: 600; }
+  }
+}
+
+.toolbar-divider {
+  width: 1px;
+  height: 18px;
+  background: var(--coffee-border);
+  margin: 0 4px;
+}
+
+.toolbar-enter-active,
+.toolbar-leave-active {
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+.toolbar-enter-from,
+.toolbar-leave-to {
+  opacity: 0;
+  transform: translateY(-4px);
+}
+
 .block-actions {
   opacity: 0;
   display: flex;
@@ -437,9 +744,32 @@ function setCursorToEnd(element: HTMLElement) {
   span {
     font-size: 15px;
   }
+  .shortcut-hint {
+    font-size: 12px;
+    opacity: 0.7;
+    white-space: nowrap;
+    display: block;
+  }
 }
 
 :deep(.delete-item) {
   color: #f56c6c;
+}
+
+:deep(.el-dropdown-menu__item) {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  white-space: nowrap;
+  gap: 16px;
+}
+
+:deep(.shortcut) {
+  margin-left: auto;
+  padding-left: 12px;
+  font-size: 12px;
+  color: var(--coffee-text-light);
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 </style>

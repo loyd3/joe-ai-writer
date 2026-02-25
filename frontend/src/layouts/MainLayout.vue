@@ -4,7 +4,10 @@
       <el-aside width="260px" class="sidebar">
         <div class="logo">
           <el-icon class="logo-icon"><EditPen /></el-icon>
-          <span class="logo-text">Joe AI Writer</span>
+          <div class="logo-text-wrap">
+          <span class="logo-text">墨言</span>
+          <span class="logo-sub">AI 辅助写作</span>
+        </div>
         </div>
         
         <div class="sidebar-content">
@@ -48,18 +51,22 @@
         </el-main>
       </el-container>
     </el-container>
+    <ThemeSettingsDialog v-model="showSettingsDialog" />
   </div>
 </template>
 
 <script setup lang="ts">
+import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import ProjectSidebar from '@/components/ProjectSidebar.vue'
+import ThemeSettingsDialog from '@/components/ThemeSettingsDialog.vue'
 import { EditPen, UserFilled, ArrowDown, User, Setting, SwitchButton } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
 const router = useRouter()
 const authStore = useAuthStore()
+const showSettingsDialog = ref(false)
 
 async function handleUserCommand(command: string) {
   switch (command) {
@@ -67,7 +74,7 @@ async function handleUserCommand(command: string) {
       ElMessage.info('个人中心功能开发中')
       break
     case 'settings':
-      ElMessage.info('设置功能开发中')
+      showSettingsDialog.value = true
       break
     case 'logout':
       try {
@@ -93,7 +100,7 @@ async function handleUserCommand(command: string) {
 <style scoped lang="scss">
 .main-layout {
   height: 100vh;
-  background: #fdfbf7;
+  background: var(--coffee-bg);
 }
 
 .layout-container {
@@ -101,11 +108,11 @@ async function handleUserCommand(command: string) {
 }
 
 .sidebar {
-  background: linear-gradient(180deg, #fdfbf7 0%, #f8f4ed 100%);
-  border-right: 1px solid #e8dcd0;
+  background: linear-gradient(180deg, var(--coffee-bg) 0%, var(--coffee-bg-warm) 100%);
+  border-right: 1px solid var(--coffee-border);
   display: flex;
   flex-direction: column;
-  box-shadow: 4px 0 20px rgba(74, 44, 23, 0.04);
+  box-shadow: 4px 0 20px var(--coffee-sidebar-shadow);
 }
 
 .logo {
@@ -114,12 +121,12 @@ async function handleUserCommand(command: string) {
   align-items: center;
   padding: 0 24px;
   gap: 12px;
-  border-bottom: 1px solid #f2e9e0;
+  border-bottom: 1px solid var(--coffee-border-light);
   
   .logo-icon {
     width: 40px;
     height: 40px;
-    background: linear-gradient(135deg, #a65e2e 0%, #c97f4a 100%);
+    background: var(--coffee-gradient-primary);
     border-radius: 10px;
     display: flex;
     align-items: center;
@@ -128,11 +135,21 @@ async function handleUserCommand(command: string) {
     color: #fff;
   }
   
+  .logo-text-wrap {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
   .logo-text {
     font-size: 18px;
     font-weight: 700;
-    color: #4a2c17;
+    color: var(--coffee-text);
     letter-spacing: 1px;
+  }
+  .logo-sub {
+    font-size: 11px;
+    color: var(--coffee-text-muted);
+    letter-spacing: 0.5px;
   }
 }
 
@@ -147,7 +164,7 @@ async function handleUserCommand(command: string) {
   
   .coffee-divider {
     margin: 8px 0 16px;
-    border-color: #e8dcd0;
+    border-color: var(--coffee-border);
   }
 }
 
@@ -161,18 +178,18 @@ async function handleUserCommand(command: string) {
   transition: all 0.3s ease;
   
   &:hover {
-    background: rgba(166, 94, 46, 0.06);
+    background: var(--coffee-bg-hover);
   }
   
   .user-avatar {
     width: 40px;
     height: 40px;
-    background: linear-gradient(135deg, #d4c4a8 0%, #c4b49a 100%);
+    background: linear-gradient(135deg, var(--coffee-border) 0%, var(--coffee-text-light) 100%);
     border-radius: 50%;
     display: flex;
     align-items: center;
     justify-content: center;
-    color: #4a2c17;
+    color: var(--coffee-text);
     font-size: 18px;
   }
   
@@ -185,24 +202,24 @@ async function handleUserCommand(command: string) {
     .username {
       font-size: 14px;
       font-weight: 600;
-      color: #4a2c17;
+      color: var(--coffee-text);
     }
     
     .user-role {
       font-size: 12px;
-      color: #c9a86c;
+      color: var(--coffee-text-light);
     }
   }
   
   .arrow-icon {
     font-size: 12px;
-    color: #c9a86c;
+    color: var(--coffee-text-light);
   }
 }
 
 .main-content {
   padding: 0;
-  background: linear-gradient(135deg, #fdfbf7 0%, #f8f3ec 100%);
+  background: var(--coffee-gradient-light);
   overflow: hidden;
 }
 
@@ -213,15 +230,15 @@ async function handleUserCommand(command: string) {
     
     .el-icon {
       margin-right: 8px;
-      color: #a67c52;
+      color: var(--coffee-text-muted);
     }
     
     &:hover {
-      background: #faf6f1;
-      color: #a65e2e;
+      background: var(--coffee-bg-warm);
+      color: var(--coffee-primary);
       
       .el-icon {
-        color: #a65e2e;
+        color: var(--coffee-primary);
       }
     }
   }

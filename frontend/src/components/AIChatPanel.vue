@@ -42,7 +42,7 @@
           <el-icon v-else><User /></el-icon>
         </div>
         <div class="message-content">
-          <div class="message-text" v-html="formatMessage(msg.content)" />
+          <div class="message-text markdown-body" v-html="formatMessage(msg.content)" />
           <div v-if="msg.role === 'assistant' && index > 0" class="message-actions">
             <el-button link size="small" @click="insertToDoc(msg.content)">
               <el-icon><DocumentAdd /></el-icon> 插入文档
@@ -59,7 +59,9 @@
           <el-icon><Star /></el-icon>
         </div>
         <div class="message-content">
-          <div class="message-text">{{ streamingContent }}<span class="cursor">|</span></div>
+          <div class="message-text markdown-body">
+            <span v-html="formatMessage(streamingContent)"></span><span class="cursor">|</span>
+          </div>
         </div>
       </div>
     </div>
@@ -88,9 +90,12 @@
 
 <script setup lang="ts">
 import { ref, nextTick } from 'vue'
+import { marked } from 'marked'
 import { aiApi } from '@/api'
 import { ElMessage } from 'element-plus'
 import { Star, Compass, Edit, Brush, Right, User, DocumentAdd, CopyDocument, Promotion, InfoFilled } from '@element-plus/icons-vue'
+
+marked.setOptions({ gfm: true, breaks: true })
 
 const props = defineProps<{
   documentId: number
@@ -112,8 +117,13 @@ const streaming = ref(false)
 const streamingContent = ref('')
 const messagesContainer = ref<HTMLElement>()
 
-function formatMessage(text: string) {
-  return text.replace(/\n/g, '<br>')
+function formatMessage(text: string): string {
+  if (!text || typeof text !== 'string') return ''
+  try {
+    return marked.parse(text.trim()) as string
+  } catch {
+    return text.replace(/\n/g, '<br>')
+  }
 }
 
 async function sendMessage() {
@@ -170,40 +180,51 @@ async function sendMessage() {
 }
 
 async function quickAction(action: string) {
-  const contentText = props.content.map(b => b.content).join('\n')
   const selection = window.getSelection()?.toString()
-  
+  await runAssistAction(action, selection || undefined)
+}
+
+/** 由父组件调用：对指定文本执行润色（如从编辑器快捷栏「AI 润色」触发） */
+async function polishWithText(text: string) {
+  await runAssistAction('polish', text)
+}
+
+/** 根据操作类型和选中文本生成展示用的用户消息 */
+function getActionUserMessage(action: string, selectedText?: string): string {
+  const t = selectedText?.trim()
+  const actionLabels: Record<string, string> = {
+    guide: '请对当前文档给出写作指导',
+    revise: t ? `请修改以下内容：\n\n${t}` : '请修改选中的内容',
+    polish: t ? `请润色以下内容：\n\n${t}` : '请润色选中的内容',
+    continue: '请根据已有内容续写下一段',
+    brainstorm: '请围绕当前内容进行头脑风暴',
+    expand: t ? `请扩展以下内容：\n\n${t}` : '请扩展选中的内容',
+    summarize: '请总结当前文档要点',
+  }
+  return actionLabels[action] || (t ? `请求：\n\n${t}` : `执行操作：${action}`)
+}
+
+async function runAssistAction(action: string, selectedText?: string) {
   loading.value = true
   streaming.value = true
   streamingContent.value = ''
-  
-  messages.value.push({ 
-    role: 'user', 
-    content: `[执行操作: ${action}]` 
-  })
-  
+  messages.value.push({ role: 'user', content: getActionUserMessage(action, selectedText) })
   scrollToBottom()
-  
   try {
     const response = await aiApi.assistStream({
       document_id: props.documentId,
       action,
-      selected_text: selection || undefined,
+      selected_text: selectedText,
       instruction: undefined
     })
-    
     const reader = response.body?.getReader()
     if (!reader) throw new Error('No reader')
-    
     const decoder = new TextDecoder()
-    
     while (true) {
       const { done, value } = await reader.read()
       if (done) break
-      
       const text = decoder.decode(value)
       const lines = text.split('\n')
-      
       for (const line of lines) {
         if (line.startsWith('data: ')) {
           const data = line.slice(6)
@@ -225,6 +246,8 @@ async function quickAction(action: string) {
     loading.value = false
   }
 }
+
+defineExpose({ polishWithText })
 
 function insertToDoc(text: string) {
   emit('insert', text)
@@ -371,6 +394,52 @@ function scrollToBottom() {
     line-height: 1.7;
     color: var(--coffee-text);
     box-shadow: 0 2px 8px var(--coffee-shadow);
+
+    &.markdown-body {
+      :deep(p) { margin: 0 0 0.75em; &:last-child { margin-bottom: 0; } }
+      :deep(p + p) { margin-top: 0.75em; }
+      :deep(strong) { font-weight: 700; color: var(--coffee-text); }
+      :deep(em) { font-style: italic; }
+      :deep(code) {
+        padding: 0.15em 0.4em;
+        font-size: 0.9em;
+        background: rgba(93, 58, 26, 0.08);
+        border-radius: 4px;
+        font-family: ui-monospace, monospace;
+      }
+      :deep(pre) {
+        margin: 0.75em 0;
+        padding: 12px;
+        overflow-x: auto;
+        background: rgba(93, 58, 26, 0.06);
+        border-radius: 8px;
+        font-size: 13px;
+        code { padding: 0; background: none; }
+      }
+      :deep(ul), :deep(ol) { margin: 0.5em 0; padding-left: 1.5em; }
+      :deep(li) { margin: 0.25em 0; }
+      :deep(blockquote) {
+        margin: 0.75em 0;
+        padding-left: 1em;
+        border-left: 3px solid var(--coffee-primary-light);
+        color: var(--coffee-text-secondary);
+      }
+      :deep(h1), :deep(h2), :deep(h3) {
+        margin: 1em 0 0.5em;
+        font-weight: 600;
+        color: var(--coffee-text);
+        line-height: 1.3;
+      }
+      :deep(h1) { font-size: 1.25em; }
+      :deep(h2) { font-size: 1.1em; }
+      :deep(h3) { font-size: 1em; }
+      :deep(a) {
+        color: var(--coffee-primary);
+        text-decoration: none;
+        &:hover { text-decoration: underline; }
+      }
+      :deep(hr) { border: none; border-top: 1px solid var(--coffee-border); margin: 1em 0; }
+    }
   }
   
   &.assistant {

@@ -9,7 +9,7 @@ _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 
 
 class Settings(BaseSettings):
-    app_name: str = "Joe AI Writer"
+    app_name: str = "墨言 · AI 辅助写作"
     debug: bool = True
 
     # Database - MySQL 配置（默认使用本地 MySQL）

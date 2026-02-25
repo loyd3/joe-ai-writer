@@ -37,6 +37,22 @@
           <el-icon><Check /></el-icon>
           <span>保存</span>
         </el-button>
+        <el-dropdown trigger="click" @command="handleDocCommand" class="doc-actions-dropdown">
+          <el-button class="more-btn">
+            <el-icon><MoreFilled /></el-icon>
+          </el-button>
+          <template #dropdown>
+            <el-dropdown-menu>
+              <el-dropdown-item command="rename">
+                <el-icon><Edit /></el-icon> 重命名
+              </el-dropdown-item>
+              <el-dropdown-item command="delete" divided class="delete-item">
+                <el-icon><Delete /></el-icon> 删除文档
+              </el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
+        
       </div>
     </div>
 
@@ -46,12 +62,14 @@
           <BlockEditor 
             v-model="content" 
             @update:modelValue="onContentChange"
+            @polish="onPolish"
           />
         </div>
       </div>
       
       <AIChatPanel
         v-if="showChatPanel"
+        ref="aiChatRef"
         :document-id="Number(documentId)"
         :content="content"
         @insert="insertText"
@@ -62,13 +80,14 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, watch, onUnmounted, onBeforeUnmount } from 'vue'
+import { ref, computed, onMounted, watch, onUnmounted, onBeforeUnmount, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useProjectStore, type Block } from '@/stores/project'
 import { ElMessage } from 'element-plus'
 import BlockEditor from '@/components/BlockEditor.vue'
 import AIChatPanel from '@/components/AIChatPanel.vue'
-import { ArrowLeft, ArrowRight, ChatDotRound, Check, Loading, CircleCheck } from '@element-plus/icons-vue'
+import { ElMessageBox } from 'element-plus'
+import { ArrowLeft, ArrowRight, ChatDotRound, Check, Loading, CircleCheck, MoreFilled, Edit, Delete } from '@element-plus/icons-vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -84,6 +103,7 @@ const saving = ref(false)
 const showChatPanel = ref(true)
 const hasChanges = ref(false)
 const lastSaved = ref<Date | null>(null)
+const aiChatRef = ref<{ polishWithText: (text: string) => Promise<void> } | null>(null)
 
 let autoSaveInterval: number | null = null
 
@@ -122,6 +142,13 @@ function onContentChange() {
   hasChanges.value = true
 }
 
+function onPolish(payload: { index: number; text: string }) {
+  showChatPanel.value = true
+  nextTick(() => {
+    aiChatRef.value?.polishWithText(payload.text)
+  })
+}
+
 async function saveTitle() {
   if (documentTitle.value !== document.value?.title) {
     await store.updateDocument(Number(documentId.value), {
@@ -152,6 +179,49 @@ function goBack() {
     router.push(`/project/${project.value.id}`)
   } else {
     router.push('/')
+  }
+}
+
+async function handleDocCommand(command: string) {
+  if (command === 'rename') {
+    try {
+      const { value } = await ElMessageBox.prompt('输入新标题', '重命名文档', {
+        confirmButtonText: '确定',
+        cancelButtonText: '取消',
+        inputValue: documentTitle.value,
+        inputPattern: /.{1,100}/,
+        inputErrorMessage: '标题长度 1～100 个字符'
+      })
+      await store.updateDocument(Number(documentId.value), { title: value })
+      documentTitle.value = value
+      ElMessage.success('已重命名')
+    } catch {
+      // 用户取消
+    }
+  } else if (command === 'delete') {
+    try {
+      await ElMessageBox.confirm(
+        `确定要删除文档「${documentTitle.value || document.value?.title}」吗？此操作不可恢复。`,
+        '删除文档',
+        {
+          confirmButtonText: '删除',
+          cancelButtonText: '取消',
+          type: 'warning',
+          confirmButtonClass: 'el-button--danger'
+        }
+      )
+      if (hasChanges.value) await saveDocument()
+      const projectId = document.value?.project_id
+      await store.deleteDocument(Number(documentId.value))
+      ElMessage.success('文档已删除')
+      if (projectId) {
+        router.push(`/project/${projectId}`)
+      } else {
+        router.push('/')
+      }
+    } catch {
+      // 用户取消
+    }
   }
 }
 
@@ -274,6 +344,17 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   gap: 12px;
+  
+  .doc-actions-dropdown .more-btn {
+    color: var(--coffee-text-muted);
+    &:hover {
+      color: var(--coffee-primary);
+    }
+  }
+  
+  :deep(.delete-item) {
+    color: var(--el-color-danger);
+  }
 }
 
 .save-status {

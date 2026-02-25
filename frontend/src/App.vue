@@ -3,6 +3,8 @@
 </template>
 
 <script setup lang="ts">
+import { useThemeStore } from '@/stores/theme'
+useThemeStore()
 </script>
 
 <style>
@@ -32,6 +34,9 @@
   /* 阴影 - 更温暖的阴影 */
   --coffee-shadow: rgba(166, 94, 46, 0.08);
   --coffee-shadow-hover: rgba(166, 94, 46, 0.15);
+  --coffee-selection: rgba(166, 94, 46, 0.25);
+  --coffee-bg-hover: rgba(166, 94, 46, 0.06);
+  --coffee-sidebar-shadow: rgba(166, 94, 46, 0.04);
   
   /* 渐变 */
   --coffee-gradient-primary: linear-gradient(135deg, #a65e2e 0%, #c97f4a 100%);
@@ -143,7 +148,7 @@ body {
 
 /* 选中文字 */
 ::selection {
-  background: rgba(166, 94, 46, 0.25);
+  background: var(--coffee-selection);
   color: var(--coffee-text);
 }
 

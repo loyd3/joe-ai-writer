@@ -187,14 +187,14 @@ async function saveProject() {
     width: 100%;
     height: 44px;
     border-radius: 10px;
-    background: linear-gradient(135deg, #a65e2e 0%, #c97f4a 100%);
+    background: var(--coffee-gradient-primary);
     border: none;
     font-weight: 500;
     transition: all 0.3s ease;
     
     &:hover {
       transform: translateY(-1px);
-      box-shadow: 0 6px 16px rgba(166, 94, 46, 0.25);
+      box-shadow: 0 6px 16px var(--coffee-shadow-hover);
     }
     
     .el-icon {
@@ -216,7 +216,7 @@ async function saveProject() {
   padding: 12px 12px 8px;
   font-size: 12px;
   font-weight: 600;
-  color: #c9a86c;
+  color: var(--coffee-text-light);
   text-transform: uppercase;
   letter-spacing: 1px;
   
@@ -242,7 +242,7 @@ async function saveProject() {
   position: relative;
   
   &:hover {
-    background: rgba(166, 94, 46, 0.06);
+    background: var(--coffee-bg-hover);
     
     .more-icon {
       opacity: 1;
@@ -250,28 +250,28 @@ async function saveProject() {
   }
   
   &.active {
-    background: rgba(166, 94, 46, 0.12);
+    background: var(--coffee-selection);
     
     .project-title {
-      color: #4a2c17;
+      color: var(--coffee-text);
       font-weight: 600;
     }
     
     .project-icon {
-      color: #a65e2e;
+      color: var(--coffee-primary);
     }
   }
   
   .project-icon {
     font-size: 18px;
-    color: #c9a86c;
+    color: var(--coffee-text-light);
     flex-shrink: 0;
   }
   
   .project-title {
     flex: 1;
     font-size: 14px;
-    color: #6b5a4a;
+    color: var(--coffee-text-secondary);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -279,15 +279,15 @@ async function saveProject() {
   
   .more-icon {
     font-size: 16px;
-    color: #c9a86c;
+    color: var(--coffee-text-light);
     opacity: 0;
     transition: opacity 0.2s;
     padding: 4px;
     border-radius: 4px;
     
     &:hover {
-      background: rgba(166, 94, 46, 0.1);
-      color: #a65e2e;
+      background: var(--coffee-bg-hover);
+      color: var(--coffee-primary);
     }
   }
 }
@@ -298,7 +298,7 @@ async function saveProject() {
   align-items: center;
   justify-content: center;
   padding: 40px 20px;
-  color: #c9a86c;
+  color: var(--coffee-text-light);
   
   .empty-icon {
     font-size: 48px;
@@ -321,11 +321,11 @@ async function saveProject() {
 :deep(.coffee-dialog) {
   .el-dialog__header {
     padding: 20px 24px;
-    border-bottom: 1px solid #f2e9e0;
+    border-bottom: 1px solid var(--coffee-border-light);
     
     .el-dialog__title {
       font-weight: 600;
-      color: #4a2c17;
+      color: var(--coffee-text);
     }
   }
   
@@ -335,18 +335,18 @@ async function saveProject() {
   
   .el-dialog__footer {
     padding: 16px 24px;
-    border-top: 1px solid #f2e9e0;
+    border-top: 1px solid var(--coffee-border-light);
   }
 }
 
 .coffee-form {
   .el-input__wrapper,
   .el-textarea__inner {
-    background: #fdfbf7;
-    border-color: #e8dcd0;
+    background: var(--coffee-bg);
+    border-color: var(--coffee-border);
     
     &:focus {
-      border-color: #c97f4a;
+      border-color: var(--coffee-primary-light);
     }
   }
 }

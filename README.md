@@ -1,4 +1,4 @@
-# 📝 Joe AI Writer
+# 📝 墨言
 
 [![Python 3.11](https://img.shields.io/badge/python-3.11-blue.svg)](https://www.python.org/)
 [![Vue 3](https://img.shields.io/badge/vue-3-green.svg)](https://vuejs.org/)

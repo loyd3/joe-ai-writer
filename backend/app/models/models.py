@@ -65,16 +65,13 @@ class AIMemory(Base):
     project = relationship("Project", back_populates="ai_memory")
 
 class AIInteraction(Base):
-    """AI 交互历史记录"""
+    """AI 交互历史记录（与 database/init.sql 中 ai_interactions 表结构一致）"""
     __tablename__ = "ai_interactions"
     
     id = Column(Integer, primary_key=True, index=True)
     document_id = Column(Integer, ForeignKey("documents.id"), nullable=False)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)  # 关联用户
     interaction_type = Column(String)  # 'guide', 'revise', 'polish', 'chat'
     user_input = Column(Text)
     ai_response = Column(Text)
-    context_used = Column(JSON, default=dict)  # 使用的上下文信息
+    context_used = Column(JSON, default=dict)
     created_at = Column(DateTime, default=datetime.utcnow)
-    
-    user = relationship("User")

@@ -273,7 +273,7 @@ SOURCE backend/database/init.sql;
 
 def main():
     print("="*60)
-    print("Joe AI Writer - 数据库初始化")
+    print("墨言 - 数据库初始化")
     print("="*60)
     
     # 读取环境变量

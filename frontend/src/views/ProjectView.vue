@@ -16,6 +16,22 @@
             <el-icon><Collection /></el-icon>
             <span>AI 记忆</span>
           </el-button>
+          <el-dropdown trigger="click" @command="handleProjectCommand" class="project-actions-dropdown">
+            <el-button class="more-btn">
+              <el-icon><MoreFilled /></el-icon>
+              <span>项目操作</span>
+            </el-button>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item command="edit">
+                  <el-icon><Edit /></el-icon> 编辑项目
+                </el-dropdown-item>
+                <el-dropdown-item command="delete" divided class="delete-item">
+                  <el-icon><Delete /></el-icon> 删除项目
+                </el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
           <el-button type="primary" class="create-btn" @click="showCreateDocDialog = true">
             <el-icon><Plus /></el-icon>
             <span>新建文档</span>
@@ -109,6 +125,41 @@
         </el-button>
       </template>
     </el-dialog>
+
+    <!-- 编辑项目对话框 -->
+    <el-dialog 
+      v-model="showEditProjectDialog" 
+      title="编辑项目" 
+      width="420px"
+      class="coffee-dialog"
+    >
+      <el-form :model="editProjectForm" label-width="80px" class="coffee-form">
+        <el-form-item label="项目名称">
+          <el-input 
+            v-model="editProjectForm.title" 
+            placeholder="输入项目名称"
+            maxlength="50"
+            show-word-limit
+          />
+        </el-form-item>
+        <el-form-item label="描述">
+          <el-input
+            v-model="editProjectForm.description"
+            type="textarea"
+            :rows="3"
+            placeholder="项目描述（可选）"
+            maxlength="200"
+            show-word-limit
+          />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="showEditProjectDialog = false">取消</el-button>
+        <el-button type="primary" @click="saveProjectEdit" :loading="savingProject">
+          保存
+        </el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -130,8 +181,11 @@ const documents = computed(() => store.currentProject?.documents || [])
 
 const showMemoryDrawer = ref(false)
 const showCreateDocDialog = ref(false)
+const showEditProjectDialog = ref(false)
 const creating = ref(false)
+const savingProject = ref(false)
 const newDoc = ref({ title: '' })
+const editProjectForm = ref({ title: '', description: '' })
 
 onMounted(() => {
   loadProject()
@@ -215,6 +269,49 @@ function handleDocCommand(cmd: string, doc: Document) {
     })
   }
 }
+
+function handleProjectCommand(cmd: string) {
+  if (cmd === 'edit' && project.value) {
+    editProjectForm.value = {
+      title: project.value.title,
+      description: project.value.description || ''
+    }
+    showEditProjectDialog.value = true
+  } else if (cmd === 'delete') {
+    ElMessageBox.confirm(
+      `确定要删除项目「${project.value?.title}」吗？项目下的所有文档将被删除，此操作不可恢复。`,
+      '删除项目',
+      {
+        confirmButtonText: '删除',
+        cancelButtonText: '取消',
+        type: 'warning',
+        confirmButtonClass: 'el-button--danger'
+      }
+    ).then(async () => {
+      if (projectId.value) {
+        await store.deleteProject(Number(projectId.value))
+        ElMessage.success('项目已删除')
+        router.push('/')
+      }
+    }).catch(() => {})
+  }
+}
+
+async function saveProjectEdit() {
+  if (!editProjectForm.value.title.trim()) {
+    ElMessage.warning('请输入项目名称')
+    return
+  }
+  if (!projectId.value) return
+  savingProject.value = true
+  try {
+    await store.updateProject(Number(projectId.value), editProjectForm.value)
+    ElMessage.success('项目已更新')
+    showEditProjectDialog.value = false
+  } finally {
+    savingProject.value = false
+  }
+}
 </script>
 
 <style scoped lang="scss">
@@ -271,7 +368,25 @@ function handleDocCommand(cmd: string, doc: Document) {
 
 .actions {
   display: flex;
+  align-items: center;
   gap: 12px;
+  
+  .project-actions-dropdown .more-btn {
+    height: 44px;
+    padding: 0 16px;
+    border-radius: 10px;
+    border-color: var(--coffee-border);
+    color: var(--coffee-text-secondary);
+    .el-icon { margin-right: 6px; }
+    &:hover {
+      border-color: var(--coffee-primary);
+      color: var(--coffee-primary);
+    }
+  }
+  
+  :deep(.delete-item) {
+    color: var(--el-color-danger);
+  }
   
   .memory-btn {
     height: 44px;
