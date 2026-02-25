@@ -13,6 +13,24 @@
     
     <div v-if="projects.length > 0" class="projects-grid">
       <el-row :gutter="24">
+        <!-- 创建新项目卡片 -->
+        <el-col :xs="24" :sm="12" :md="8" :lg="6">
+          <div class="project-card create-card" @click="showCreateDialog = true">
+            <div class="create-content">
+              <el-icon class="create-icon"><Plus /></el-icon>
+              <span>创建空白项目</span>
+            </div>
+          </div>
+        </el-col>
+        <el-col :xs="24" :sm="12" :md="8" :lg="6">
+          <div class="project-card create-card template-card-entry" @click="showTemplateLibrary = true">
+            <div class="create-content">
+              <el-icon class="create-icon template-icon"><Collection /></el-icon>
+              <span>从模板开始</span>
+              <small>18个预设模板</small>
+            </div>
+          </div>
+        </el-col>
         <el-col :xs="24" :sm="12" :md="8" :lg="6" v-for="project in projects" :key="project.id">
           <div class="project-card" @click="openProject(project.id)">
             <div class="card-header">
@@ -272,11 +290,59 @@ async function saveProject() {
   height: 100%;
   display: flex;
   flex-direction: column;
+  min-height: 200px;
   
   &:hover {
     transform: translateY(-4px);
     box-shadow: 0 12px 32px rgba(74, 44, 23, 0.12);
     border-color: #e0d4c4;
+  }
+
+  &.create-card {
+    background: linear-gradient(135deg, #fdfbf7 0%, #f5ebe0 100%);
+    border: 2px dashed #d4c4b0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    
+    &:hover {
+      border-color: #c97f4a;
+      background: linear-gradient(135deg, #f5ebe0 0%, #f2dec8 100%);
+    }
+    
+    &.template-card-entry {
+      background: linear-gradient(135deg, #f8f4ef 0%, #ebe4d8 100%);
+      
+      &:hover {
+        background: linear-gradient(135deg, #f2ebe0 0%, #e5dcc8 100%);
+      }
+      
+      .template-icon {
+        color: #a65e2e;
+      }
+      
+      small {
+        display: block;
+        margin-top: 4px;
+        font-size: 12px;
+        color: #a67c52;
+      }
+    }
+    
+    .create-content {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 12px;
+      color: #8b7355;
+      font-size: 15px;
+      font-weight: 500;
+      
+      .create-icon {
+        font-size: 40px;
+        color: #c9a86c;
+      }
+    }
   }
   
   .card-header {
