@@ -1,4 +1,4 @@
-import { api } from './index'
+import api from './index'
 
 export const templateApi = {
   // 获取模板列表

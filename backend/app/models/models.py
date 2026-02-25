@@ -7,9 +7,9 @@ class User(Base):
     __tablename__ = "users"
     
     id = Column(Integer, primary_key=True, index=True)
-    email = Column(String, unique=True, index=True)
-    username = Column(String, unique=True, index=True)
-    hashed_password = Column(String)
+    email = Column(String(255), unique=True, index=True)
+    username = Column(String(255), unique=True, index=True)
+    hashed_password = Column(String(255))
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     
@@ -19,7 +19,7 @@ class Project(Base):
     __tablename__ = "projects"
     
     id = Column(Integer, primary_key=True, index=True)
-    title = Column(String, index=True)
+    title = Column(String(255), index=True)
     description = Column(Text, nullable=True)
     owner_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -33,7 +33,7 @@ class Document(Base):
     __tablename__ = "documents"
     
     id = Column(Integer, primary_key=True, index=True)
-    title = Column(String)
+    title = Column(String(500))
     content = Column(JSON, default=list)  # Block-based content
     project_id = Column(Integer, ForeignKey("projects.id"), nullable=False)
     parent_id = Column(Integer, ForeignKey("documents.id"), nullable=True)
@@ -70,7 +70,7 @@ class AIInteraction(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     document_id = Column(Integer, ForeignKey("documents.id"), nullable=False)
-    interaction_type = Column(String)  # 'guide', 'revise', 'polish', 'chat'
+    interaction_type = Column(String(64))  # 'guide', 'revise', 'polish', 'chat'
     user_input = Column(Text)
     ai_response = Column(Text)
     context_used = Column(JSON, default=dict)
@@ -81,10 +81,10 @@ class Template(Base):
     __tablename__ = "templates"
     
     id = Column(Integer, primary_key=True, index=True)
-    name = Column(String, nullable=False)
+    name = Column(String(255), nullable=False)
     description = Column(Text, nullable=True)
-    category = Column(String, default="novel")  # novel, blog, work
-    icon = Column(String, default="📝")
+    category = Column(String(64), default="novel")  # novel, blog, work
+    icon = Column(String(32), default="📝")
     outline = Column(JSON, default=list)
     storyline = Column(Text, nullable=True)
     characters = Column(JSON, default=list)
@@ -100,7 +100,7 @@ class DocumentVersion(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     document_id = Column(Integer, ForeignKey("documents.id"), nullable=False)
-    title = Column(String, nullable=False)
+    title = Column(String(500), nullable=False)
     content = Column(JSON, default=list)
     version_number = Column(Integer, nullable=False)
     change_summary = Column(Text, nullable=True)

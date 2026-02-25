@@ -5,6 +5,7 @@ from typing import Optional
 import io
 import json
 from datetime import datetime
+from urllib.parse import quote
 
 from app.database import get_db
 from app.api.auth import get_current_user
@@ -12,6 +13,14 @@ from app.api.projects import check_document_access
 from app.models.models import Document, Project, AIMemory
 
 router = APIRouter(prefix="/api/export", tags=["export"])
+
+
+def content_disposition_attachment(filename: str) -> str:
+    """生成支持中文文件名的 Content-Disposition 头（RFC 5987）。"""
+    ascii_fallback = "export" + (filename[filename.rfind("."):] if "." in filename else "")
+    encoded = quote(filename, safe="")
+    return f"attachment; filename=\"{ascii_fallback}\"; filename*=UTF-8''{encoded}"
+
 
 @router.get("/document/{document_id}/markdown")
 async def export_markdown(
@@ -29,12 +38,12 @@ async def export_markdown(
     
     # 创建文件流
     filename = f"{document.title}_{datetime.now().strftime('%Y%m%d')}.md"
-    
     return StreamingResponse(
         io.StringIO(md_content),
         media_type="text/markdown",
-        headers={"Content-Disposition": f"attachment; filename={filename}"}
+        headers={"Content-Disposition": content_disposition_attachment(filename)}
     )
+
 
 @router.get("/document/{document_id}/txt")
 async def export_txt(
@@ -49,12 +58,12 @@ async def export_txt(
     text_content = generate_plain_text(document)
     
     filename = f"{document.title}_{datetime.now().strftime('%Y%m%d')}.txt"
-    
     return StreamingResponse(
         io.StringIO(text_content),
         media_type="text/plain",
-        headers={"Content-Disposition": f"attachment; filename={filename}"}
+        headers={"Content-Disposition": content_disposition_attachment(filename)}
     )
+
 
 @router.get("/project/{project_id}/markdown")
 async def export_project_markdown(
@@ -77,12 +86,12 @@ async def export_project_markdown(
     md_content = generate_project_markdown(db, project, include_memory)
     
     filename = f"{project.title}_{datetime.now().strftime('%Y%m%d')}.md"
-    
     return StreamingResponse(
         io.StringIO(md_content),
         media_type="text/markdown",
-        headers={"Content-Disposition": f"attachment; filename={filename}"}
+        headers={"Content-Disposition": content_disposition_attachment(filename)}
     )
+
 
 def generate_markdown(db: Session, document: Document, project: Project, include_memory: bool) -> str:
     """生成 Markdown 格式内容"""

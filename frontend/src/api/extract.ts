@@ -1,4 +1,4 @@
-import { api } from './index'
+import api from './index'
 
 export const extractApi = {
   // 从文档提取信息

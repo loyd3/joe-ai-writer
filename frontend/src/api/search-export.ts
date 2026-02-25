@@ -1,4 +1,4 @@
-import { api } from './index'
+import api from './index'
 
 // 搜索 API
 export const searchApi = {

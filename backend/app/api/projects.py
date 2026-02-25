@@ -107,6 +107,15 @@ def check_project_owner(db: Session, project_id: int, user_id: int):
         raise HTTPException(status_code=403, detail="Access denied")
     return project
 
+
+def check_document_access(db: Session, document_id: int, user_id: int):
+    """检查用户是否有权访问文档（通过项目所有权）"""
+    document = db.query(Document).filter(Document.id == document_id).first()
+    if not document:
+        raise HTTPException(status_code=404, detail="Document not found")
+    check_project_owner(db, document.project_id, user_id)
+    return document
+
 @router.get("/projects/{project_id}/documents", response_model=List[DocumentResponse])
 def list_documents(
     project_id: int,

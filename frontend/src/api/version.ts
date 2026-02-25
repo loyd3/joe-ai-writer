@@ -1,4 +1,4 @@
-import { api } from './index'
+import api from './index'
 
 export const versionApi = {
   // 获取版本列表
