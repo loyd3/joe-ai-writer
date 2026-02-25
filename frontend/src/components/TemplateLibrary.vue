@@ -87,31 +87,73 @@
       </div>
 
       <template #footer>
-        <el-button @click="showPreview = false">取消</el-button>
+        <el-button @click="showPreview = false">
+          {{ targetProjectId ? '取消' : '关闭' }}
+        </el-button>
         <el-button type="primary" @click="applyTemplate" :loading="applying">
-          使用此模板
+          {{ targetProjectId ? '导入到当前项目' : '使用此模板' }}
         </el-button>
       </template>
     </el-dialog>
 
-    <!-- 应用模板对话框 -->
+    <!-- 使用模板对话框 - 选择创建新项目或导入到已有项目 -->
     <el-dialog
       v-model="showApplyDialog"
       title="使用模板"
-      width="400px"
+      width="420px"
     >
-      <el-form label-width="80px">
-        <el-form-item label="项目名称">
-          <el-input
-            v-model="newProjectName"
-            placeholder="输入项目名称"
-          />
-        </el-form-item>
-      </el-form>
+      <div class="apply-mode-tabs">
+        <el-radio-group v-model="applyMode" size="large">
+          <el-radio-button label="new">创建新项目</el-radio-button>
+          <el-radio-button label="existing">导入已有项目</el-radio-button>
+        </el-radio-group>
+      </div>
+
+      <!-- 创建新项目 -->
+      <div v-if="applyMode === 'new'" class="apply-form">
+        <el-form label-width="80px">
+          <el-form-item label="项目名称">
+            <el-input
+              v-model="newProjectName"
+              placeholder="输入项目名称"
+            />
+          </el-form-item>
+        </el-form>
+      </div>
+
+      <!-- 导入到已有项目 -->
+      <div v-else class="apply-form">
+        <el-form label-width="80px">
+          <el-form-item label="选择项目">
+            <el-select
+              v-model="selectedProjectId"
+              placeholder="选择一个已有项目"
+              style="width: 100%"
+            >
+              <el-option
+                v-for="project in myProjects"
+                :key="project.id"
+                :label="project.title"
+                :value="project.id"
+              />
+            </el-select>
+          </el-form-item>
+          <el-form-item>
+            <el-alert
+              title="导入说明"
+              type="info"
+              :closable="false"
+              description="模板的大纲将追加到项目文档，世界观和设定会与现有内容合并"
+              show-icon
+            />
+          </el-form-item>
+        </el-form>
+      </div>
+
       <template #footer>
         <el-button @click="showApplyDialog = false">取消</el-button>
         <el-button type="primary" @click="confirmApply" :loading="applying">
-          创建项目
+          {{ applyMode === 'new' ? '创建项目' : '导入模板' }}
         </el-button>
       </template>
     </el-dialog>
@@ -119,16 +161,25 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { templateApi } from '@/api/template'
+import { useProjectStore } from '@/stores/project'
 import { Collection } from '@element-plus/icons-vue'
 
 const router = useRouter()
+const projectStore = useProjectStore()
+
+// 组件属性
+const props = defineProps<{
+  targetProjectId?: number  // 如果传入，则直接导入到该项目；否则显示选择对话框
+}>()
 
 const emit = defineEmits<{
   (e: 'select'): void
+  (e: 'import', projectId: number): void
+  (e: 'cancel'): void
 }>()
 
 const templates = ref<any[]>([])
@@ -138,6 +189,11 @@ const showApplyDialog = ref(false)
 const selectedTemplate = ref<any>(null)
 const newProjectName = ref('')
 const applying = ref(false)
+const applyMode = ref<'new' | 'existing'>('new')
+const selectedProjectId = ref<number | null>(null)
+
+// 用户项目列表
+const myProjects = computed(() => projectStore.projectList)
 
 const filteredTemplates = computed(() => {
   if (selectedCategory.value === 'all') {
@@ -175,7 +231,16 @@ function previewTemplate(template: any) {
 
 function applyTemplate() {
   if (!selectedTemplate.value) return
+  
+  // 如果传入了目标项目ID，直接导入而不显示对话框
+  if (props.targetProjectId) {
+    confirmApply()
+    return
+  }
+  
   newProjectName.value = `${selectedTemplate.value.name}项目`
+  applyMode.value = 'new'
+  selectedProjectId.value = null
   showApplyDialog.value = true
 }
 
@@ -183,24 +248,75 @@ async function confirmApply() {
   if (!selectedTemplate.value) return
   
   applying.value = true
-  try {
-    const res = await templateApi.apply(selectedTemplate.value.id, {
-      project_name: newProjectName.value
-    })
-    ElMessage.success('项目创建成功')
-    showPreview.value = false
-    showApplyDialog.value = false
-    
-    // 通知父组件
-    emit('select')
-    
-    // 跳转到新项目
-    router.push(`/project/${res.data.project_id}`)
-  } catch (error) {
-    ElMessage.error('创建项目失败')
-  } finally {
+  
+  // 如果传入了目标项目ID，直接导入到该项目
+  if (props.targetProjectId) {
+    try {
+      const res = await templateApi.importToProject(
+        selectedTemplate.value.id,
+        props.targetProjectId
+      )
+      ElMessage.success(`模板导入成功，已添加 ${res.data.documents_added} 个文档`)
+      showPreview.value = false
+      showApplyDialog.value = false
+      
+      // 通知父组件
+      emit('select')
+      emit('import', props.targetProjectId)
+    } catch (error) {
+      ElMessage.error('导入模板失败')
+    }
     applying.value = false
+    return
   }
+  
+  if (applyMode.value === 'new') {
+    // 创建新项目
+    try {
+      const res = await templateApi.apply(selectedTemplate.value.id, {
+        project_name: newProjectName.value
+      })
+      ElMessage.success('项目创建成功')
+      showPreview.value = false
+      showApplyDialog.value = false
+      
+      // 通知父组件
+      emit('select')
+      
+      // 跳转到新项目
+      router.push(`/project/${res.data.project_id}`)
+    } catch (error) {
+      ElMessage.error('创建项目失败')
+    }
+  } else {
+    // 导入到已有项目
+    if (!selectedProjectId.value) {
+      ElMessage.warning('请选择一个项目')
+      applying.value = false
+      return
+    }
+    
+    try {
+      const res = await templateApi.importToProject(
+        selectedTemplate.value.id,
+        selectedProjectId.value
+      )
+      ElMessage.success(`模板导入成功，已添加 ${res.data.documents_added} 个文档`)
+      showPreview.value = false
+      showApplyDialog.value = false
+      
+      // 通知父组件
+      emit('select')
+      emit('import', selectedProjectId.value)
+      
+      // 跳转到项目
+      router.push(`/project/${selectedProjectId.value}`)
+    } catch (error) {
+      ElMessage.error('导入模板失败')
+    }
+  }
+  
+  applying.value = false
 }
 </script>
 
@@ -391,5 +507,15 @@ async function confirmApply() {
   border-radius: 8px;
   color: var(--coffee-text-secondary);
   line-height: 1.6;
+}
+
+.apply-mode-tabs {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 20px;
+}
+
+.apply-form {
+  padding: 0 10px;
 }
 </style>

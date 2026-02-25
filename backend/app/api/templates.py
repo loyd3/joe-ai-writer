@@ -440,6 +440,86 @@ def apply_template(
         "project_id": project.id
     }
 
+@router.post("/{template_id}/import")
+def import_template_to_project(
+    template_id: int,
+    project_id: int,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """将模板导入到已有项目"""
+    # 获取模板
+    template = db.query(Template).filter(Template.id == template_id).first()
+    if not template:
+        raise HTTPException(status_code=404, detail="Template not found")
+    
+    # 获取项目并验证权限
+    project = db.query(Project).filter(
+        Project.id == project_id,
+        Project.owner_id == current_user["id"]
+    ).first()
+    
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found or no permission")
+    
+    # 获取或创建 AI 记忆
+    memory = db.query(AIMemory).filter(AIMemory.project_id == project_id).first()
+    if not memory:
+        memory = AIMemory(project_id=project_id)
+        db.add(memory)
+    
+    # 更新 AI 记忆（合并模板内容）
+    if template.outline:
+        # 追加大纲到现有内容
+        existing_outline = memory.outline or []
+        new_outline = existing_outline + template.outline
+        memory.outline = new_outline
+    
+    if template.storyline:
+        memory.storyline = template.storyline
+    
+    if template.characters:
+        existing_chars = memory.characters or []
+        memory.characters = existing_chars + template.characters
+    
+    if template.world_building:
+        existing_wb = memory.world_building or {}
+        merged_wb = {**existing_wb, **template.world_building}
+        memory.world_building = merged_wb
+    
+    if template.writing_style:
+        memory.writing_style = template.writing_style
+    
+    # 根据大纲创建新文档
+    if template.outline:
+        # 获取当前项目的最大 order_index
+        max_order = db.query(Document).filter(
+            Document.project_id == project_id
+        ).count()
+        
+        for i, item in enumerate(template.outline):
+            doc = Document(
+                title=item.get("title", f"章节{i+1}"),
+                content=[{
+                    "id": f"block-{max_order + i}-1",
+                    "type": "paragraph",
+                    "content": item.get("description", ""),
+                    "props": {}
+                }],
+                project_id=project_id,
+                order_index=max_order + i
+            )
+            db.add(doc)
+    
+    db.commit()
+    
+    return {
+        "message": "模板导入成功",
+        "project_id": project_id,
+        "documents_added": len(template.outline) if template.outline else 0
+    }
+
+
 @router.delete("/{template_id}")
 def delete_template(
     template_id: int,

@@ -16,6 +16,10 @@
             <el-icon><Collection /></el-icon>
             <span>AI 记忆</span>
           </el-button>
+          <el-button class="template-btn" @click="showTemplateLibrary = true">
+            <el-icon><Files /></el-icon>
+            <span>导入模板</span>
+          </el-button>
           <el-dropdown trigger="click" @command="handleProjectCommand" class="project-actions-dropdown">
             <el-button class="more-btn">
               <el-icon><MoreFilled /></el-icon>
@@ -165,6 +169,21 @@
         </el-button>
       </template>
     </el-dialog>
+
+    <!-- 导入模板对话框 -->
+    <el-dialog
+      v-model="showTemplateLibrary"
+      title="选择模板导入到当前项目"
+      width="900px"
+      class="template-dialog"
+      :destroy-on-close="true"
+    >
+      <TemplateLibrary
+        :target-project-id="Number(projectId)"
+        @import="onTemplateImported"
+        @cancel="showTemplateLibrary = false"
+      />
+    </el-dialog>
   </div>
 </template>
 
@@ -174,7 +193,8 @@ import { useRoute, useRouter } from 'vue-router'
 import { useProjectStore, type Document } from '@/stores/project'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import AIMemoryManager from '@/components/AIMemoryManager.vue'
-import { ArrowLeft, Collection, Plus, Document as DocumentIcon, MoreFilled, Edit, Delete, Calendar } from '@element-plus/icons-vue'
+import TemplateLibrary from '@/components/TemplateLibrary.vue'
+import { ArrowLeft, Collection, Plus, Document as DocumentIcon, MoreFilled, Edit, Delete, Calendar, Files } from '@element-plus/icons-vue'
 import ExportMenu from '@/components/ExportMenu.vue'
 
 const route = useRoute()
@@ -188,6 +208,7 @@ const documents = computed(() => store.currentProject?.documents || [])
 const showMemoryDrawer = ref(false)
 const showCreateDocDialog = ref(false)
 const showEditProjectDialog = ref(false)
+const showTemplateLibrary = ref(false)
 const creating = ref(false)
 const savingProject = ref(false)
 const newDoc = ref({ title: '' })
@@ -205,6 +226,13 @@ async function loadProject() {
   if (projectId.value) {
     await store.fetchProject(Number(projectId.value))
   }
+}
+
+function onTemplateImported(importedProjectId: number) {
+  showTemplateLibrary.value = false
+  // 刷新项目数据以显示新导入的文档
+  store.fetchProject(importedProjectId)
+  ElMessage.success('模板导入成功，文档已添加到项目')
 }
 
 function goHome() {
@@ -400,13 +428,32 @@ async function saveProjectEdit() {
     border-radius: 10px;
     border-color: var(--coffee-border);
     color: var(--coffee-text-secondary);
-    
+
     &:hover {
       border-color: var(--coffee-primary);
       color: var(--coffee-primary);
       background: rgba(166, 94, 46, 0.04);
     }
-    
+
+    .el-icon {
+      margin-right: 6px;
+    }
+  }
+
+  .template-btn {
+    height: 44px;
+    padding: 0 20px;
+    border-radius: 10px;
+    border-color: var(--coffee-border);
+    color: var(--coffee-text-secondary);
+    background: var(--coffee-bg-card);
+
+    &:hover {
+      border-color: var(--coffee-primary);
+      color: var(--coffee-primary);
+      background: rgba(166, 94, 46, 0.04);
+    }
+
     .el-icon {
       margin-right: 6px;
     }
