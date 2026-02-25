@@ -1,6 +1,11 @@
+from pathlib import Path
+
 from pydantic_settings import BaseSettings
 from functools import lru_cache
 from typing import Literal
+
+# 项目根目录（backend 的上级），便于加载根目录 .env（start.py 场景）
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 
 
 class Settings(BaseSettings):
@@ -47,8 +52,16 @@ class Settings(BaseSettings):
     algorithm: str = "HS256"
     access_token_expire_minutes: int = 60 * 24 * 7  # 7 days
 
+    # CORS 允许的来源（逗号分隔，空则用默认开发列表）
+    cors_origins: str = ""
+
     class Config:
-        env_file = ".env"
+        # 优先读项目根目录 .env，否则读当前目录 .env（兼容直接 cd backend 启动）
+        env_file = (
+            _PROJECT_ROOT / ".env"
+            if (_PROJECT_ROOT / ".env").exists()
+            else ".env"
+        )
 
 
 @lru_cache()

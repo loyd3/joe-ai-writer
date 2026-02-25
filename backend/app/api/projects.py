@@ -14,6 +14,7 @@ from app.schemas.schemas import (
 )
 from app.models.models import Project, Document, AIMemory
 from app.services.ai_memory_service import AIMemoryService
+from app.services.user_service import get_or_create_default_user
 
 router = APIRouter(prefix="/api", tags=["projects"])
 
@@ -29,7 +30,8 @@ def list_projects(db: Session = Depends(get_db)):
 @router.post("/projects", response_model=ProjectResponse)
 def create_project(project: ProjectCreate, db: Session = Depends(get_db)):
     """创建新项目"""
-    db_project = Project(**project.model_dump(), owner_id=1)  # TODO: 使用真实用户ID
+    default_user = get_or_create_default_user(db)
+    db_project = Project(**project.model_dump(), owner_id=default_user.id)
     db.add(db_project)
     db.commit()
     db.refresh(db_project)
