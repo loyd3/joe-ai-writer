@@ -1,5 +1,5 @@
 <template>
-  <div class="block-editor" @click="focusLast">
+  <div class="block-editor" @click="handleEditorClick">
     <div
       v-for="(block, index) in modelValue"
       :key="block.id"
@@ -11,21 +11,22 @@
       </div>
       
       <div
+        :ref="el => setBlockRef(el, index)"
         class="block-content"
         :data-type="block.type"
         contenteditable="true"
-        @input="updateBlock(index, $event)"
+        @input="updateBlock(index)"
         @focus="focusedIndex = index"
+        @blur="handleBlur"
         @keydown.enter.prevent="handleEnter(index, $event)"
         @keydown.backspace="handleBackspace(index, $event)"
         @keydown.up="moveFocus(index, -1, $event)"
         @keydown.down="moveFocus(index, 1, $event)"
-        v-html="block.content"
       />
       
       <div class="block-actions">
         <el-dropdown trigger="click" @command="(cmd) => handleCommand(cmd, index)">
-          <el-icon class="action-icon"><MoreFilled /></el-icon>
+          <el-icon class="action-icon" @click.stop><MoreFilled /></el-icon>
           <template #dropdown>
             <el-dropdown-menu>
               <el-dropdown-item command="heading">
@@ -49,7 +50,7 @@
       </div>
     </div>
     
-    <div v-if="!modelValue.length" class="empty-state" @click="addBlock(0)">
+    <div v-if="!modelValue.length" class="empty-state" @click="addBlock(-1)">
       <div class="empty-icon">
         <el-icon><EditPen /></el-icon>
       </div>
@@ -59,7 +60,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, nextTick } from 'vue'
+import { ref, nextTick, onMounted, watch } from 'vue'
 import type { Block } from '@/stores/project'
 import { Plus, MoreFilled, Top, ChatDotRound, List, Document, Delete, EditPen } from '@element-plus/icons-vue'
 
@@ -72,6 +73,34 @@ const emit = defineEmits<{
 }>()
 
 const focusedIndex = ref(-1)
+const blockRefs = ref<Map<number, HTMLElement>>(new Map())
+
+// 初始化块内容
+onMounted(() => {
+  initBlockContents()
+})
+
+// 监听数据变化，只在块数量变化时更新
+watch(() => props.modelValue.length, () => {
+  nextTick(() => {
+    initBlockContents()
+  })
+})
+
+function setBlockRef(el: any, index: number) {
+  if (el) {
+    blockRefs.value.set(index, el as HTMLElement)
+  }
+}
+
+function initBlockContents() {
+  props.modelValue.forEach((block, index) => {
+    const el = blockRefs.value.get(index)
+    if (el && el.textContent !== block.content) {
+      el.textContent = block.content || ''
+    }
+  })
+}
 
 function generateId() {
   return Date.now().toString(36) + Math.random().toString(36).substr(2)
@@ -89,30 +118,43 @@ function addBlock(index: number, type = 'paragraph') {
   emit('update:modelValue', newBlocks)
   
   nextTick(() => {
-    const blocks = document.querySelectorAll('.block-content')
-    if (blocks[index + 1]) {
-      (blocks[index + 1] as HTMLElement).focus()
+    const newIndex = index + 1
+    const el = blockRefs.value.get(newIndex)
+    if (el) {
+      el.focus()
     }
   })
 }
 
-function updateBlock(index: number, event: Event) {
-  const target = event.target as HTMLElement
+function updateBlock(index: number) {
+  const el = blockRefs.value.get(index)
+  if (!el) return
+  
+  const content = el.textContent || ''
   const newBlocks = [...props.modelValue]
-  newBlocks[index] = { ...newBlocks[index], content: target.innerText }
+  newBlocks[index] = { ...newBlocks[index], content }
   emit('update:modelValue', newBlocks)
+}
+
+function handleBlur() {
+  // 延迟清除焦点状态，避免下拉菜单点击时失去焦点
+  setTimeout(() => {
+    focusedIndex.value = -1
+  }, 200)
 }
 
 function handleEnter(index: number, event: Event) {
   const target = event.target as HTMLElement
   const cursorPosition = getCursorPosition(target)
-  const text = target.innerText
+  const text = target.textContent || ''
   const before = text.slice(0, cursorPosition)
   const after = text.slice(cursorPosition)
   
+  // 更新当前块
   const newBlocks = [...props.modelValue]
   newBlocks[index] = { ...newBlocks[index], content: before }
   
+  // 创建新块
   const newBlock: Block = {
     id: generateId(),
     type: 'paragraph',
@@ -123,9 +165,9 @@ function handleEnter(index: number, event: Event) {
   emit('update:modelValue', newBlocks)
   
   nextTick(() => {
-    const blocks = document.querySelectorAll('.block-content')
-    if (blocks[index + 1]) {
-      const el = blocks[index + 1] as HTMLElement
+    const newIndex = index + 1
+    const el = blockRefs.value.get(newIndex)
+    if (el) {
       el.focus()
       setCursorToStart(el)
     }
@@ -134,15 +176,20 @@ function handleEnter(index: number, event: Event) {
 
 function handleBackspace(index: number, event: Event) {
   const target = event.target as HTMLElement
-  if (target.innerText === '' && props.modelValue.length > 1) {
+  const text = target.textContent || ''
+  
+  if (text === '' && props.modelValue.length > 1) {
     event.preventDefault()
     const newBlocks = props.modelValue.filter((_, i) => i !== index)
     emit('update:modelValue', newBlocks)
     
     nextTick(() => {
-      const blocks = document.querySelectorAll('.block-content')
-      if (blocks[index - 1]) {
-        (blocks[index - 1] as HTMLElement).focus()
+      const prevIndex = index - 1
+      const el = blockRefs.value.get(prevIndex)
+      if (el) {
+        el.focus()
+        // 将光标移到末尾
+        setCursorToEnd(el)
       }
     })
   }
@@ -152,9 +199,9 @@ function moveFocus(index: number, direction: number, event: Event) {
   const newIndex = index + direction
   if (newIndex >= 0 && newIndex < props.modelValue.length) {
     event.preventDefault()
-    const blocks = document.querySelectorAll('.block-content')
-    if (blocks[newIndex]) {
-      (blocks[newIndex] as HTMLElement).focus()
+    const el = blockRefs.value.get(newIndex)
+    if (el) {
+      el.focus()
     }
   }
 }
@@ -167,11 +214,21 @@ function handleCommand(command: string, index: number) {
     const newBlocks = [...props.modelValue]
     newBlocks[index] = { ...newBlocks[index], type: command }
     emit('update:modelValue', newBlocks)
+    
+    // 保持焦点
+    nextTick(() => {
+      const el = blockRefs.value.get(index)
+      if (el) {
+        el.focus()
+      }
+    })
   }
 }
 
-function focusLast() {
-  if (!props.modelValue.length) {
+function handleEditorClick(event: Event) {
+  // 如果点击的是编辑器空白区域，添加新块
+  const target = event.target as HTMLElement
+  if (target.classList.contains('block-editor') && !props.modelValue.length) {
     addBlock(-1)
   }
 }
@@ -194,6 +251,15 @@ function setCursorToStart(element: HTMLElement) {
   selection?.removeAllRanges()
   selection?.addRange(range)
 }
+
+function setCursorToEnd(element: HTMLElement) {
+  const range = document.createRange()
+  const selection = window.getSelection()
+  range.selectNodeContents(element)
+  range.collapse(false)
+  selection?.removeAllRanges()
+  selection?.addRange(range)
+}
 </script>
 
 <style scoped lang="scss">
@@ -212,7 +278,7 @@ function setCursorToStart(element: HTMLElement) {
   position: relative;
   
   &:hover {
-    background: rgba(139, 90, 43, 0.03);
+    background: rgba(93, 58, 26, 0.03);
     
     .block-handle,
     .block-actions {
@@ -222,7 +288,7 @@ function setCursorToStart(element: HTMLElement) {
   
   &.is-focused {
     .block-content {
-      background: rgba(139, 90, 43, 0.04);
+      background: rgba(93, 58, 26, 0.04);
     }
   }
 }
@@ -242,7 +308,7 @@ function setCursorToStart(element: HTMLElement) {
   margin-top: 4px;
   
   &:hover {
-    background: rgba(139, 90, 43, 0.1);
+    background: rgba(93, 58, 26, 0.1);
     color: var(--coffee-primary);
   }
 }
@@ -257,6 +323,8 @@ function setCursorToStart(element: HTMLElement) {
   transition: all 0.2s;
   color: var(--coffee-text);
   font-size: 16px;
+  white-space: pre-wrap;
+  word-break: break-word;
   
   &[data-type="heading"] {
     font-size: 24px;
@@ -275,7 +343,7 @@ function setCursorToStart(element: HTMLElement) {
     padding-left: 20px;
     color: var(--coffee-text-secondary);
     font-style: italic;
-    background: rgba(139, 90, 43, 0.04);
+    background: rgba(93, 58, 26, 0.04);
     
     &:empty::before {
       content: '引用内容';
@@ -305,6 +373,10 @@ function setCursorToStart(element: HTMLElement) {
     content: '输入正文...';
     color: var(--coffee-text-light);
   }
+  
+  &:focus {
+    background: rgba(93, 58, 26, 0.04);
+  }
 }
 
 .block-actions {
@@ -324,7 +396,7 @@ function setCursorToStart(element: HTMLElement) {
   
   &:hover {
     color: var(--coffee-primary);
-    background: rgba(139, 90, 43, 0.08);
+    background: rgba(93, 58, 26, 0.08);
   }
 }
 
@@ -343,7 +415,7 @@ function setCursorToStart(element: HTMLElement) {
   
   &:hover {
     border-color: var(--coffee-primary-light);
-    background: rgba(139, 90, 43, 0.02);
+    background: rgba(93, 58, 26, 0.02);
     color: var(--coffee-primary);
   }
   
