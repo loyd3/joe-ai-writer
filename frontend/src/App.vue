@@ -6,32 +6,32 @@
 </script>
 
 <style>
-/* ===== 全局样式变量 - 文艺咖啡色调主题 ===== */
+/* ===== 全局样式变量 - 深邃咖啡色调主题 ===== */
 :root {
-  /* 主色调 */
-  --coffee-primary: #8b5a2b;
-  --coffee-primary-light: #a67c52;
-  --coffee-primary-dark: #6b4423;
+  /* 主色调 - 加深 */
+  --coffee-primary: #5d3a1a;
+  --coffee-primary-light: #8b5a2b;
+  --coffee-primary-dark: #3d2916;
   
   /* 背景色 */
   --coffee-bg: #faf8f5;
   --coffee-bg-warm: #f5f0e8;
   --coffee-bg-card: #ffffff;
   
-  /* 文字色 */
-  --coffee-text: #5c4033;
-  --coffee-text-secondary: #6b5a4a;
-  --coffee-text-muted: #8b7355;
-  --coffee-text-light: #a68b6a;
+  /* 文字色 - 加深 */
+  --coffee-text: #3d2916;
+  --coffee-text-secondary: #5d3a1a;
+  --coffee-text-muted: #8b5a2b;
+  --coffee-text-light: #a67c52;
   
   /* 边框/分隔线 */
-  --coffee-border: #e8e0d5;
-  --coffee-border-light: #f0e6d8;
-  --coffee-divider: #f5ebe0;
+  --coffee-border: #e0d5c8;
+  --coffee-border-light: #ede5dc;
+  --coffee-divider: #f0e8dc;
   
   /* 阴影 */
-  --coffee-shadow: rgba(92, 64, 51, 0.08);
-  --coffee-shadow-hover: rgba(92, 64, 51, 0.12);
+  --coffee-shadow: rgba(61, 41, 22, 0.08);
+  --coffee-shadow-hover: rgba(61, 41, 22, 0.15);
 }
 
 * {
@@ -72,7 +72,7 @@ body {
 /* 菜单 */
 .el-menu {
   --el-menu-bg-color: transparent;
-  --el-menu-hover-bg-color: rgba(139, 90, 43, 0.06);
+  --el-menu-hover-bg-color: rgba(93, 58, 26, 0.06);
   --el-menu-text-color: var(--coffee-text-secondary);
   --el-menu-hover-text-color: var(--coffee-primary);
   --el-menu-active-color: var(--coffee-primary);
@@ -114,7 +114,7 @@ body {
 
 /* 下拉菜单 */
 .el-dropdown-menu {
-  --el-dropdown-menuItem-hover-fill: rgba(139, 90, 43, 0.06);
+  --el-dropdown-menuItem-hover-fill: rgba(93, 58, 26, 0.06);
   --el-dropdown-menuItem-hover-color: var(--coffee-primary);
 }
 
@@ -139,7 +139,7 @@ body {
 
 /* 选中文字 */
 ::selection {
-  background: rgba(139, 90, 43, 0.2);
+  background: rgba(93, 58, 26, 0.2);
   color: var(--coffee-text);
 }
 
