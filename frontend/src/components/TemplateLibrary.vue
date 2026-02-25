@@ -17,6 +17,13 @@
       </el-radio-group>
     </div>
 
+    <div class="template-stats">
+      <span class="stat-item">📚 共 {{ templates.length }} 个模板</span>
+      <span class="stat-item" v-if="selectedCategory !== 'all'">
+        · {{ getCategoryName(selectedCategory) }}类 {{ filteredTemplates.length }} 个
+      </span>
+    </div>
+
     <div class="templates-grid">
       <div
         v-for="template in filteredTemplates"
@@ -228,7 +235,18 @@ async function confirmApply() {
 .template-categories {
   display: flex;
   justify-content: center;
+  margin-bottom: 12px;
+}
+
+.template-stats {
+  text-align: center;
   margin-bottom: 24px;
+  color: var(--coffee-text-muted);
+  font-size: 14px;
+
+  .stat-item {
+    margin: 0 8px;
+  }
 }
 
 .templates-grid {

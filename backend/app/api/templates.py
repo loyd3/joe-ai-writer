@@ -123,6 +123,224 @@ DEFAULT_TEMPLATES = [
             {"title": "时间规划", "description": "开发计划和里程碑"}
         ],
         "writing_style": "逻辑严谨，表述准确，便于执行"
+    },
+    
+    # ========== 新增小说模板 ==========
+    {
+        "name": "都市异能",
+        "description": "现代都市背景下的超能力故事",
+        "category": "novel",
+        "icon": "⚡",
+        "outline": [
+            {"title": "第一章：平凡日常", "description": "主角的普通生活，暗藏不凡"},
+            {"title": "第二章：觉醒时刻", "description": "意外觉醒超能力"},
+            {"title": "第三章：能力探索", "description": "摸索能力边界，意外发现"},
+            {"title": "第四章：暗流涌动", "description": "发现隐藏在都市中的异能世界"},
+            {"title": "第五章：卷入风波", "description": "被迫站队，面临选择"},
+            {"title": "第六章：实力成长", "description": "训练提升，结识伙伴"},
+            {"title": "终章：守护之战", "description": "保卫所爱，确立地位"}
+        ],
+        "world_building": {
+            "能力类型": "元素操控、精神异能、身体强化、特殊天赋",
+            "组织势力": "异能管理局、地下组织、世家大族",
+            "世界规则": "表面是现代都市，实则暗流涌动"
+        },
+        "writing_style": "代入感强，都市生活细节真实，能力设定新颖有趣"
+    },
+    {
+        "name": "历史架空",
+        "description": "穿越或虚构历史背景的故事",
+        "category": "novel",
+        "icon": "👑",
+        "outline": [
+            {"title": "第一章：初入异世", "description": "来到陌生时代，观察环境"},
+            {"title": "第二章：立足之地", "description": "凭借知识或能力获得一席之地"},
+            {"title": "第三章：崭露头角", "description": "展现才华，引起注意"},
+            {"title": "第四章：权谋博弈", "description": "卷入朝堂或势力纷争"},
+            {"title": "第五章：宏图大业", "description": "改革或争霸，施展抱负"},
+            {"title": "第六章：治国安邦", "description": "推行新政，富国强民"},
+            {"title": "终章：名垂青史", "description": "功成名就，开创盛世"}
+        ],
+        "world_building": {
+            "时代背景": "可基于秦汉唐宋明等朝代架空",
+            "核心要素": "朝堂权谋、军事战争、民生改革、科技发展",
+            "主题": "家国情怀、个人抱负、历史变革"
+        },
+        "writing_style": "历史细节考究，权谋描写精彩，格局宏大"
+    },
+    {
+        "name": "恐怖灵异",
+        "description": "恐怖悬疑或灵异怪谈故事",
+        "category": "novel",
+        "icon": "👻",
+        "outline": [
+            {"title": "第一章：诡异开端", "description": "异常现象出现，悬念建立"},
+            {"title": "第二章：恐怖升级", "description": "怪事频发，恐怖氛围加重"},
+            {"title": "第三章：探寻真相", "description": "调查事件源头，发现线索"},
+            {"title": "第四章：深入险境", "description": "直面恐怖源头，危险重重"},
+            {"title": "第五章：真相揭露", "description": "揭开背后的秘密或诅咒"},
+            {"title": "第六章：结局或余波", "description": "解决问题或留下悬念"}
+        ],
+        "world_building": {
+            "恐怖元素": "鬼魂、诅咒、灵异事件、心理恐惧",
+            "氛围营造": "阴暗、压抑、紧张、突如其来的惊吓",
+            "核心": "未知带来的恐惧，人性的黑暗面"
+        },
+        "writing_style": "氛围营造出色，心理描写细腻，节奏张弛有度"
+    },
+    {
+        "name": "游戏电竞",
+        "description": "电子竞技或游戏世界故事",
+        "category": "novel",
+        "icon": "🎮",
+        "outline": [
+            {"title": "第一章：游戏人生", "description": "主角与游戏的渊源"},
+            {"title": "第二章：崭露头角", "description": "展现实力，引起关注"},
+            {"title": "第三章：组建战队", "description": "结识队友，组建团队"},
+            {"title": "第四章：征战赛场", "description": "参加赛事，面对强敌"},
+            {"title": "第五章：低谷挫折", "description": "遭遇失败，团队危机"},
+            {"title": "第六章：重返巅峰", "description": "克服困难，夺得冠军"}
+        ],
+        "world_building": {
+            "游戏类型": "MOBA、FPS、MMORPG、策略游戏",
+            "电竞生态": "职业选手、俱乐部、赛事体系、直播行业",
+            "主题": "青春、热血、梦想、团队精神"
+        },
+        "writing_style": "热血激情，游戏细节专业，团队情谊动人"
+    },
+    {
+        "name": "穿越重生",
+        "description": "穿越或重生回到过去，改变命运",
+        "category": "novel",
+        "icon": "🌀",
+        "outline": [
+            {"title": "第一章：意外穿越", "description": "主角穿越或重生，获得第二次机会"},
+            {"title": "第二章：适应新身份", "description": "熟悉环境，制定计划"},
+            {"title": "第三章：先知优势", "description": "利用前世记忆，抢占先机"},
+            {"title": "第四章：改变命运", "description": "避开前世遗憾，挽救重要之人"},
+            {"title": "第五章：蝴蝶效应", "description": "改变引发的连锁反应"},
+            {"title": "第六章：新的人生", "description": "建立事业，收获幸福"}
+        ],
+        "world_building": {
+            "穿越类型": "古代穿越、平行世界、游戏世界、重生回过去",
+            "核心优势": "先知先觉、现代知识、特殊技能",
+            "目标": "弥补遗憾、追求梦想、守护所爱"
+        },
+        "writing_style": "情感共鸣强，对比前世今生的反差"
+    },
+    
+    # ========== 新增博客模板 ==========
+    {
+        "name": "产品评测",
+        "description": "产品测评和体验分享模板",
+        "category": "blog",
+        "icon": "⭐",
+        "outline": [
+            {"title": "产品简介", "description": "产品基本信息和定位"},
+            {"title": "开箱/初印象", "description": "外观设计和第一印象"},
+            {"title": "核心功能", "description": "主要功能详细体验"},
+            {"title": "使用场景", "description": "适合什么人群和场景"},
+            {"title": "优缺点分析", "description": "客观评价优点和不足"},
+            {"title": "竞品对比", "description": "与同类产品比较"},
+            {"title": "购买建议", "description": "值不值得买，适合谁"}
+        ],
+        "writing_style": "客观公正，体验真实，数据支撑，图文并茂"
+    },
+    {
+        "name": "游记攻略",
+        "description": "旅行游记和攻略分享",
+        "category": "blog",
+        "icon": "✈️",
+        "outline": [
+            {"title": "目的地介绍", "description": "旅行地点概况和特色"},
+            {"title": "行程规划", "description": "详细路线和时间安排"},
+            {"title": "交通住宿", "description": "交通方式和住宿推荐"},
+            {"title": "景点体验", "description": "各个景点的游玩体验"},
+            {"title": "美食推荐", "description": "当地特色美食分享"},
+            {"title": "实用贴士", "description": "省钱技巧、注意事项"},
+            {"title": "总结感悟", "description": "旅行心得和建议"}
+        ],
+        "writing_style": "生动有趣，信息实用，图片丰富，情感真挚"
+    },
+    {
+        "name": "读书笔记",
+        "description": "书籍阅读心得和总结",
+        "category": "blog",
+        "icon": "📚",
+        "outline": [
+            {"title": "书籍信息", "description": "书名、作者、出版信息"},
+            {"title": "内容概述", "description": "书籍主要内容和结构"},
+            {"title": "核心观点", "description": "书中重要观点和理论"},
+            {"title": "精彩片段", "description": "摘录和解读经典段落"},
+            {"title": "个人感悟", "description": "阅读后的思考和启发"},
+            {"title": "实践应用", "description": "如何将书中内容应用到生活"},
+            {"title": "推荐理由", "description": "适合什么人阅读"}
+        ],
+        "writing_style": "思考深入，观点独特，引用恰当，联系实际"
+    },
+    
+    # ========== 新增工作模板 ==========
+    {
+        "name": "项目复盘",
+        "description": "项目结束后总结复盘",
+        "category": "work",
+        "icon": "📊",
+        "outline": [
+            {"title": "项目概述", "description": "项目背景、目标、团队成员"},
+            {"title": "执行过程", "description": "关键时间节点和里程碑"},
+            {"title": "成果展示", "description": "达成的目标和产出物"},
+            {"title": "数据回顾", "description": "关键指标和数据分析"},
+            {"title": "成功经验", "description": "做得好的地方和原因"},
+            {"title": "问题反思", "description": "遇到的挑战和不足"},
+            {"title": "改进建议", "description": "未来如何做得更好"}
+        ],
+        "writing_style": "客观真实，数据支撑，反思深刻，建议可行"
+    },
+    {
+        "name": "会议纪要",
+        "description": "会议记录和待办跟进",
+        "category": "work",
+        "icon": "📝",
+        "outline": [
+            {"title": "会议信息", "description": "时间、地点、参会人、主题"},
+            {"title": "议题讨论", "description": "各议题讨论要点"},
+            {"title": "决议结论", "description": "达成的共识和决定"},
+            {"title": "待办事项", "description": "Action Items，责任人和Deadline"},
+            {"title": "下次安排", "description": "下次会议时间和议题"}
+        ],
+        "writing_style": "简洁明了，重点突出，条理清晰，待办明确"
+    },
+    {
+        "name": "周报月报",
+        "description": "工作汇报总结模板",
+        "category": "work",
+        "icon": "📅",
+        "outline": [
+            {"title": "本周/月总结", "description": "主要工作内容和完成情况"},
+            {"title": "关键成果", "description": "重要成果和数据亮点"},
+            {"title": "进展更新", "description": "各项目进度状态"},
+            {"title": "问题风险", "description": "遇到的困难和需要支持"},
+            {"title": "下周/月计划", "description": "接下来的工作计划和目标"}
+        ],
+        "writing_style": "简洁高效，重点突出，数据量化，问题明确"
+    },
+    {
+        "name": "商业计划书",
+        "description": "创业项目BP模板",
+        "category": "work",
+        "icon": "💼",
+        "outline": [
+            {"title": "项目概述", "description": "一句话介绍项目，核心价值"},
+            {"title": "市场痛点", "description": "解决的问题和市场机会"},
+            {"title": "解决方案", "description": "产品/服务如何解决问题"},
+            {"title": "市场规模", "description": "TAM/SAM/SOM市场分析"},
+            {"title": "商业模式", "description": "盈利方式和收入来源"},
+            {"title": "竞争分析", "description": "竞品对比和差异化优势"},
+            {"title": "运营数据", "description": "关键指标和增长趋势"},
+            {"title": "团队介绍", "description": "核心团队背景和能力"},
+            {"title": "融资计划", "description": "融资需求和资金用途"}
+        ],
+        "writing_style": "逻辑清晰，数据支撑，亮点突出，可信度高"
     }
 ]
 
@@ -257,6 +475,3 @@ def init_default_templates(db: Session, user_id: int):
         db.add(template)
     
     db.commit()
-
-# 需要在 models.py 中添加 Template 模型
-# 需要在 schemas.py 中添加 TemplateCreate, TemplateResponse
