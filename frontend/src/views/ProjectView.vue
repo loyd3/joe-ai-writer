@@ -27,7 +27,7 @@
     <div class="documents-section">
       <div class="section-header">
         <h2>
-          <el-icon><Document /></el-icon>
+          <el-icon><DocumentIcon /></el-icon>
           文档列表
         </h2>
         <span class="count">共 {{ documents?.length || 0 }} 篇</span>
@@ -48,7 +48,7 @@
         >
           <div class="doc-header">
             <div class="doc-icon">
-              <el-icon><Document /></el-icon>
+              <el-icon><DocumentIcon /></el-icon>
             </div>
             <el-dropdown trigger="click" @command="(cmd) => handleDocCommand(cmd, doc)">
               <el-icon class="more-icon" @click.stop><MoreFilled /></el-icon>
@@ -118,7 +118,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useProjectStore, type Document } from '@/stores/project'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import AIMemoryManager from '@/components/AIMemoryManager.vue'
-import { ArrowLeft, Collection, Plus, Document, MoreFilled, Edit, Delete, Calendar } from '@element-plus/icons-vue'
+import { ArrowLeft, Collection, Plus, Document as DocumentIcon, MoreFilled, Edit, Delete, Calendar } from '@element-plus/icons-vue'
 
 const route = useRoute()
 const router = useRouter()
