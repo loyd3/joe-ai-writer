@@ -1,13 +1,61 @@
 import axios from 'axios'
 
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+
 const api = axios.create({
-  baseURL: '/api',
+  baseURL: `${API_BASE_URL}/api`,
   headers: {
     'Content-Type': 'application/json'
   }
 })
 
-// 项目 API
+// 请求拦截器 - 添加 token
+api.interceptors.request.use(
+  (config) => {
+    const token = localStorage.getItem('token')
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`
+    }
+    return config
+  },
+  (error) => Promise.reject(error)
+)
+
+// 响应拦截器 - 处理认证错误
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.status === 401) {
+      localStorage.removeItem('token')
+      localStorage.removeItem('user')
+      window.location.href = '/login'
+    }
+    return Promise.reject(error)
+  }
+)
+
+// ========== 认证 API ==========
+export const authApi = {
+  register: (data: { username: string; email: string; password: string }) =>
+    api.post('/auth/register', data),
+  
+  login: (username: string, password: string) => {
+    const formData = new URLSearchParams()
+    formData.append('username', username)
+    formData.append('password', password)
+    return axios.post(`${API_BASE_URL}/api/auth/login`, formData, {
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+    })
+  },
+  
+  logout: () => api.post('/auth/logout'),
+  
+  getMe: () => api.get('/auth/me'),
+  
+  getProfile: () => api.get('/auth/profile')
+}
+
+// ========== 项目 API ==========
 export const projectApi = {
   list: () => api.get('/projects'),
   get: (id: number) => api.get(`/projects/${id}`),
@@ -16,7 +64,7 @@ export const projectApi = {
   delete: (id: number) => api.delete(`/projects/${id}`)
 }
 
-// 文档 API
+// ========== 文档 API ==========
 export const documentApi = {
   list: (projectId: number) => api.get(`/projects/${projectId}/documents`),
   get: (id: number) => api.get(`/documents/${id}`),
@@ -25,50 +73,38 @@ export const documentApi = {
   delete: (id: number) => api.delete(`/documents/${id}`)
 }
 
-// AI 记忆 API
+// ========== AI 记忆 API ==========
 export const memoryApi = {
   get: (projectId: number) => api.get(`/projects/${projectId}/memory`),
   update: (projectId: number, data: any) => api.put(`/projects/${projectId}/memory`, data)
 }
 
-// 事件设定 API
-export const eventApi = {
-  list: (projectId: number) => api.get(`/projects/${projectId}/events`),
-  get: (projectId: number, eventId: number) => api.get(`/projects/${projectId}/events/${eventId}`),
-  create: (projectId: number, data: any) => api.post(`/projects/${projectId}/events`, data),
-  update: (projectId: number, eventId: number, data: any) => api.put(`/projects/${projectId}/events/${eventId}`, data),
-  delete: (projectId: number, eventId: number) => api.delete(`/projects/${projectId}/events/${eventId}`),
-  reorder: (projectId: number, eventId: number, newIndex: number) => 
-    api.post(`/projects/${projectId}/events/${eventId}/reorder`, null, { params: { new_index: newIndex } })
-}
-
-// 系统 API
-export const systemApi = {
-  health: () => api.get('/system/health'),
-  aiConfig: () => api.get('/system/ai-config'),
-  providers: () => api.get('/system/ai-config/providers'),
-  testAI: (data: any) => api.post('/system/ai-config/test', data),
-  getUserAIConfig: () => api.get('/system/user-ai-config'),
-  saveUserAIConfig: (data: any) => api.post('/system/user-ai-config', data)
-}
-
-// AI 写作 API
+// ========== AI 写作 API ==========
 export const aiApi = {
   assist: (data: any) => api.post('/ai/assist', data),
   assistStream: (data: any) => {
-    return fetch('/api/ai/assist/stream', {
+    const token = localStorage.getItem('token')
+    return fetch(`${API_BASE_URL}/api/ai/assist/stream`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
       body: JSON.stringify(data)
     })
   },
   chatStream: (data: any) => {
-    return fetch('/api/ai/chat/stream', {
+    const token = localStorage.getItem('token')
+    return fetch(`${API_BASE_URL}/api/ai/chat/stream`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
       body: JSON.stringify(data)
     })
   }
 }
 
 export default api
+export { API_BASE_URL }

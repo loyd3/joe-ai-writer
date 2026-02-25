@@ -1,26 +1,42 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr, Field
 from typing import List, Optional, Dict, Any
 from datetime import datetime
 
+# ========== Token Schemas ==========
+class Token(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+
+class TokenData(BaseModel):
+    user_id: Optional[int] = None
+    username: Optional[str] = None
 
 # ========== User Schemas ==========
 class UserBase(BaseModel):
-    email: str
-    username: str
-
+    email: EmailStr
+    username: str = Field(..., min_length=3, max_length=50)
 
 class UserCreate(UserBase):
-    password: str
+    password: str = Field(..., min_length=6, max_length=100)
 
+class UserLogin(BaseModel):
+    username: str
+    password: str
 
 class UserResponse(UserBase):
     id: int
     is_active: bool
     created_at: datetime
-
+    
     class Config:
         from_attributes = True
 
+class UserProfile(BaseModel):
+    id: int
+    username: str
+    email: EmailStr
+    project_count: int
+    created_at: datetime
 
 # ========== AI Memory Schemas ==========
 class Character(BaseModel):
@@ -29,7 +45,6 @@ class Character(BaseModel):
     personality: Optional[str] = None
     background: Optional[str] = None
     goals: Optional[str] = None
-
 
 class AIMemoryBase(BaseModel):
     outline: List[Dict[str, Any]] = []
@@ -40,7 +55,6 @@ class AIMemoryBase(BaseModel):
     key_points: List[str] = []
     notes: Optional[str] = None
 
-
 class AIMemoryUpdate(BaseModel):
     outline: Optional[List[Dict[str, Any]]] = None
     storyline: Optional[str] = None
@@ -50,15 +64,13 @@ class AIMemoryUpdate(BaseModel):
     key_points: Optional[List[str]] = None
     notes: Optional[str] = None
 
-
 class AIMemoryResponse(AIMemoryBase):
     id: int
     project_id: int
     updated_at: datetime
-
+    
     class Config:
         from_attributes = True
-
 
 # ========== Document Schemas ==========
 class Block(BaseModel):
@@ -67,20 +79,16 @@ class Block(BaseModel):
     content: str
     props: Optional[Dict[str, Any]] = {}
 
-
 class DocumentBase(BaseModel):
-    title: str
+    title: str = Field(..., min_length=1, max_length=200)
     content: List[Block] = []
-
 
 class DocumentCreate(DocumentBase):
     parent_id: Optional[int] = None
 
-
 class DocumentUpdate(BaseModel):
-    title: Optional[str] = None
+    title: Optional[str] = Field(None, min_length=1, max_length=200)
     content: Optional[List[Block]] = None
-
 
 class DocumentResponse(DocumentBase):
     id: int
@@ -89,25 +97,21 @@ class DocumentResponse(DocumentBase):
     order_index: int
     created_at: datetime
     updated_at: datetime
-
+    
     class Config:
         from_attributes = True
 
-
 # ========== Project Schemas ==========
 class ProjectBase(BaseModel):
-    title: str
-    description: Optional[str] = None
-
+    title: str = Field(..., min_length=1, max_length=200)
+    description: Optional[str] = Field(None, max_length=1000)
 
 class ProjectCreate(ProjectBase):
     pass
 
-
 class ProjectUpdate(BaseModel):
-    title: Optional[str] = None
-    description: Optional[str] = None
-
+    title: Optional[str] = Field(None, min_length=1, max_length=200)
+    description: Optional[str] = Field(None, max_length=1000)
 
 class ProjectResponse(ProjectBase):
     id: int
@@ -116,10 +120,9 @@ class ProjectResponse(ProjectBase):
     updated_at: datetime
     documents: List[DocumentResponse] = []
     ai_memory: Optional[AIMemoryResponse] = None
-
+    
     class Config:
         from_attributes = True
-
 
 # ========== AI Interaction Schemas ==========
 class AIRequest(BaseModel):
@@ -128,88 +131,15 @@ class AIRequest(BaseModel):
     selected_text: Optional[str] = None
     instruction: Optional[str] = None
 
-
 class AIStreamResponse(BaseModel):
     content: str
     done: bool = False
-
 
 class ChatMessage(BaseModel):
     role: str  # 'user', 'assistant', 'system'
     content: str
 
-
 class AIChatRequest(BaseModel):
     document_id: int
     messages: List[ChatMessage]
     include_memory: bool = True
-
-
-# ========== Event Schemas ==========
-class EventBase(BaseModel):
-    name: str
-    description: Optional[str] = None
-    chapter: Optional[str] = None
-    timeline_position: Optional[str] = None
-    order_index: int = 0
-    involved_characters: List[int] = []
-    importance: str = "normal"  # minor, normal, major, critical
-    event_type: str = "plot"  # plot, conflict, revelation, climax, ending
-    is_completed: bool = False
-    content_notes: Optional[str] = None
-
-
-class EventCreate(EventBase):
-    pass
-
-
-class EventUpdate(BaseModel):
-    name: Optional[str] = None
-    description: Optional[str] = None
-    chapter: Optional[str] = None
-    timeline_position: Optional[str] = None
-    order_index: Optional[int] = None
-    involved_characters: Optional[List[int]] = None
-    importance: Optional[str] = None
-    event_type: Optional[str] = None
-    is_completed: Optional[bool] = None
-    content_notes: Optional[str] = None
-
-
-class EventResponse(EventBase):
-    id: int
-    project_id: int
-    created_at: datetime
-    updated_at: datetime
-
-    class Config:
-        from_attributes = True
-
-
-# ========== System Config Schemas ==========
-class SystemConfigBase(BaseModel):
-    key: str
-    value: str
-
-
-class SystemConfigUpdate(BaseModel):
-    key: str
-    value: str
-
-
-class SystemConfigResponse(SystemConfigBase):
-    id: int
-    updated_at: datetime
-
-    class Config:
-        from_attributes = True
-
-
-class UserAIConfig(BaseModel):
-    """用户保存的 AI 配置"""
-    provider: str
-    model: str
-    api_key: str
-    base_url: Optional[str] = None
-    temperature: float = 0.7
-    max_tokens: int = 4096

@@ -1,50 +1,100 @@
 <template>
-  <div class="project-list">
-    <div class="header">
-      <h1>我的项目</h1>
-      <el-button type="primary" @click="showCreateDialog = true">
-        <el-icon><Plus /></el-icon> 新建项目
+  <div class="project-list-page">
+    <div class="page-header">
+      <div class="header-content">
+        <h1>我的创作空间</h1>
+        <p class="subtitle">在这里记录您的灵感与故事</p>
+      </div>
+      <el-button type="primary" class="create-btn" @click="showCreateDialog = true">
+        <el-icon><Plus /></el-icon>
+        <span>新建项目</span>
       </el-button>
     </div>
     
-    <el-row :gutter="20" class="project-grid">
-      <el-col :xs="24" :sm="12" :md="8" :lg="6" v-for="project in projects" :key="project.id">
-        <el-card class="project-card" shadow="hover" @click="openProject(project.id)">
-          <div class="card-header">
-            <el-icon class="project-icon"><Document /></el-icon>
-            <el-dropdown trigger="click" @command="(cmd) => handleCommand(cmd, project)">
-              <el-icon class="more-icon"><More /></el-icon>
-              <template #dropdown>
-                <el-dropdown-menu>
-                  <el-dropdown-item command="edit">编辑</el-dropdown-item>
-                  <el-dropdown-item command="delete" divided>删除</el-dropdown-item>
-                </el-dropdown-menu>
-              </template>
-            </el-dropdown>
+    <div v-if="projects.length > 0" class="projects-grid">
+      <el-row :gutter="24">
+        <el-col :xs="24" :sm="12" :md="8" :lg="6" v-for="project in projects" :key="project.id">
+          <div class="project-card" @click="openProject(project.id)">
+            <div class="card-header">
+              <div class="project-icon">
+                <el-icon><Document /></el-icon>
+              </div>
+              <el-dropdown trigger="click" @command="(cmd) => handleCommand(cmd, project)">
+                <el-icon class="more-btn" @click.stop><MoreFilled /></el-icon>
+                <template #dropdown>
+                  <el-dropdown-menu>
+                    <el-dropdown-item command="edit">
+                      <el-icon><Edit /></el-icon> 编辑
+                    </el-dropdown-item>
+                    <el-dropdown-item command="delete" divided class="delete-item">
+                      <el-icon><Delete /></el-icon> 删除
+                    </el-dropdown-item>
+                  </el-dropdown-menu>
+                </template>
+              </el-dropdown>
+            </div>
+            <div class="card-body">
+              <h3 class="project-title">{{ project.title }}</h3>
+              <p class="project-desc">{{ project.description || '暂无描述' }}</p>
+            </div>
+            <div class="card-footer">
+              <div class="meta-item">
+                <el-icon><Calendar /></el-icon>
+                <span>{{ formatDate(project.updated_at) }}</span>
+              </div>
+              <div class="meta-item">
+                <el-icon><Document /></el-icon>
+                <span>{{ project.documents?.length || 0 }} 篇</span>
+              </div>
+            </div>
           </div>
-          <h3 class="project-title">{{ project.title }}</h3>
-          <p class="project-desc">{{ project.description || '暂无描述' }}</p>
-          <div class="project-meta">
-            <span>{{ formatDate(project.updated_at) }}</span>
-            <span>{{ project.documents?.length || 0 }} 篇文档</span>
-          </div>
-        </el-card>
-      </el-col>
-    </el-row>
+        </el-col>
+      </el-row>
+    </div>
+    
+    <div v-else class="empty-state">
+      <div class="empty-illustration">
+        <el-icon><EditPen /></el-icon>
+      </div>
+      <h2>开启您的创作之旅</h2>
+      <p>创建第一个项目，开始记录您的灵感</p>
+      <el-button type="primary" size="large" @click="showCreateDialog = true">
+        <el-icon><Plus /></el-icon> 创建项目
+      </el-button>
+    </div>
 
     <!-- 创建/编辑项目对话框 -->
-    <el-dialog v-model="showCreateDialog" :title="editingProject ? '编辑项目' : '新建项目'" width="400px">
-      <el-form :model="form" label-width="80px">
+    <el-dialog 
+      v-model="showCreateDialog" 
+      :title="editingProject ? '编辑项目' : '新建项目'" 
+      width="460px"
+      class="coffee-dialog"
+    >
+      <el-form :model="form" label-width="80px" class="coffee-form">
         <el-form-item label="项目名称">
-          <el-input v-model="form.title" placeholder="输入项目名称" />
+          <el-input 
+            v-model="form.title" 
+            placeholder="为您的项目取一个名字"
+            maxlength="50"
+            show-word-limit
+          />
         </el-form-item>
-        <el-form-item label="描述">
-          <el-input v-model="form.description" type="textarea" placeholder="项目描述（可选）" />
+        <el-form-item label="项目描述">
+          <el-input 
+            v-model="form.description" 
+            type="textarea" 
+            :rows="4"
+            placeholder="描述一下这个项目的内容..."
+            maxlength="200"
+            show-word-limit
+          />
         </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="showCreateDialog = false">取消</el-button>
-        <el-button type="primary" @click="saveProject">保存</el-button>
+        <el-button type="primary" @click="saveProject" :loading="saving">
+          {{ editingProject ? '保存' : '创建' }}
+        </el-button>
       </template>
     </el-dialog>
   </div>
@@ -55,6 +105,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useProjectStore, type Project } from '@/stores/project'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { Plus, Document, MoreFilled, Edit, Delete, Calendar, EditPen } from '@element-plus/icons-vue'
 
 const router = useRouter()
 const store = useProjectStore()
@@ -62,6 +113,7 @@ const store = useProjectStore()
 const projects = computed(() => store.projectList)
 const showCreateDialog = ref(false)
 const editingProject = ref<Project | null>(null)
+const saving = ref(false)
 const form = ref({
   title: '',
   description: ''
@@ -72,7 +124,8 @@ onMounted(() => {
 })
 
 function formatDate(date: string) {
-  return new Date(date).toLocaleDateString('zh-CN')
+  const d = new Date(date)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
 function openProject(id: number) {
@@ -89,12 +142,17 @@ function handleCommand(cmd: string, project: Project) {
     showCreateDialog.value = true
   } else if (cmd === 'delete') {
     ElMessageBox.confirm(
-      `确定要删除项目 "${project.title}" 吗？`,
-      '警告',
-      { confirmButtonText: '删除', cancelButtonText: '取消', type: 'warning' }
-    ).then(() => {
-      store.deleteProject(project.id)
-      ElMessage.success('已删除')
+      `确定要删除项目 "${project.title}" 吗？此操作不可恢复。`,
+      '删除项目',
+      {
+        confirmButtonText: '删除',
+        cancelButtonText: '取消',
+        type: 'warning',
+        confirmButtonClass: 'el-button--danger'
+      }
+    ).then(async () => {
+      await store.deleteProject(project.id)
+      ElMessage.success('项目已删除')
     })
   }
 }
@@ -105,99 +163,289 @@ async function saveProject() {
     return
   }
   
-  if (editingProject.value) {
-    await store.updateProject(editingProject.value.id, form.value)
-    ElMessage.success('已更新')
-  } else {
-    await store.createProject(form.value)
-    ElMessage.success('创建成功')
+  saving.value = true
+  try {
+    if (editingProject.value) {
+      await store.updateProject(editingProject.value.id, form.value)
+      ElMessage.success('项目已更新')
+    } else {
+      await store.createProject(form.value)
+      ElMessage.success('项目创建成功')
+    }
+    showCreateDialog.value = false
+    editingProject.value = null
+    form.value = { title: '', description: '' }
+  } finally {
+    saving.value = false
   }
-  
-  showCreateDialog.value = false
-  editingProject.value = null
-  form.value = { title: '', description: '' }
 }
 </script>
 
-<style scoped>
-.project-list {
-  padding: 30px;
-  max-width: 1200px;
+<style scoped lang="scss">
+.project-list-page {
+  padding: 40px;
+  max-width: 1400px;
   margin: 0 auto;
+  min-height: 100%;
 }
 
-.header {
+.page-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 30px;
+  margin-bottom: 40px;
+  padding-bottom: 24px;
+  border-bottom: 1px solid #e8e0d5;
+  
+  .header-content {
+    h1 {
+      font-size: 32px;
+      font-weight: 700;
+      color: #5c4033;
+      margin-bottom: 8px;
+      letter-spacing: 1px;
+    }
+    
+    .subtitle {
+      font-size: 15px;
+      color: #8b7355;
+      font-style: italic;
+    }
+  }
+  
+  .create-btn {
+    height: 48px;
+    padding: 0 24px;
+    border-radius: 12px;
+    background: linear-gradient(135deg, #8b5a2b 0%, #a67c52 100%);
+    border: none;
+    font-size: 15px;
+    font-weight: 500;
+    transition: all 0.3s ease;
+    
+    &:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 20px rgba(139, 90, 43, 0.3);
+    }
+    
+    .el-icon {
+      margin-right: 6px;
+    }
+  }
 }
 
-.header h1 {
-  font-size: 28px;
-  font-weight: 600;
-  color: #303133;
-}
-
-.project-grid {
-  margin-top: 20px;
+.projects-grid {
+  margin-top: 8px;
 }
 
 .project-card {
+  background: #fff;
+  border-radius: 16px;
+  padding: 24px;
+  box-shadow: 0 4px 20px rgba(92, 64, 51, 0.06);
+  border: 1px solid #f0e6d8;
   cursor: pointer;
-  margin-bottom: 20px;
-  transition: transform 0.2s;
-}
-
-.project-card:hover {
-  transform: translateY(-2px);
-}
-
-.card-header {
+  transition: all 0.3s ease;
+  height: 100%;
   display: flex;
-  justify-content: space-between;
+  flex-direction: column;
+  
+  &:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 12px 32px rgba(92, 64, 51, 0.12);
+    border-color: #e0d4c4;
+  }
+  
+  .card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+    
+    .project-icon {
+      width: 48px;
+      height: 48px;
+      background: linear-gradient(135deg, #f5ebe0 0%, #ede0d4 100%);
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      
+      .el-icon {
+        font-size: 24px;
+        color: #8b5a2b;
+      }
+    }
+    
+    .more-btn {
+      font-size: 18px;
+      color: #a68b6a;
+      padding: 6px;
+      border-radius: 6px;
+      transition: all 0.2s;
+      opacity: 0;
+      
+      &:hover {
+        background: rgba(139, 90, 43, 0.08);
+        color: #8b5a2b;
+      }
+    }
+  }
+  
+  &:hover .more-btn {
+    opacity: 1;
+  }
+  
+  .card-body {
+    flex: 1;
+    
+    .project-title {
+      font-size: 18px;
+      font-weight: 600;
+      color: #5c4033;
+      margin-bottom: 8px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    
+    .project-desc {
+      font-size: 14px;
+      color: #8b7355;
+      line-height: 1.6;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      min-height: 44px;
+    }
+  }
+  
+  .card-footer {
+    display: flex;
+    gap: 16px;
+    margin-top: 16px;
+    padding-top: 16px;
+    border-top: 1px solid #f5ebe0;
+    
+    .meta-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 13px;
+      color: #a68b6a;
+      
+      .el-icon {
+        font-size: 14px;
+      }
+    }
+  }
+}
+
+.empty-state {
+  display: flex;
+  flex-direction: column;
   align-items: center;
-  margin-bottom: 15px;
+  justify-content: center;
+  padding: 80px 20px;
+  text-align: center;
+  
+  .empty-illustration {
+    width: 120px;
+    height: 120px;
+    background: linear-gradient(135deg, #f5ebe0 0%, #ede0d4 100%);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 24px;
+    
+    .el-icon {
+      font-size: 56px;
+      color: #a67c52;
+    }
+  }
+  
+  h2 {
+    font-size: 24px;
+    font-weight: 600;
+    color: #5c4033;
+    margin-bottom: 8px;
+  }
+  
+  p {
+    font-size: 15px;
+    color: #8b7355;
+    margin-bottom: 24px;
+  }
+  
+  .el-button {
+    height: 48px;
+    padding: 0 32px;
+    border-radius: 12px;
+    background: linear-gradient(135deg, #8b5a2b 0%, #a67c52 100%);
+    border: none;
+    font-size: 15px;
+    
+    &:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 20px rgba(139, 90, 43, 0.3);
+    }
+  }
 }
 
-.project-icon {
-  font-size: 32px;
-  color: #409eff;
+/* 对话框样式 */
+:deep(.coffee-dialog) {
+  .el-dialog__header {
+    padding: 20px 24px;
+    border-bottom: 1px solid #f0e6d8;
+    
+    .el-dialog__title {
+      font-weight: 600;
+      color: #5c4033;
+    }
+  }
+  
+  .el-dialog__body {
+    padding: 24px;
+  }
+  
+  .el-dialog__footer {
+    padding: 16px 24px;
+    border-top: 1px solid #f0e6d8;
+  }
 }
 
-.more-icon {
-  padding: 5px;
-  cursor: pointer;
-  color: #909399;
+.coffee-form {
+  .el-input__wrapper,
+  .el-textarea__inner {
+    background: #faf8f5;
+    border-color: #e8e0d5;
+    
+    &:focus {
+      border-color: #a67c52;
+    }
+  }
 }
 
-.more-icon:hover {
-  color: #409eff;
+:deep(.delete-item) {
+  color: #f56c6c;
 }
 
-.project-title {
-  font-size: 18px;
-  font-weight: 500;
-  margin-bottom: 8px;
-  color: #303133;
-}
-
-.project-desc {
-  font-size: 14px;
-  color: #909399;
-  margin-bottom: 15px;
-  height: 40px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-}
-
-.project-meta {
-  display: flex;
-  justify-content: space-between;
-  font-size: 12px;
-  color: #c0c4cc;
+@media (max-width: 768px) {
+  .project-list-page {
+    padding: 24px;
+  }
+  
+  .page-header {
+    flex-direction: column;
+    gap: 16px;
+    align-items: flex-start;
+    
+    h1 {
+      font-size: 24px;
+    }
+  }
 }
 </style>
