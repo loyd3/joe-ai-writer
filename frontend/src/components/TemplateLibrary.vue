@@ -120,6 +120,10 @@ import { Collection } from '@element-plus/icons-vue'
 
 const router = useRouter()
 
+const emit = defineEmits<{
+  (e: 'select'): void
+}>()
+
 const templates = ref<any[]>([])
 const selectedCategory = ref('all')
 const showPreview = ref(false)
@@ -179,6 +183,9 @@ async function confirmApply() {
     ElMessage.success('项目创建成功')
     showPreview.value = false
     showApplyDialog.value = false
+    
+    // 通知父组件
+    emit('select')
     
     // 跳转到新项目
     router.push(`/project/${res.data.project_id}`)

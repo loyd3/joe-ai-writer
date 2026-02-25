@@ -58,10 +58,26 @@
       </div>
       <h2>开启您的创作之旅</h2>
       <p>创建第一个项目，开始记录您的灵感</p>
-      <el-button type="primary" size="large" @click="showCreateDialog = true">
-        <el-icon><Plus /></el-icon> 创建项目
-      </el-button>
+      <div class="empty-actions">
+        <el-button type="primary" size="large" @click="showTemplateLibrary = true">
+          <el-icon><Collection /></el-icon> 从模板开始
+        </el-button>
+        <el-button size="large" @click="showCreateDialog = true">
+          <el-icon><Plus /></el-icon> 创建空白项目
+        </el-button>
+      </div>
     </div>
+
+    <!-- 模板库对话框 -->
+    <el-dialog
+      v-model="showTemplateLibrary"
+      title="选择模板"
+      width="900px"
+      class="template-dialog"
+      :destroy-on-close="true"
+    >
+      <TemplateLibrary @select="onTemplateSelect" />
+    </el-dialog>
 
     <!-- 创建/编辑项目对话框 -->
     <el-dialog 
@@ -105,19 +121,26 @@ import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useProjectStore, type Project } from '@/stores/project'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, Document, MoreFilled, Edit, Delete, Calendar, EditPen } from '@element-plus/icons-vue'
+import { Plus, Document, MoreFilled, Edit, Delete, Calendar, EditPen, Collection } from '@element-plus/icons-vue'
+import TemplateLibrary from '@/components/TemplateLibrary.vue'
 
 const router = useRouter()
 const store = useProjectStore()
 
 const projects = computed(() => store.projectList)
 const showCreateDialog = ref(false)
+const showTemplateLibrary = ref(false)
 const editingProject = ref<Project | null>(null)
 const saving = ref(false)
 const form = ref({
   title: '',
   description: ''
 })
+
+function onTemplateSelect() {
+  showTemplateLibrary.value = false
+  store.fetchProjects() // 刷新项目列表
+}
 
 onMounted(() => {
   store.fetchProjects()
@@ -380,17 +403,20 @@ async function saveProject() {
     margin-bottom: 24px;
   }
   
-  .el-button {
-    height: 48px;
-    padding: 0 32px;
-    border-radius: 12px;
-    background: linear-gradient(135deg, #a65e2e 0%, #c97f4a 100%);
-    border: none;
-    font-size: 15px;
+  .empty-actions {
+    display: flex;
+    gap: 16px;
     
-    &:hover {
-      transform: translateY(-2px);
-      box-shadow: 0 8px 20px rgba(166, 94, 46, 0.3);
+    .el-button {
+      height: 48px;
+      padding: 0 32px;
+      border-radius: 12px;
+      font-size: 15px;
+      
+      &:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 8px 20px rgba(166, 94, 46, 0.3);
+      }
     }
   }
 }
