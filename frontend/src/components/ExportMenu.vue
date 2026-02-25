@@ -13,7 +13,7 @@
               <el-icon><Document /></el-icon>
               <div class="option-info">
                 <span class="option-title">Markdown</span>
-                <span class="option-desc">包含格式和记忆</span>
+                <span class="option-desc">包含格式和项目设定</span>
               </div>
             </div>
           </el-dropdown-item>
@@ -47,9 +47,9 @@
       class="coffee-dialog"
     >
       <el-form label-width="100px">
-        <el-form-item label="包含记忆">
+        <el-form-item label="包含项目设定">
           <el-switch v-model="includeMemory" />
-          <span class="form-hint">在导出中包含 AI 记忆内容</span>
+          <span class="form-hint">在导出中包含项目设定内容</span>
         </el-form-item>
       </el-form>
       <template #footer>

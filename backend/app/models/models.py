@@ -45,7 +45,7 @@ class Document(Base):
     children = relationship("Document")
 
 class AIMemory(Base):
-    """AI 记忆系统 - 存储项目级别的上下文信息"""
+    """项目设定系统 - 存储项目级别的上下文信息"""
     __tablename__ = "ai_memories"
     
     id = Column(Integer, primary_key=True, index=True)

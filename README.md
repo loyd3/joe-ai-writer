@@ -18,7 +18,7 @@
 - **自定义 API** - 支持任何兼容 OpenAI API 格式的端点
 - **实时切换** - 无需重启即可在设置中切换模型
 
-### 🧠 AI 记忆系统
+### 🧠 项目设定系统
 - **项目级记忆** - 每个项目独立记忆空间
 - **结构化存储** - 大纲、角色、故事线、世界观分类管理
 - **事件设定** - 管理故事中的关键事件，支持时间线排序
@@ -137,7 +137,7 @@ joe-ai-writer/
 ├── frontend/            # Vue3 前端
 │   └── src/
 │       ├── components/
-│       │   ├── AIMemoryManager.vue   # AI 记忆管理
+│       │   ├── ProjectSettingsManager.vue   # 项目设定管理
 │       │   ├── AIConfigPanel.vue     # AI 配置面板
 │       │   ├── EventManager.vue      # 事件管理
 │       │   ├── BlockEditor.vue       # 块级编辑器
@@ -234,7 +234,7 @@ CUSTOM_MODEL=your-model
 
 ### v1.0.0 (2024-01)
 - ✅ 基础编辑器
-- ✅ AI 记忆系统
+- ✅ 项目设定系统
 - ✅ 流式 AI 响应
 - ✅ 项目/文档管理
 

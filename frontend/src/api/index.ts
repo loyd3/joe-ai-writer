@@ -73,7 +73,7 @@ export const documentApi = {
   delete: (id: number) => api.delete(`/documents/${id}`)
 }
 
-// ========== AI 记忆 API ==========
+// ========== 项目设定 API ==========
 export const memoryApi = {
   get: (projectId: number) => api.get(`/projects/${projectId}/memory`),
   update: (projectId: number, data: any) => api.put(`/projects/${projectId}/memory`, data)

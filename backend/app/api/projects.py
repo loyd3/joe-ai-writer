@@ -35,7 +35,7 @@ def create_project(
     db.commit()
     db.refresh(db_project)
     
-    # 自动创建 AI 记忆
+    # 自动创建 项目设定
     AIMemoryService.get_or_create_memory(db, db_project.id)
     db.refresh(db_project)
     
@@ -47,13 +47,20 @@ def get_project(
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
 ):
-    """获取项目详情（检查所有权）"""
+    """获取项目详情（检查所有权），文档列表按 order_index 排序"""
     project = db.query(Project).filter(
         Project.id == project_id,
         Project.owner_id == current_user["id"]
     ).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
+    # 显式加载文档并按 order_index 排序，避免懒加载导致顺序或数量异常
+    project.documents = (
+        db.query(Document)
+        .filter(Document.project_id == project_id)
+        .order_by(Document.order_index.asc(), Document.id.asc())
+        .all()
+    )
     return project
 
 @router.put("/projects/{project_id}", response_model=ProjectResponse)
@@ -122,9 +129,14 @@ def list_documents(
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
 ):
-    """获取项目下的所有文档"""
+    """获取项目下的所有文档（按 order_index 排序）"""
     check_project_owner(db, project_id, current_user["id"])
-    documents = db.query(Document).filter(Document.project_id == project_id).all()
+    documents = (
+        db.query(Document)
+        .filter(Document.project_id == project_id)
+        .order_by(Document.order_index.asc(), Document.id.asc())
+        .all()
+    )
     return documents
 
 @router.post("/projects/{project_id}/documents", response_model=DocumentResponse)
@@ -205,7 +217,7 @@ def get_memory(
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
 ):
-    """获取项目的 AI 记忆"""
+    """获取项目的 项目设定"""
     check_project_owner(db, project_id, current_user["id"])
     memory = AIMemoryService.get_or_create_memory(db, project_id)
     return memory
@@ -217,7 +229,7 @@ def update_memory(
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
 ):
-    """更新项目的 AI 记忆"""
+    """更新项目的 项目设定"""
     check_project_owner(db, project_id, current_user["id"])
     memory = AIMemoryService.update_memory(db, project_id, memory_update)
     return memory

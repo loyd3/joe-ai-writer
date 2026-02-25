@@ -33,7 +33,7 @@ def test_frontend_structure():
     required_files = [
         'frontend/src/components/AIConfigPanel.vue',
         'frontend/src/components/EventManager.vue',
-        'frontend/src/components/AIMemoryManager.vue',
+        'frontend/src/components/ProjectSettingsManager.vue',
         'frontend/src/api/index.ts',
         'frontend/src/stores/project.ts'
     ]

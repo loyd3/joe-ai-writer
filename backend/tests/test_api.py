@@ -127,7 +127,7 @@ def test_update_document(client):
     assert len(data["content"]) == 1
 
 
-# ========== AI 记忆测试 ==========
+# ========== 项目设定测试 ==========
 
 
 def test_get_memory(client):

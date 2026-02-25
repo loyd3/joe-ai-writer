@@ -125,7 +125,7 @@
       <div class="apply-actions" v-if="hasExtractedContent">
         <el-button type="primary" size="large" @click="applyToMemory" :loading="applying">
           <el-icon><Check /></el-icon>
-          应用到项目记忆
+          应用到项目设定
         </el-button>
         <el-button size="large" @click="extractedData = null">
           重新提取
@@ -207,7 +207,7 @@ async function applyToMemory() {
     await extractApi.apply(props.documentId, {
       extracted: extractedData.value
     })
-    ElMessage.success('已应用到项目记忆')
+    ElMessage.success('已应用到项目设定')
     emit('applied')
   } catch (error) {
     ElMessage.error('应用失败')

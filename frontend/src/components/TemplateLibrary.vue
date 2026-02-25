@@ -81,13 +81,26 @@
 
       <template #footer>
         <el-button @click="showPreview = false">取消</el-button>
-        <el-button type="primary" @click="applyTemplate" :loading="applying">
+        <el-button
+          v-if="mode === 'applyToProject'"
+          type="primary"
+          @click="confirmApplyToProject"
+          :loading="applying"
+        >
+          应用到当前项目
+        </el-button>
+        <el-button
+          v-else
+          type="primary"
+          @click="applyTemplate"
+          :loading="applying"
+        >
           使用此模板
         </el-button>
       </template>
     </el-dialog>
 
-    <!-- 应用模板对话框 -->
+    <!-- 应用模板对话框（仅新建项目时显示） -->
     <el-dialog
       v-model="showApplyDialog"
       title="使用模板"
@@ -114,14 +127,23 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { templateApi } from '@/api/template'
 import { Collection } from '@element-plus/icons-vue'
+
+const props = withDefaults(
+  defineProps<{
+    mode?: 'create' | 'applyToProject'
+    projectId?: number
+  }>(),
+  { mode: 'create' }
+)
 
 const router = useRouter()
 
 const emit = defineEmits<{
   (e: 'select'): void
+  (e: 'applied'): void
 }>()
 
 const templates = ref<any[]>([])
@@ -172,9 +194,38 @@ function applyTemplate() {
   showApplyDialog.value = true
 }
 
+async function confirmApplyToProject() {
+  if (!selectedTemplate.value || props.mode !== 'applyToProject' || props.projectId == null) return
+  try {
+    await ElMessageBox.confirm(
+      '应用模板将覆盖当前项目的大纲、项目设定与现有文档，是否继续？',
+      '确认覆盖',
+      {
+        confirmButtonText: '应用',
+        cancelButtonText: '取消',
+        type: 'warning'
+      }
+    )
+  } catch {
+    return
+  }
+  applying.value = true
+  try {
+    await templateApi.applyToProject(selectedTemplate.value.id, props.projectId)
+    ElMessage.success('模板已应用到当前项目')
+    showPreview.value = false
+    selectedTemplate.value = null
+    emit('applied')
+  } catch (error) {
+    ElMessage.error('应用模板失败')
+  } finally {
+    applying.value = false
+  }
+}
+
 async function confirmApply() {
   if (!selectedTemplate.value) return
-  
+
   applying.value = true
   try {
     const res = await templateApi.apply(selectedTemplate.value.id, {
@@ -183,11 +234,8 @@ async function confirmApply() {
     ElMessage.success('项目创建成功')
     showPreview.value = false
     showApplyDialog.value = false
-    
-    // 通知父组件
+
     emit('select')
-    
-    // 跳转到新项目
     router.push(`/project/${res.data.project_id}`)
   } catch (error) {
     ElMessage.error('创建项目失败')

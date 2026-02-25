@@ -92,10 +92,10 @@ async def apply_extraction(
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
 ):
-    """将提取的信息应用到项目记忆中"""
+    """将提取的信息应用到项目设定中"""
     document = check_document_access(db, document_id, current_user["id"])
     
-    # 获取或创建 AI 记忆
+    # 获取或创建 项目设定
     memory = db.query(AIMemory).filter(
         AIMemory.project_id == document.project_id
     ).first()
@@ -151,7 +151,7 @@ async def apply_extraction(
     
     return {
         "success": True,
-        "message": "提取信息已应用到项目记忆",
+        "message": "提取信息已应用到项目设定",
         "applied": {
             "characters_count": len(extracted.get("characters", [])),
             "outline_items": len(extracted.get("outline", [])),
@@ -189,7 +189,7 @@ async def analyze_storyline(
         
         storyline = await ai_client.chat_completion(messages)
         
-        # 更新到记忆
+        # 更新到项目设定
         memory = db.query(AIMemory).filter(
             AIMemory.project_id == document.project_id
         ).first()

@@ -5,6 +5,7 @@ from typing import List, Optional
 from datetime import datetime
 from app.database import get_db
 from app.api.auth import get_current_user
+from app.api.projects import check_project_owner
 from app.models.models import Project, Document, Template, AIMemory
 from app.schemas.schemas import TemplateCreate, TemplateResponse, ProjectCreate
 
@@ -188,7 +189,7 @@ def apply_template(
     db.commit()
     db.refresh(project)
     
-    # 创建 AI 记忆
+    # 创建 项目设定
     memory = AIMemory(
         project_id=project.id,
         outline=template.outline or [],
@@ -221,6 +222,62 @@ def apply_template(
         "message": "模板应用成功",
         "project_id": project.id
     }
+
+
+@router.post("/{template_id}/apply-to-project")
+def apply_template_to_project(
+    template_id: int,
+    project_id: int,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """将模板应用到现有项目（覆盖当前项目的大纲、项目设定与文档）"""
+    check_project_owner(db, project_id, current_user["id"])
+    template = db.query(Template).filter(Template.id == template_id).first()
+    if not template:
+        raise HTTPException(status_code=404, detail="Template not found")
+
+    # 更新或创建 项目设定
+    memory = db.query(AIMemory).filter(AIMemory.project_id == project_id).first()
+    if not memory:
+        memory = AIMemory(
+            project_id=project_id,
+            outline=template.outline or [],
+            storyline=template.storyline,
+            characters=template.characters or [],
+            world_building=template.world_building or {},
+            writing_style=template.writing_style,
+        )
+        db.add(memory)
+    else:
+        memory.outline = template.outline or []
+        memory.storyline = template.storyline
+        memory.characters = template.characters or []
+        memory.world_building = template.world_building or {}
+        memory.writing_style = template.writing_style
+
+    # 删除现有文档
+    db.query(Document).filter(Document.project_id == project_id).delete()
+
+    # 按模板大纲创建新文档
+    if template.outline:
+        for i, item in enumerate(template.outline):
+            doc = Document(
+                title=item.get("title", f"章节{i+1}"),
+                content=[{
+                    "id": f"block-{i}-1",
+                    "type": "paragraph",
+                    "content": item.get("description", ""),
+                    "props": {}
+                }],
+                project_id=project_id,
+                order_index=i,
+            )
+            db.add(doc)
+
+    db.commit()
+    return {"message": "模板已应用到当前项目", "project_id": project_id}
+
 
 @router.delete("/{template_id}")
 def delete_template(

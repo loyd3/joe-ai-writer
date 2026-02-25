@@ -2,7 +2,7 @@
   <div class="main-layout">
     <el-container class="layout-container">
       <el-aside width="260px" class="sidebar">
-        <div class="logo">
+        <div class="logo" @click="goToHome" @keydown.enter="goToHome" role="button" tabindex="0" title="回到我的创作空间">
           <el-icon class="logo-icon"><EditPen /></el-icon>
           <div class="logo-text-wrap">
             <span class="logo-text">墨言</span>
@@ -74,6 +74,10 @@ const router = useRouter()
 const authStore = useAuthStore()
 const showSettingsDialog = ref(false)
 
+function goToHome() {
+  router.push('/')
+}
+
 async function handleUserCommand(command: string) {
   switch (command) {
     case 'profile':
@@ -128,7 +132,13 @@ async function handleUserCommand(command: string) {
   padding: 0 24px;
   gap: 12px;
   border-bottom: 1px solid var(--coffee-border-light);
-  
+  cursor: pointer;
+  transition: background 0.2s;
+
+  &:hover {
+    background: var(--coffee-bg-hover);
+  }
+
   .logo-icon {
     width: 40px;
     height: 40px;
@@ -232,6 +242,7 @@ async function handleUserCommand(command: string) {
   padding: 0;
   background: var(--coffee-gradient-light);
   overflow: hidden;
+  min-height: 0; /* 让 flex 子项可收缩，以便内部滚动生效 */
 }
 
 /* 下拉菜单样式 */

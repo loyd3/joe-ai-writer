@@ -6,7 +6,7 @@ import json
 
 
 class AIMemoryService:
-    """AI 记忆管理服务 - 管理项目级别的写作上下文"""
+    """项目设定服务 - 管理项目级别的写作上下文"""
 
     @staticmethod
     def get_or_create_memory(db: Session, project_id: int) -> AIMemory:
@@ -32,10 +32,10 @@ class AIMemoryService:
 
     @staticmethod
     def build_memory_context(db: Session, project_id: int) -> str:
-        """构建 AI 记忆上下文字符串，用于注入到 AI 提示词中"""
+        """构建项目设定上下文字符串，用于注入到 AI 提示词中"""
         memory = AIMemoryService.get_or_create_memory(db, project_id)
 
-        context_parts = ["=== 项目记忆 ==="]
+        context_parts = ["=== 项目设定 ==="]
 
         # 大纲
         if memory.outline:

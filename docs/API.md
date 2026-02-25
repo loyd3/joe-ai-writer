@@ -108,7 +108,7 @@ DELETE /documents/{id}
 
 ---
 
-## AI 记忆 API
+## 项目设定 API
 
 ### 获取项目记忆
 ```http

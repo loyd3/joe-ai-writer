@@ -73,9 +73,13 @@ export const useProjectStore = defineStore('project', () => {
   async function fetchProject(id: number) {
     loading.value = true
     try {
-      const res = await projectApi.get(id)
-      currentProject.value = res.data
-      return res.data
+      const [projectRes, docsRes] = await Promise.all([
+        projectApi.get(id),
+        documentApi.list(id)
+      ])
+      const project = { ...projectRes.data, documents: docsRes.data || [] }
+      currentProject.value = project
+      return project
     } finally {
       loading.value = false
     }

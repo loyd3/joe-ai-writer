@@ -173,7 +173,7 @@ watch(searchQuery, (newVal) => {
 <style scoped lang="scss">
 .global-search {
   position: relative;
-  width: 300px;
+  width: 230px;
   
   :deep(.el-input__wrapper) {
     border-radius: 20px;

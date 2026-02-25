@@ -6,7 +6,7 @@ export const extractApi = {
     return api.post(`/extract/document/${documentId}`)
   },
 
-  // 应用提取的信息到记忆
+  // 应用提取的信息到项目设定
   apply: (documentId: number, data: { extracted: any }) => {
     return api.post(`/extract/document/${documentId}/apply`, data)
   },

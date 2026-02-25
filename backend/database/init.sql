@@ -57,7 +57,7 @@ CREATE TABLE IF NOT EXISTS documents (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ============================================
--- AI 记忆表
+-- 项目设定表
 -- ============================================
 CREATE TABLE IF NOT EXISTS ai_memories (
     id INT AUTO_INCREMENT PRIMARY KEY,

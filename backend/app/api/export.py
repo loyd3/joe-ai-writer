@@ -106,11 +106,11 @@ def generate_markdown(db: Session, document: Document, project: Project, include
     lines.append("---")
     lines.append("")
     
-    # 添加 AI 记忆
+    # 添加 项目设定
     if include_memory:
         memory = db.query(AIMemory).filter(AIMemory.project_id == project.id).first()
         if memory and has_memory_content(memory):
-            lines.append("## 📚 项目记忆")
+            lines.append("## 📚 项目设定")
             lines.append("")
             
             if memory.outline:
@@ -192,11 +192,11 @@ def generate_project_markdown(db: Session, project: Project, include_memory: boo
     lines.append("=" * 50)
     lines.append("")
     
-    # 添加 AI 记忆
+    # 添加 项目设定
     if include_memory:
         memory = db.query(AIMemory).filter(AIMemory.project_id == project.id).first()
         if memory and has_memory_content(memory):
-            lines.append("## 📚 项目记忆")
+            lines.append("## 📚 项目设定")
             lines.append("")
             
             if memory.outline:
@@ -277,7 +277,7 @@ def generate_project_markdown(db: Session, project: Project, include_memory: boo
     return "\n".join(lines)
 
 def has_memory_content(memory: AIMemory) -> bool:
-    """检查是否有记忆内容"""
+    """检查是否有项目设定内容"""
     return bool(
         memory.outline or
         memory.storyline or

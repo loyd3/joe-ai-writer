@@ -5,10 +5,16 @@
         <h1>我的创作空间</h1>
         <p class="subtitle">在这里记录您的灵感与故事</p>
       </div>
-      <!-- <el-button type="primary" class="create-btn" @click="showCreateDialog = true">
-        <el-icon><Plus /></el-icon>
-        <span>新建项目</span>
-      </el-button> -->
+      <div class="header-actions">
+        <el-button type="primary" class="action-btn" @click="showTemplateLibrary = true">
+          <el-icon><Collection /></el-icon>
+          <span>从模板开始</span>
+        </el-button>
+        <el-button class="action-btn" @click="showCreateDialog = true">
+          <el-icon><Plus /></el-icon>
+          <span>新建项目</span>
+        </el-button>
+      </div>
     </div>
     
     <div v-if="projects.length > 0" class="projects-grid">
@@ -236,19 +242,27 @@ async function saveProject() {
     }
   }
   
-  .create-btn {
-    height: 48px;
-    padding: 0 24px;
-    border-radius: 12px;
-    background: linear-gradient(135deg, #a65e2e 0%, #c97f4a 100%);
-    border: none;
-    font-size: 15px;
+  .header-actions {
+    display: flex;
+    gap: 12px;
+  }
+  
+  .action-btn {
+    height: 40px;
+    padding: 0 20px;
+    border-radius: 10px;
+    font-size: 14px;
     font-weight: 500;
     transition: all 0.3s ease;
     
+    &.el-button--primary {
+      background: linear-gradient(135deg, #a65e2e 0%, #c97f4a 100%);
+      border: none;
+    }
+    
     &:hover {
       transform: translateY(-2px);
-      box-shadow: 0 8px 20px rgba(166, 94, 46, 0.3);
+      box-shadow: 0 6px 16px rgba(166, 94, 46, 0.25);
     }
     
     .el-icon {

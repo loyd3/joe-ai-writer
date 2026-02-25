@@ -12,9 +12,13 @@
           </div>
         </div>
         <div class="actions">
+          <el-button class="memory-btn" @click="showTemplateLibrary = true">
+            <el-icon><Upload /></el-icon>
+            <span>导入模板</span>
+          </el-button>
           <el-button class="memory-btn" @click="showMemoryDrawer = true">
             <el-icon><Collection /></el-icon>
-            <span>AI 记忆</span>
+            <span>项目设定</span>
           </el-button>
           <el-dropdown trigger="click" @command="handleProjectCommand" class="project-actions-dropdown">
             <el-button class="more-btn">
@@ -62,8 +66,8 @@
       
       <div v-else class="documents-grid">
         <div 
-          v-for="doc in documents" 
-          :key="doc.id" 
+          v-for="(doc, index) in documents" 
+          :key="`doc-${doc.id}-${index}`" 
           class="doc-card"
           @click="openDocument(doc.id)"
         >
@@ -95,15 +99,15 @@
       </div>
     </div>
 
-    <!-- AI 记忆抽屉 -->
+    <!-- 项目设定抽屉 -->
     <el-drawer
       v-model="showMemoryDrawer"
-      title="AI 记忆管理"
+      title="项目设定管理"
       size="520px"
       class="memory-drawer"
       :destroy-on-close="false"
     >
-      <AIMemoryManager :project-id="Number(projectId)" />
+      <ProjectSettingsManager :project-id="Number(projectId)" />
     </el-drawer>
 
     <!-- 新建文档对话框 -->
@@ -129,6 +133,21 @@
           创建
         </el-button>
       </template>
+    </el-dialog>
+
+    <!-- 导入模板对话框 -->
+    <el-dialog
+      v-model="showTemplateLibrary"
+      title="导入模板到当前项目"
+      width="900px"
+      class="template-dialog"
+      :destroy-on-close="true"
+    >
+      <TemplateLibrary
+        mode="applyToProject"
+        :project-id="Number(projectId)"
+        @applied="onTemplateApplied"
+      />
     </el-dialog>
 
     <!-- 编辑项目对话框 -->
@@ -173,9 +192,10 @@ import { computed, ref, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useProjectStore, type Document } from '@/stores/project'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import AIMemoryManager from '@/components/AIMemoryManager.vue'
-import { ArrowLeft, Collection, Plus, Document as DocumentIcon, MoreFilled, Edit, Delete, Calendar } from '@element-plus/icons-vue'
+import ProjectSettingsManager from '@/components/ProjectSettingsManager.vue'
+import { ArrowLeft, Collection, Plus, Document as DocumentIcon, MoreFilled, Edit, Delete, Calendar, Upload } from '@element-plus/icons-vue'
 import ExportMenu from '@/components/ExportMenu.vue'
+import TemplateLibrary from '@/components/TemplateLibrary.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -186,6 +206,7 @@ const project = computed(() => store.currentProject)
 const documents = computed(() => store.currentProject?.documents || [])
 
 const showMemoryDrawer = ref(false)
+const showTemplateLibrary = ref(false)
 const showCreateDocDialog = ref(false)
 const showEditProjectDialog = ref(false)
 const creating = ref(false)
@@ -205,6 +226,11 @@ async function loadProject() {
   if (projectId.value) {
     await store.fetchProject(Number(projectId.value))
   }
+}
+
+function onTemplateApplied() {
+  showTemplateLibrary.value = false
+  loadProject()
 }
 
 function goHome() {
@@ -322,11 +348,15 @@ async function saveProjectEdit() {
 
 <style scoped lang="scss">
 .project-view {
-  min-height: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   padding: 32px 40px;
 }
 
 .project-header {
+  flex-shrink: 0;
   margin-bottom: 32px;
   padding-bottom: 24px;
   border-bottom: 1px solid var(--coffee-border);
@@ -335,6 +365,7 @@ async function saveProjectEdit() {
     display: flex;
     justify-content: space-between;
     align-items: flex-start;
+    flex-wrap: wrap;
   }
 }
 
@@ -432,6 +463,11 @@ async function saveProjectEdit() {
 }
 
 .documents-section {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 4px; /* 留出滚动条空间 */
+
   .section-header {
     display: flex;
     justify-content: space-between;
