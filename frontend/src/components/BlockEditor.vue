@@ -32,7 +32,7 @@
                 <el-icon><Top /></el-icon> 转为标题
               </el-dropdown-item>
               <el-dropdown-item command="quote">
-                <el-icon><Quote /></el-icon> 转为引用
+                <el-icon><ChatDotRound /></el-icon> 转为引用
               </el-dropdown-item>
               <el-dropdown-item command="list">
                 <el-icon><List /></el-icon> 转为列表
@@ -61,7 +61,7 @@
 <script setup lang="ts">
 import { ref, nextTick } from 'vue'
 import type { Block } from '@/stores/project'
-import { Plus, MoreFilled, Top, Quote, List, Document, Delete, EditPen } from '@element-plus/icons-vue'
+import { Plus, MoreFilled, Top, ChatDotRound, List, Document, Delete, EditPen } from '@element-plus/icons-vue'
 
 const props = defineProps<{
   modelValue: Block[]
