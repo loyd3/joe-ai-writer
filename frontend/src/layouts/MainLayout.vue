@@ -93,7 +93,7 @@ async function handleUserCommand(command: string) {
 <style scoped lang="scss">
 .main-layout {
   height: 100vh;
-  background: #faf8f5;
+  background: #fdfbf7;
 }
 
 .layout-container {
@@ -102,10 +102,10 @@ async function handleUserCommand(command: string) {
 
 .sidebar {
   background: linear-gradient(180deg, #fdfbf7 0%, #f8f4ed 100%);
-  border-right: 1px solid #e8e0d5;
+  border-right: 1px solid #e8dcd0;
   display: flex;
   flex-direction: column;
-  box-shadow: 4px 0 20px rgba(92, 64, 51, 0.04);
+  box-shadow: 4px 0 20px rgba(74, 44, 23, 0.04);
 }
 
 .logo {
@@ -114,12 +114,12 @@ async function handleUserCommand(command: string) {
   align-items: center;
   padding: 0 24px;
   gap: 12px;
-  border-bottom: 1px solid #f0e6d8;
+  border-bottom: 1px solid #f2e9e0;
   
   .logo-icon {
     width: 40px;
     height: 40px;
-    background: linear-gradient(135deg, #8b5a2b 0%, #a67c52 100%);
+    background: linear-gradient(135deg, #a65e2e 0%, #c97f4a 100%);
     border-radius: 10px;
     display: flex;
     align-items: center;
@@ -131,7 +131,7 @@ async function handleUserCommand(command: string) {
   .logo-text {
     font-size: 18px;
     font-weight: 700;
-    color: #5c4033;
+    color: #4a2c17;
     letter-spacing: 1px;
   }
 }
@@ -147,7 +147,7 @@ async function handleUserCommand(command: string) {
   
   .coffee-divider {
     margin: 8px 0 16px;
-    border-color: #e8e0d5;
+    border-color: #e8dcd0;
   }
 }
 
@@ -161,7 +161,7 @@ async function handleUserCommand(command: string) {
   transition: all 0.3s ease;
   
   &:hover {
-    background: rgba(139, 90, 43, 0.06);
+    background: rgba(166, 94, 46, 0.06);
   }
   
   .user-avatar {
@@ -172,7 +172,7 @@ async function handleUserCommand(command: string) {
     display: flex;
     align-items: center;
     justify-content: center;
-    color: #5c4033;
+    color: #4a2c17;
     font-size: 18px;
   }
   
@@ -185,24 +185,24 @@ async function handleUserCommand(command: string) {
     .username {
       font-size: 14px;
       font-weight: 600;
-      color: #5c4033;
+      color: #4a2c17;
     }
     
     .user-role {
       font-size: 12px;
-      color: #a68b6a;
+      color: #c9a86c;
     }
   }
   
   .arrow-icon {
     font-size: 12px;
-    color: #a68b6a;
+    color: #c9a86c;
   }
 }
 
 .main-content {
   padding: 0;
-  background: linear-gradient(135deg, #faf8f5 0%, #f5f0e8 100%);
+  background: linear-gradient(135deg, #fdfbf7 0%, #f8f3ec 100%);
   overflow: hidden;
 }
 
@@ -213,15 +213,15 @@ async function handleUserCommand(command: string) {
     
     .el-icon {
       margin-right: 8px;
-      color: #8b7355;
+      color: #a67c52;
     }
     
     &:hover {
       background: #faf6f1;
-      color: #8b5a2b;
+      color: #a65e2e;
       
       .el-icon {
-        color: #8b5a2b;
+        color: #a65e2e;
       }
     }
   }

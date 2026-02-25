@@ -6,32 +6,36 @@
 </script>
 
 <style>
-/* ===== 全局样式变量 - 深邃咖啡色调主题 ===== */
+/* ===== 全局样式变量 - 鲜艳咖啡色调主题 ===== */
 :root {
-  /* 主色调 - 加深 */
-  --coffee-primary: #5d3a1a;
-  --coffee-primary-light: #8b5a2b;
-  --coffee-primary-dark: #3d2916;
+  /* 主色调 - 更鲜艳的咖啡棕 */
+  --coffee-primary: #a65e2e;
+  --coffee-primary-light: #c97f4a;
+  --coffee-primary-dark: #7a4318;
   
-  /* 背景色 */
-  --coffee-bg: #faf8f5;
-  --coffee-bg-warm: #f5f0e8;
+  /* 背景色 - 更温暖的米白 */
+  --coffee-bg: #fdfbf7;
+  --coffee-bg-warm: #f8f3ec;
   --coffee-bg-card: #ffffff;
   
-  /* 文字色 - 加深 */
-  --coffee-text: #3d2916;
-  --coffee-text-secondary: #5d3a1a;
-  --coffee-text-muted: #8b5a2b;
-  --coffee-text-light: #a67c52;
+  /* 文字色 - 更鲜明的深咖啡 */
+  --coffee-text: #4a2c17;
+  --coffee-text-secondary: #6b4423;
+  --coffee-text-muted: #a67c52;
+  --coffee-text-light: #c9a86c;
   
-  /* 边框/分隔线 */
-  --coffee-border: #e0d5c8;
-  --coffee-border-light: #ede5dc;
-  --coffee-divider: #f0e8dc;
+  /* 边框/分隔线 - 更温暖的色调 */
+  --coffee-border: #e8dcd0;
+  --coffee-border-light: #f2e9e0;
+  --coffee-divider: #f5ebe0;
   
-  /* 阴影 */
-  --coffee-shadow: rgba(61, 41, 22, 0.08);
-  --coffee-shadow-hover: rgba(61, 41, 22, 0.15);
+  /* 阴影 - 更温暖的阴影 */
+  --coffee-shadow: rgba(166, 94, 46, 0.08);
+  --coffee-shadow-hover: rgba(166, 94, 46, 0.15);
+  
+  /* 渐变 */
+  --coffee-gradient-primary: linear-gradient(135deg, #a65e2e 0%, #c97f4a 100%);
+  --coffee-gradient-light: linear-gradient(135deg, #f8f3ec 0%, #f0e6dc 100%);
 }
 
 * {
@@ -72,7 +76,7 @@ body {
 /* 菜单 */
 .el-menu {
   --el-menu-bg-color: transparent;
-  --el-menu-hover-bg-color: rgba(93, 58, 26, 0.06);
+  --el-menu-hover-bg-color: rgba(166, 94, 46, 0.08);
   --el-menu-text-color: var(--coffee-text-secondary);
   --el-menu-hover-text-color: var(--coffee-primary);
   --el-menu-active-color: var(--coffee-primary);
@@ -114,7 +118,7 @@ body {
 
 /* 下拉菜单 */
 .el-dropdown-menu {
-  --el-dropdown-menuItem-hover-fill: rgba(93, 58, 26, 0.06);
+  --el-dropdown-menuItem-hover-fill: rgba(166, 94, 46, 0.08);
   --el-dropdown-menuItem-hover-color: var(--coffee-primary);
 }
 
@@ -139,7 +143,7 @@ body {
 
 /* 选中文字 */
 ::selection {
-  background: rgba(93, 58, 26, 0.2);
+  background: rgba(166, 94, 46, 0.25);
   color: var(--coffee-text);
 }
 
@@ -156,7 +160,7 @@ a:hover {
 
 /* 加载动画 */
 .el-loading-mask {
-  background: rgba(250, 248, 245, 0.9);
+  background: rgba(253, 251, 247, 0.9);
 }
 
 /* 消息提示 */

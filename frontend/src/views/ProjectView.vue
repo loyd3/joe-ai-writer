@@ -283,7 +283,7 @@ function handleDocCommand(cmd: string, doc: Document) {
     &:hover {
       border-color: var(--coffee-primary);
       color: var(--coffee-primary);
-      background: rgba(139, 90, 43, 0.04);
+      background: rgba(166, 94, 46, 0.04);
     }
     
     .el-icon {
@@ -301,7 +301,7 @@ function handleDocCommand(cmd: string, doc: Document) {
     
     &:hover {
       transform: translateY(-1px);
-      box-shadow: 0 6px 16px rgba(139, 90, 43, 0.25);
+      box-shadow: 0 6px 16px rgba(166, 94, 46, 0.25);
     }
     
     .el-icon {
@@ -391,7 +391,7 @@ function handleDocCommand(cmd: string, doc: Document) {
       transition: all 0.2s;
       
       &:hover {
-        background: rgba(139, 90, 43, 0.08);
+        background: rgba(166, 94, 46, 0.08);
         color: var(--coffee-primary);
       }
     }

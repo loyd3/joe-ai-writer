@@ -195,20 +195,20 @@ async function saveProject() {
   align-items: center;
   margin-bottom: 40px;
   padding-bottom: 24px;
-  border-bottom: 1px solid #e8e0d5;
+  border-bottom: 1px solid #e8dcd0;
   
   .header-content {
     h1 {
       font-size: 32px;
       font-weight: 700;
-      color: #5c4033;
+      color: #4a2c17;
       margin-bottom: 8px;
       letter-spacing: 1px;
     }
     
     .subtitle {
       font-size: 15px;
-      color: #8b7355;
+      color: #a67c52;
       font-style: italic;
     }
   }
@@ -217,7 +217,7 @@ async function saveProject() {
     height: 48px;
     padding: 0 24px;
     border-radius: 12px;
-    background: linear-gradient(135deg, #8b5a2b 0%, #a67c52 100%);
+    background: linear-gradient(135deg, #a65e2e 0%, #c97f4a 100%);
     border: none;
     font-size: 15px;
     font-weight: 500;
@@ -225,7 +225,7 @@ async function saveProject() {
     
     &:hover {
       transform: translateY(-2px);
-      box-shadow: 0 8px 20px rgba(139, 90, 43, 0.3);
+      box-shadow: 0 8px 20px rgba(166, 94, 46, 0.3);
     }
     
     .el-icon {
@@ -242,8 +242,8 @@ async function saveProject() {
   background: #fff;
   border-radius: 16px;
   padding: 24px;
-  box-shadow: 0 4px 20px rgba(92, 64, 51, 0.06);
-  border: 1px solid #f0e6d8;
+  box-shadow: 0 4px 20px rgba(74, 44, 23, 0.06);
+  border: 1px solid #f2e9e0;
   cursor: pointer;
   transition: all 0.3s ease;
   height: 100%;
@@ -252,7 +252,7 @@ async function saveProject() {
   
   &:hover {
     transform: translateY(-4px);
-    box-shadow: 0 12px 32px rgba(92, 64, 51, 0.12);
+    box-shadow: 0 12px 32px rgba(74, 44, 23, 0.12);
     border-color: #e0d4c4;
   }
   
@@ -265,7 +265,7 @@ async function saveProject() {
     .project-icon {
       width: 48px;
       height: 48px;
-      background: linear-gradient(135deg, #f5ebe0 0%, #ede0d4 100%);
+      background: linear-gradient(135deg, #f5ebe0 0%, #f2dec8 100%);
       border-radius: 12px;
       display: flex;
       align-items: center;
@@ -273,21 +273,21 @@ async function saveProject() {
       
       .el-icon {
         font-size: 24px;
-        color: #8b5a2b;
+        color: #a65e2e;
       }
     }
     
     .more-btn {
       font-size: 18px;
-      color: #a68b6a;
+      color: #c9a86c;
       padding: 6px;
       border-radius: 6px;
       transition: all 0.2s;
       opacity: 0;
       
       &:hover {
-        background: rgba(139, 90, 43, 0.08);
-        color: #8b5a2b;
+        background: rgba(166, 94, 46, 0.08);
+        color: #a65e2e;
       }
     }
   }
@@ -302,7 +302,7 @@ async function saveProject() {
     .project-title {
       font-size: 18px;
       font-weight: 600;
-      color: #5c4033;
+      color: #4a2c17;
       margin-bottom: 8px;
       overflow: hidden;
       text-overflow: ellipsis;
@@ -311,7 +311,7 @@ async function saveProject() {
     
     .project-desc {
       font-size: 14px;
-      color: #8b7355;
+      color: #a67c52;
       line-height: 1.6;
       overflow: hidden;
       text-overflow: ellipsis;
@@ -334,7 +334,7 @@ async function saveProject() {
       align-items: center;
       gap: 6px;
       font-size: 13px;
-      color: #a68b6a;
+      color: #c9a86c;
       
       .el-icon {
         font-size: 14px;
@@ -354,7 +354,7 @@ async function saveProject() {
   .empty-illustration {
     width: 120px;
     height: 120px;
-    background: linear-gradient(135deg, #f5ebe0 0%, #ede0d4 100%);
+    background: linear-gradient(135deg, #f5ebe0 0%, #f2dec8 100%);
     border-radius: 50%;
     display: flex;
     align-items: center;
@@ -363,20 +363,20 @@ async function saveProject() {
     
     .el-icon {
       font-size: 56px;
-      color: #a67c52;
+      color: #c97f4a;
     }
   }
   
   h2 {
     font-size: 24px;
     font-weight: 600;
-    color: #5c4033;
+    color: #4a2c17;
     margin-bottom: 8px;
   }
   
   p {
     font-size: 15px;
-    color: #8b7355;
+    color: #a67c52;
     margin-bottom: 24px;
   }
   
@@ -384,13 +384,13 @@ async function saveProject() {
     height: 48px;
     padding: 0 32px;
     border-radius: 12px;
-    background: linear-gradient(135deg, #8b5a2b 0%, #a67c52 100%);
+    background: linear-gradient(135deg, #a65e2e 0%, #c97f4a 100%);
     border: none;
     font-size: 15px;
     
     &:hover {
       transform: translateY(-2px);
-      box-shadow: 0 8px 20px rgba(139, 90, 43, 0.3);
+      box-shadow: 0 8px 20px rgba(166, 94, 46, 0.3);
     }
   }
 }
@@ -399,11 +399,11 @@ async function saveProject() {
 :deep(.coffee-dialog) {
   .el-dialog__header {
     padding: 20px 24px;
-    border-bottom: 1px solid #f0e6d8;
+    border-bottom: 1px solid #f2e9e0;
     
     .el-dialog__title {
       font-weight: 600;
-      color: #5c4033;
+      color: #4a2c17;
     }
   }
   
@@ -413,18 +413,18 @@ async function saveProject() {
   
   .el-dialog__footer {
     padding: 16px 24px;
-    border-top: 1px solid #f0e6d8;
+    border-top: 1px solid #f2e9e0;
   }
 }
 
 .coffee-form {
   .el-input__wrapper,
   .el-textarea__inner {
-    background: #faf8f5;
-    border-color: #e8e0d5;
+    background: #fdfbf7;
+    border-color: #e8dcd0;
     
     &:focus {
-      border-color: #a67c52;
+      border-color: #c97f4a;
     }
   }
 }

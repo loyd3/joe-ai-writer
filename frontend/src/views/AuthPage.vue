@@ -178,7 +178,7 @@ async function handleSubmit() {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, #faf6f1 0%, #f5ebe0 50%, #ede0d4 100%);
+  background: linear-gradient(135deg, #fdf8f3 0%, #f8ece0 50%, #f2dec8 100%);
   position: relative;
   overflow: hidden;
 }
@@ -198,13 +198,13 @@ async function handleSubmit() {
   .logo {
     width: 80px;
     height: 80px;
-    background: linear-gradient(135deg, #8b5a2b 0%, #a67c52 100%);
+    background: linear-gradient(135deg, #a65e2e 0%, #c97f4a 100%);
     border-radius: 20px;
     display: flex;
     align-items: center;
     justify-content: center;
     margin: 0 auto 20px;
-    box-shadow: 0 10px 40px rgba(139, 90, 43, 0.3);
+    box-shadow: 0 10px 40px rgba(166, 94, 46, 0.3);
     
     .el-icon {
       font-size: 40px;
@@ -215,14 +215,14 @@ async function handleSubmit() {
   h1 {
     font-size: 32px;
     font-weight: 700;
-    color: #5c4033;
+    color: #4a2c17;
     margin-bottom: 8px;
     letter-spacing: 2px;
   }
   
   .tagline {
     font-size: 16px;
-    color: #8b7355;
+    color: #a67c52;
     font-style: italic;
   }
 }
@@ -235,20 +235,20 @@ async function handleSubmit() {
   width: 100%;
   max-width: 400px;
   box-shadow: 
-    0 20px 60px rgba(92, 64, 51, 0.15),
-    0 0 0 1px rgba(139, 90, 43, 0.05);
+    0 20px 60px rgba(74, 44, 23, 0.15),
+    0 0 0 1px rgba(166, 94, 46, 0.05);
   
   h2 {
     font-size: 24px;
     font-weight: 600;
-    color: #5c4033;
+    color: #4a2c17;
     margin-bottom: 8px;
     text-align: center;
   }
   
   .subtitle {
     font-size: 14px;
-    color: #8b7355;
+    color: #a67c52;
     text-align: center;
     margin-bottom: 30px;
   }
@@ -257,13 +257,13 @@ async function handleSubmit() {
 .auth-form {
   .el-input {
     --el-input-border-radius: 12px;
-    --el-input-bg-color: #faf8f5;
-    --el-input-border-color: #e8e0d5;
+    --el-input-bg-color: #fdfbf7;
+    --el-input-border-color: #e8dcd0;
     --el-input-hover-border-color: #c4a77d;
-    --el-input-focus-border-color: #a67c52;
+    --el-input-focus-border-color: #c97f4a;
     
     :deep(.el-input__wrapper) {
-      box-shadow: 0 2px 8px rgba(139, 90, 43, 0.04);
+      box-shadow: 0 2px 8px rgba(166, 94, 46, 0.04);
       padding: 4px 16px;
     }
     
@@ -279,13 +279,13 @@ async function handleSubmit() {
     font-size: 16px;
     font-weight: 500;
     margin-top: 10px;
-    background: linear-gradient(135deg, #8b5a2b 0%, #a67c52 100%);
+    background: linear-gradient(135deg, #a65e2e 0%, #c97f4a 100%);
     border: none;
     transition: all 0.3s ease;
     
     &:hover {
       transform: translateY(-2px);
-      box-shadow: 0 8px 20px rgba(139, 90, 43, 0.3);
+      box-shadow: 0 8px 20px rgba(166, 94, 46, 0.3);
     }
   }
 }
@@ -294,16 +294,16 @@ async function handleSubmit() {
   text-align: center;
   margin-top: 24px;
   padding-top: 20px;
-  border-top: 1px solid #f0e6d8;
+  border-top: 1px solid #f2e9e0;
   
   p {
-    color: #8b7355;
+    color: #a67c52;
     font-size: 14px;
   }
   
   .el-button {
     font-weight: 500;
-    color: #8b5a2b;
+    color: #a65e2e;
   }
 }
 
@@ -313,7 +313,7 @@ async function handleSubmit() {
   
   p {
     font-size: 15px;
-    color: #8b7355;
+    color: #a67c52;
     font-style: italic;
     line-height: 1.8;
     margin-bottom: 8px;
@@ -321,7 +321,7 @@ async function handleSubmit() {
   
   .author {
     font-size: 13px;
-    color: #a68b6a;
+    color: #c9a86c;
   }
 }
 
@@ -334,7 +334,7 @@ async function handleSubmit() {
 .coffee-bean {
   width: 40px;
   height: 60px;
-  background: linear-gradient(135deg, #6b4423 0%, #8b5a2b 100%);
+  background: linear-gradient(135deg, #6b4423 0%, #a65e2e 100%);
   border-radius: 50% 50% 50% 50% / 60% 60% 40% 40%;
   opacity: 0.1;
   

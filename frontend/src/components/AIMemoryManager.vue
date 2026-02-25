@@ -405,7 +405,7 @@ async function saveMemory() {
   &:hover {
     border-color: var(--coffee-primary);
     color: var(--coffee-primary);
-    background: rgba(139, 90, 43, 0.04);
+    background: rgba(166, 94, 46, 0.04);
   }
 }
 
@@ -455,7 +455,7 @@ async function saveMemory() {
     
     &:hover {
       transform: translateY(-1px);
-      box-shadow: 0 6px 16px rgba(139, 90, 43, 0.25);
+      box-shadow: 0 6px 16px rgba(166, 94, 46, 0.25);
     }
   }
 }
