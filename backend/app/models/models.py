@@ -75,3 +75,36 @@ class AIInteraction(Base):
     ai_response = Column(Text)
     context_used = Column(JSON, default=dict)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+class Template(Base):
+    """项目模板"""
+    __tablename__ = "templates"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, nullable=False)
+    description = Column(Text, nullable=True)
+    category = Column(String, default="novel")  # novel, blog, work
+    icon = Column(String, default="📝")
+    outline = Column(JSON, default=list)
+    storyline = Column(Text, nullable=True)
+    characters = Column(JSON, default=list)
+    world_building = Column(JSON, default=dict)
+    writing_style = Column(Text, nullable=True)
+    is_system = Column(Boolean, default=False)
+    created_by = Column(Integer, ForeignKey("users.id"), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+class DocumentVersion(Base):
+    """文档版本历史"""
+    __tablename__ = "document_versions"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    document_id = Column(Integer, ForeignKey("documents.id"), nullable=False)
+    title = Column(String, nullable=False)
+    content = Column(JSON, default=list)
+    version_number = Column(Integer, nullable=False)
+    change_summary = Column(Text, nullable=True)
+    created_by = Column(Integer, ForeignKey("users.id"), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    
+    document = relationship("Document")

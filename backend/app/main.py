@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.database import engine, Base
-from app.api import projects, ai, auth, search, export
+from app.api import projects, ai, auth, search, export, templates, versions, extract
 
 # 创建数据库表
 Base.metadata.create_all(bind=engine)
@@ -33,6 +33,9 @@ app.include_router(projects.router)
 app.include_router(ai.router)
 app.include_router(search.router)
 app.include_router(export.router)
+app.include_router(templates.router)
+app.include_router(versions.router)
+app.include_router(extract.router)
 
 @app.get("/")
 def root():

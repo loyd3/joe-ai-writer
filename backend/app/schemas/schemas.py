@@ -143,3 +143,49 @@ class AIChatRequest(BaseModel):
     document_id: int
     messages: List[ChatMessage]
     include_memory: bool = True
+
+# ========== Template Schemas ==========
+class TemplateCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=100)
+    description: Optional[str] = None
+    category: str = "novel"
+    icon: str = "📝"
+    outline: List[Dict[str, Any]] = []
+    storyline: Optional[str] = None
+    characters: List[Character] = []
+    world_building: Dict[str, Any] = {}
+    writing_style: Optional[str] = None
+
+class TemplateResponse(BaseModel):
+    id: int
+    name: str
+    description: Optional[str]
+    category: str
+    icon: str
+    outline: List[Dict[str, Any]]
+    storyline: Optional[str]
+    characters: List[Character]
+    world_building: Dict[str, Any]
+    writing_style: Optional[str]
+    is_system: bool
+    created_at: datetime
+    
+    class Config:
+        from_attributes = True
+
+# ========== Document Version Schemas ==========
+class DocumentVersionCreate(BaseModel):
+    title: str
+    content: List[Block]
+    change_summary: Optional[str] = None
+
+class DocumentVersionResponse(BaseModel):
+    id: int
+    document_id: int
+    title: str
+    version_number: int
+    change_summary: Optional[str]
+    created_at: datetime
+    
+    class Config:
+        from_attributes = True
