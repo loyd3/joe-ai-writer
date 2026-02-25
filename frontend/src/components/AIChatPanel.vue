@@ -3,7 +3,7 @@
     <div class="panel-header">
       <div class="header-title">
         <div class="ai-avatar">
-          <el-icon><Magic /></el-icon>
+          <el-icon><Star /></el-icon>
         </div>
         <div class="title-text">
           <h3>AI 写作助手</h3>
@@ -38,7 +38,7 @@
         :class="msg.role"
       >
         <div class="message-avatar">
-          <el-icon v-if="msg.role === 'assistant'"><Magic /></el-icon>
+          <el-icon v-if="msg.role === 'assistant'"><Star /></el-icon>
           <el-icon v-else><User /></el-icon>
         </div>
         <div class="message-content">
@@ -56,7 +56,7 @@
       
       <div v-if="streaming" class="message assistant streaming">
         <div class="message-avatar">
-          <el-icon><Magic /></el-icon>
+          <el-icon><Star /></el-icon>
         </div>
         <div class="message-content">
           <div class="message-text">{{ streamingContent }}<span class="cursor">|</span></div>
@@ -90,7 +90,7 @@
 import { ref, nextTick } from 'vue'
 import { aiApi } from '@/api'
 import { ElMessage } from 'element-plus'
-import { Magic, Compass, Edit, Brush, Right, User, DocumentAdd, CopyDocument, Promotion, InfoFilled } from '@element-plus/icons-vue'
+import { Star, Compass, Edit, Brush, Right, User, DocumentAdd, CopyDocument, Promotion, InfoFilled } from '@element-plus/icons-vue'
 
 const props = defineProps<{
   documentId: number
