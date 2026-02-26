@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import { authApi } from '@/api'
+import { authApi, checkBackendHealth } from '@/api'
 import { ElMessage } from 'element-plus'
 import { useThemeStore } from '@/stores/theme'
 
@@ -45,6 +45,18 @@ export const useAuthStore = defineStore('auth', () => {
 
   async function login(username: string, password: string) {
     loading.value = true
+
+    // 首先检查后端健康状态
+    const health = await checkBackendHealth()
+    if (!health.ok) {
+      ElMessage.error({
+        message: `${health.message}\n请运行: python start.py`,
+        duration: 5000
+      })
+      loading.value = false
+      return false
+    }
+
     try {
       const res = await authApi.login(username, password)
       const { access_token } = res.data
@@ -63,10 +75,12 @@ export const useAuthStore = defineStore('auth', () => {
       // 处理超时和连接错误
       let msg = '登录失败'
 
-      if (error.code === 'ECONNABORTED' || error.message?.includes('timeout')) {
-        msg = '连接超时：后端服务未响应，请检查服务是否已启动'
+      if (error.code === 'ECONNABORTED') {
+        msg = '请求超时：后端服务响应时间过长'
+      } else if (error.code === 'ETIMEDOUT' || error.message?.includes('timeout')) {
+        msg = '连接超时：无法连接到后端服务'
       } else if (error.code === 'ERR_NETWORK' || error.message?.includes('Network Error')) {
-        msg = '无法连接到服务器，请检查：\n1. 后端服务是否已启动 (python start.py)\n2. 网络连接是否正常'
+        msg = '网络错误：无法连接到后端服务'
       } else if (error.response?.data?.detail) {
         msg = error.response.data.detail
       }
