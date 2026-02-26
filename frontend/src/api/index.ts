@@ -329,5 +329,5 @@ export const systemApi = {
 }
 
 export default api
-export { API_BASE_URL, checkBackendHealth }
+export { API_BASE_URL }
 export * from './types'
