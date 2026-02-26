@@ -242,20 +242,20 @@ async function saveProject() {
   align-items: center;
   margin-bottom: 40px;
   padding-bottom: 24px;
-  border-bottom: 1px solid #e8dcd0;
+  border-bottom: 1px solid var(--coffee-border);
   
   .header-content {
     h1 {
       font-size: 32px;
       font-weight: 700;
-      color: #4a2c17;
+      color: var(--coffee-text);
       margin-bottom: 8px;
       letter-spacing: 1px;
     }
     
     .subtitle {
       font-size: 15px;
-      color: #a67c52;
+      color: var(--coffee-text-muted);
       font-style: italic;
     }
   }
@@ -274,13 +274,13 @@ async function saveProject() {
     transition: all 0.3s ease;
     
     &.el-button--primary {
-      background: linear-gradient(135deg, #a65e2e 0%, #c97f4a 100%);
+      background: var(--coffee-gradient-primary);
       border: none;
     }
     
     &:hover {
       transform: translateY(-2px);
-      box-shadow: 0 6px 16px rgba(166, 94, 46, 0.25);
+      box-shadow: 0 6px 16px var(--coffee-selection);
     }
     
     .el-icon {
@@ -295,11 +295,11 @@ async function saveProject() {
 }
 
 .project-card {
-  background: #fff;
+  background: var(--coffee-bg-card);
   border-radius: 16px;
   padding: 24px;
-  box-shadow: 0 4px 20px rgba(74, 44, 23, 0.06);
-  border: 1px solid #f2e9e0;
+  box-shadow: 0 4px 20px var(--coffee-bg-hover);
+  border: 1px solid var(--coffee-border-light);
   cursor: pointer;
   transition: all 0.3s ease;
   height: 100%;
@@ -309,38 +309,37 @@ async function saveProject() {
   
   &:hover {
     transform: translateY(-4px);
-    box-shadow: 0 12px 32px rgba(74, 44, 23, 0.12);
-    border-color: #e0d4c4;
+    box-shadow: 0 12px 32px rgba(var(--coffee-primary-rgb), 0.12);
+    border-color: var(--coffee-border);
   }
 
   &.create-card {
-    background: linear-gradient(135deg, #fdfbf7 0%, #f5ebe0 100%);
-    border: 2px dashed #d4c4b0;
+    background: var(--coffee-bg);
+    border: 2px dashed var(--coffee-border);
     display: flex;
     align-items: center;
     justify-content: center;
     
     &:hover {
-      border-color: #c97f4a;
-      background: linear-gradient(135deg, #f5ebe0 0%, #f2dec8 100%);
+
     }
     
     &.template-card-entry {
-      background: linear-gradient(135deg, #f8f4ef 0%, #ebe4d8 100%);
+      background: var(--coffee-bg-warm);
       
       &:hover {
-        background: linear-gradient(135deg, #f2ebe0 0%, #e5dcc8 100%);
+
       }
       
       .template-icon {
-        color: #a65e2e;
+        color: var(--coffee-primary);
       }
       
       small {
         display: block;
         margin-top: 4px;
         font-size: 12px;
-        color: #a67c52;
+        color: var(--coffee-text-muted);
       }
     }
     
@@ -349,13 +348,13 @@ async function saveProject() {
       flex-direction: column;
       align-items: center;
       gap: 12px;
-      color: #8b7355;
+      color: var(--coffee-text-muted);
       font-size: 15px;
       font-weight: 500;
       
       .create-icon {
         font-size: 40px;
-        color: #c9a86c;
+        color: var(--coffee-text-light);
       }
     }
   }
@@ -369,7 +368,7 @@ async function saveProject() {
     .project-icon {
       width: 48px;
       height: 48px;
-      background: linear-gradient(135deg, #f5ebe0 0%, #f2dec8 100%);
+      background: var(--coffee-gradient-light);
       border-radius: 12px;
       display: flex;
       align-items: center;
@@ -377,21 +376,21 @@ async function saveProject() {
       
       .el-icon {
         font-size: 24px;
-        color: #a65e2e;
+        color: var(--coffee-primary);
       }
     }
     
     .more-btn {
       font-size: 18px;
-      color: #c9a86c;
+      color: var(--coffee-text-light);
       padding: 6px;
       border-radius: 6px;
       transition: all 0.2s;
       opacity: 0;
       
       &:hover {
-        background: rgba(166, 94, 46, 0.08);
-        color: #a65e2e;
+        background: var(--coffee-shadow);
+        color: var(--coffee-primary);
       }
     }
   }
@@ -406,7 +405,7 @@ async function saveProject() {
     .project-title {
       font-size: 18px;
       font-weight: 600;
-      color: #4a2c17;
+      color: var(--coffee-text);
       margin-bottom: 8px;
       overflow: hidden;
       text-overflow: ellipsis;
@@ -415,7 +414,7 @@ async function saveProject() {
     
     .project-desc {
       font-size: 14px;
-      color: #a67c52;
+      color: var(--coffee-text-muted);
       line-height: 1.6;
       overflow: hidden;
       text-overflow: ellipsis;
@@ -431,14 +430,14 @@ async function saveProject() {
     gap: 16px;
     margin-top: 16px;
     padding-top: 16px;
-    border-top: 1px solid #f5ebe0;
+    border-top: 1px solid var(--coffee-divider);
     
     .meta-item {
       display: flex;
       align-items: center;
       gap: 6px;
       font-size: 13px;
-      color: #c9a86c;
+      color: var(--coffee-text-light);
       
       .el-icon {
         font-size: 14px;
@@ -458,7 +457,7 @@ async function saveProject() {
   .empty-illustration {
     width: 120px;
     height: 120px;
-    background: linear-gradient(135deg, #f5ebe0 0%, #f2dec8 100%);
+    background: var(--coffee-gradient-light);
     border-radius: 50%;
     display: flex;
     align-items: center;
@@ -467,20 +466,20 @@ async function saveProject() {
     
     .el-icon {
       font-size: 56px;
-      color: #c97f4a;
+      color: var(--coffee-primary-light);
     }
   }
   
   h2 {
     font-size: 24px;
     font-weight: 600;
-    color: #4a2c17;
+    color: var(--coffee-text);
     margin-bottom: 8px;
   }
   
   p {
     font-size: 15px;
-    color: #a67c52;
+    color: var(--coffee-text-muted);
     margin-bottom: 24px;
   }
   
@@ -496,7 +495,7 @@ async function saveProject() {
       
       &:hover {
         transform: translateY(-2px);
-        box-shadow: 0 8px 20px rgba(166, 94, 46, 0.3);
+        box-shadow: 0 8px 20px rgba(var(--coffee-primary-rgb), 0.3);
       }
     }
   }
@@ -506,11 +505,11 @@ async function saveProject() {
 :deep(.coffee-dialog) {
   .el-dialog__header {
     padding: 20px 24px;
-    border-bottom: 1px solid #f2e9e0;
+    border-bottom: 1px solid var(--coffee-border-light);
     
     .el-dialog__title {
       font-weight: 600;
-      color: #4a2c17;
+      color: var(--coffee-text);
     }
   }
   
@@ -520,18 +519,18 @@ async function saveProject() {
   
   .el-dialog__footer {
     padding: 16px 24px;
-    border-top: 1px solid #f2e9e0;
+    border-top: 1px solid var(--coffee-border-light);
   }
 }
 
 .coffee-form {
   .el-input__wrapper,
   .el-textarea__inner {
-    background: #fdfbf7;
-    border-color: #e8dcd0;
+    background: var(--coffee-bg);
+    border-color: var(--coffee-border);
     
     &:focus {
-      border-color: #c97f4a;
+      border-color: var(--coffee-primary-light);
     }
   }
 }

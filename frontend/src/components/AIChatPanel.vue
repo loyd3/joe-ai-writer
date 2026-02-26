@@ -350,7 +350,7 @@ function scrollToBottom() {
       &:hover {
         border-color: var(--coffee-primary);
         color: var(--coffee-primary);
-        background: rgba(166, 94, 46, 0.04);
+        background: var(--coffee-sidebar-shadow);
       }
       
       .el-icon {
@@ -406,7 +406,7 @@ function scrollToBottom() {
       :deep(code) {
         padding: 0.15em 0.4em;
         font-size: 0.9em;
-        background: rgba(93, 58, 26, 0.08);
+        background: var(--coffee-shadow);
         border-radius: 4px;
         font-family: ui-monospace, monospace;
       }
@@ -414,7 +414,7 @@ function scrollToBottom() {
         margin: 0.75em 0;
         padding: 12px;
         overflow-x: auto;
-        background: rgba(93, 58, 26, 0.06);
+        background: var(--coffee-bg-hover);
         border-radius: 8px;
         font-size: 13px;
         code { padding: 0; background: none; }
@@ -539,7 +539,7 @@ function scrollToBottom() {
     
     &:hover {
       transform: translateY(-1px);
-      box-shadow: 0 4px 12px rgba(166, 94, 46, 0.25);
+      box-shadow: 0 4px 12px var(--coffee-selection);
     }
     
     .el-icon {

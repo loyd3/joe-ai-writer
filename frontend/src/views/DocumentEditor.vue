@@ -451,7 +451,7 @@ onBeforeUnmount(() => {
   &:hover, &.el-button--primary {
     border-color: var(--coffee-primary);
     color: var(--coffee-primary);
-    background: rgba(166, 94, 46, 0.06);
+    background: var(--coffee-bg-hover);
   }
   
   &.el-button--primary {
@@ -474,7 +474,7 @@ onBeforeUnmount(() => {
   
   &:hover {
     transform: translateY(-1px);
-    box-shadow: 0 4px 12px rgba(166, 94, 46, 0.25);
+    box-shadow: 0 4px 12px var(--coffee-selection);
   }
   
   .el-icon {

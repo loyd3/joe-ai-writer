@@ -10,37 +10,39 @@ useThemeStore()
 <style>
 /* ===== 全局样式变量 - 鲜艳咖啡色调主题 ===== */
 :root {
-  /* 主色调 - 更鲜艳的咖啡棕 */
+  /* 主色调 RGB 分量（用于灵活 rgba） */
+  --coffee-primary-rgb: 166, 94, 46;
+  /* 主色调 */
   --coffee-primary: #a65e2e;
   --coffee-primary-light: #c97f4a;
   --coffee-primary-dark: #7a4318;
   
-  /* 背景色 - 更温暖的米白 */
+  /* 背景色 */
   --coffee-bg: #fdfbf7;
   --coffee-bg-warm: #f8f3ec;
   --coffee-bg-card: #ffffff;
   
-  /* 文字色 - 更鲜明的深咖啡 */
+  /* 文字色 */
   --coffee-text: #4a2c17;
   --coffee-text-secondary: #6b4423;
   --coffee-text-muted: #a67c52;
   --coffee-text-light: #c9a86c;
   
-  /* 边框/分隔线 - 更温暖的色调 */
+  /* 边框/分隔线 */
   --coffee-border: #e8dcd0;
   --coffee-border-light: #f2e9e0;
   --coffee-divider: #f5ebe0;
   
-  /* 阴影 - 更温暖的阴影 */
-  --coffee-shadow: rgba(166, 94, 46, 0.08);
-  --coffee-shadow-hover: rgba(166, 94, 46, 0.15);
-  --coffee-selection: rgba(166, 94, 46, 0.25);
-  --coffee-bg-hover: rgba(166, 94, 46, 0.06);
-  --coffee-sidebar-shadow: rgba(166, 94, 46, 0.04);
+  /* 阴影 */
+  --coffee-shadow: rgba(var(--coffee-primary-rgb), 0.08);
+  --coffee-shadow-hover: rgba(var(--coffee-primary-rgb), 0.15);
+  --coffee-selection: rgba(var(--coffee-primary-rgb), 0.25);
+  --coffee-bg-hover: rgba(var(--coffee-primary-rgb), 0.06);
+  --coffee-sidebar-shadow: rgba(var(--coffee-primary-rgb), 0.04);
   
   /* 渐变 */
-  --coffee-gradient-primary: linear-gradient(135deg, #a65e2e 0%, #c97f4a 100%);
-  --coffee-gradient-light: linear-gradient(135deg, #f8f3ec 0%, #f0e6dc 100%);
+  --coffee-gradient-primary: linear-gradient(135deg, var(--coffee-primary) 0%, var(--coffee-primary-light) 100%);
+  --coffee-gradient-light: linear-gradient(135deg, var(--coffee-bg-warm) 0%, var(--coffee-divider) 100%);
 }
 
 * {
@@ -81,7 +83,7 @@ body {
 /* 菜单 */
 .el-menu {
   --el-menu-bg-color: transparent;
-  --el-menu-hover-bg-color: rgba(166, 94, 46, 0.08);
+  --el-menu-hover-bg-color: var(--coffee-shadow);
   --el-menu-text-color: var(--coffee-text-secondary);
   --el-menu-hover-text-color: var(--coffee-primary);
   --el-menu-active-color: var(--coffee-primary);
@@ -123,7 +125,7 @@ body {
 
 /* 下拉菜单 */
 .el-dropdown-menu {
-  --el-dropdown-menuItem-hover-fill: rgba(166, 94, 46, 0.08);
+  --el-dropdown-menuItem-hover-fill: var(--coffee-shadow);
   --el-dropdown-menuItem-hover-color: var(--coffee-primary);
 }
 
@@ -165,7 +167,7 @@ a:hover {
 
 /* 加载动画 */
 .el-loading-mask {
-  background: rgba(253, 251, 247, 0.9);
+  background: var(--coffee-bg);
 }
 
 /* 消息提示 */

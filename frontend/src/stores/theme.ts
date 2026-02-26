@@ -166,6 +166,7 @@ function setCssVars(palette: Record<string, string>) {
   const { primary, primaryLight, primaryDark } = palette
   const [r, g, b] = hexToRgb(primary)
   const root = document.documentElement
+  root.style.setProperty('--coffee-primary-rgb', `${r}, ${g}, ${b}`)
   root.style.setProperty('--coffee-primary', primary)
   root.style.setProperty('--coffee-primary-light', primaryLight)
   root.style.setProperty('--coffee-primary-dark', primaryDark)

@@ -173,7 +173,7 @@ async function confirmExport() {
   &:hover {
     border-color: var(--coffee-primary);
     color: var(--coffee-primary);
-    background: rgba(166, 94, 46, 0.04);
+    background: var(--coffee-sidebar-shadow);
   }
   
   .el-icon {

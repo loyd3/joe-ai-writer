@@ -198,13 +198,13 @@ async function handleSubmit() {
   .logo {
     width: 80px;
     height: 80px;
-    background: linear-gradient(135deg, #a65e2e 0%, #c97f4a 100%);
+    background: var(--coffee-gradient-primary);
     border-radius: 20px;
     display: flex;
     align-items: center;
     justify-content: center;
     margin: 0 auto 10px;
-    box-shadow: 0 10px 40px rgba(166, 94, 46, 0.3);
+    box-shadow: 0 10px 40px rgba(var(--coffee-primary-rgb), 0.3);
     
     .el-icon {
       font-size: 40px;
@@ -215,7 +215,7 @@ async function handleSubmit() {
   h1 {
     font-size: 32px;
     font-weight: 700;
-    color: #4a2c17;
+    color: var(--coffee-text);
     margin-bottom: 8px;
     letter-spacing: 2px;
   }
@@ -235,13 +235,13 @@ async function handleSubmit() {
   width: 100%;
   max-width: 400px;
   box-shadow: 
-    0 20px 60px rgba(74, 44, 23, 0.15),
-    0 0 0 1px rgba(166, 94, 46, 0.05);
+    0 20px 60px var(--coffee-shadow-hover),
+    0 0 0 1px rgba(var(--coffee-primary-rgb), 0.05);
   
   h2 {
     font-size: 24px;
     font-weight: 600;
-    color: #4a2c17;
+    color: var(--coffee-text);
     margin-bottom: 8px;
     text-align: center;
   }
@@ -260,10 +260,10 @@ async function handleSubmit() {
     --el-input-bg-color: #fdfbf7;
     --el-input-border-color: #e8dcd0;
     --el-input-hover-border-color: #c4a77d;
-    --el-input-focus-border-color: #c97f4a;
+    --el-input-focus-border-color: var(--coffee-primary-light);
     
     :deep(.el-input__wrapper) {
-      box-shadow: 0 2px 8px rgba(166, 94, 46, 0.04);
+      box-shadow: 0 2px 8px var(--coffee-sidebar-shadow);
       padding: 4px 16px;
     }
     
@@ -279,13 +279,13 @@ async function handleSubmit() {
     font-size: 16px;
     font-weight: 500;
     margin-top: 10px;
-    background: linear-gradient(135deg, #a65e2e 0%, #c97f4a 100%);
+    background: var(--coffee-gradient-primary);
     border: none;
     transition: all 0.3s ease;
     
     &:hover {
       transform: translateY(-2px);
-      box-shadow: 0 8px 20px rgba(166, 94, 46, 0.3);
+      box-shadow: 0 8px 20px rgba(var(--coffee-primary-rgb), 0.3);
     }
   }
 }
@@ -303,7 +303,7 @@ async function handleSubmit() {
   
   .el-button {
     font-weight: 500;
-    color: #a65e2e;
+    color: var(--coffee-primary);
   }
 }
 
@@ -334,7 +334,7 @@ async function handleSubmit() {
 .coffee-bean {
   width: 40px;
   height: 60px;
-  background: linear-gradient(135deg, #6b4423 0%, #a65e2e 100%);
+  background: linear-gradient(135deg, var(--coffee-primary-dark) 0%, var(--coffee-primary) 100%);
   border-radius: 50% 50% 50% 50% / 60% 60% 40% 40%;
   opacity: 0.1;
   

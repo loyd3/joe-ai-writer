@@ -226,7 +226,7 @@ watch(searchQuery, (newVal) => {
   transition: all 0.2s;
   
   &:hover {
-    background: rgba(166, 94, 46, 0.06);
+    background: var(--coffee-bg-hover);
   }
   
   .el-icon {
@@ -264,7 +264,7 @@ watch(searchQuery, (newVal) => {
   border-left: 3px solid transparent;
   
   &:hover {
-    background: rgba(166, 94, 46, 0.06);
+    background: var(--coffee-bg-hover);
     border-left-color: var(--coffee-primary);
   }
   
@@ -295,7 +295,7 @@ watch(searchQuery, (newVal) => {
     line-height: 1.5;
     
     :deep(mark) {
-      background: rgba(166, 94, 46, 0.2);
+      background: rgba(var(--coffee-primary-rgb), 0.2);
       color: var(--coffee-primary-dark);
       padding: 0 2px;
       border-radius: 2px;

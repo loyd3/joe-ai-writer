@@ -405,7 +405,7 @@ async function saveSettings() {
   &:hover {
     border-color: var(--coffee-primary);
     color: var(--coffee-primary);
-    background: rgba(166, 94, 46, 0.04);
+    background: var(--coffee-sidebar-shadow);
   }
 }
 
@@ -455,7 +455,7 @@ async function saveSettings() {
     
     &:hover {
       transform: translateY(-1px);
-      box-shadow: 0 6px 16px rgba(166, 94, 46, 0.25);
+      box-shadow: 0 6px 16px var(--coffee-selection);
     }
   }
 }

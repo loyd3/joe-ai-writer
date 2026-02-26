@@ -881,7 +881,7 @@ function setCursorToEnd(element: HTMLElement) {
   position: relative;
   
   &:hover {
-    background: rgba(93, 58, 26, 0.03);
+    background: rgba(var(--coffee-primary-rgb), 0.03);
     
     .block-handle,
     .block-actions {
@@ -891,7 +891,7 @@ function setCursorToEnd(element: HTMLElement) {
   
   &.is-focused {
     .block-content {
-      background: rgba(93, 58, 26, 0.04);
+      background: var(--coffee-sidebar-shadow);
     }
   }
 }
@@ -911,7 +911,7 @@ function setCursorToEnd(element: HTMLElement) {
   margin-top: 4px;
   
   &:hover {
-    background: rgba(93, 58, 26, 0.1);
+    background: rgba(var(--coffee-primary-rgb), 0.1);
     color: var(--coffee-primary);
   }
 }
@@ -958,7 +958,7 @@ function setCursorToEnd(element: HTMLElement) {
     padding-left: 20px;
     color: var(--coffee-text-secondary);
     font-style: italic;
-    background: rgba(93, 58, 26, 0.04);
+    background: var(--coffee-sidebar-shadow);
     
     &:empty::before {
       content: '引用内容';
@@ -1024,7 +1024,7 @@ function setCursorToEnd(element: HTMLElement) {
   }
   
   &:focus {
-    background: rgba(93, 58, 26, 0.04);
+    background: var(--coffee-sidebar-shadow);
   }
 }
 
@@ -1061,11 +1061,11 @@ function setCursorToEnd(element: HTMLElement) {
   transition: all 0.2s;
   white-space: nowrap;
   &:hover {
-    background: rgba(93, 58, 26, 0.08);
+    background: var(--coffee-shadow);
     color: var(--coffee-primary);
   }
   &.active {
-    background: rgba(139, 90, 43, 0.15);
+    background: var(--coffee-shadow-hover);
     color: var(--coffee-primary);
     font-weight: 500;
   }
@@ -1126,7 +1126,7 @@ function setCursorToEnd(element: HTMLElement) {
   
   &:hover {
     color: var(--coffee-primary);
-    background: rgba(93, 58, 26, 0.08);
+    background: var(--coffee-shadow);
   }
 }
 
@@ -1145,7 +1145,7 @@ function setCursorToEnd(element: HTMLElement) {
   
   &:hover {
     border-color: var(--coffee-primary-light);
-    background: rgba(93, 58, 26, 0.02);
+    background: rgba(var(--coffee-primary-rgb), 0.02);
     color: var(--coffee-primary);
   }
   
@@ -1243,11 +1243,11 @@ function setCursorToEnd(element: HTMLElement) {
   color: var(--coffee-text-light);
 }
 .context-item:hover:not(:disabled) {
-  background: rgba(93, 58, 26, 0.08);
+  background: var(--coffee-shadow);
   color: var(--coffee-primary);
 }
 .context-item.active {
-  background: rgba(139, 90, 43, 0.12);
+  background: rgba(var(--coffee-primary-rgb), 0.12);
   color: var(--coffee-primary);
   font-weight: 500;
 }

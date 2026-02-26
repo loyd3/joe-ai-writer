@@ -492,7 +492,7 @@ async function onDragEnd() {
     &:hover {
       border-color: var(--coffee-primary);
       color: var(--coffee-primary);
-      background: rgba(166, 94, 46, 0.04);
+      background: var(--coffee-sidebar-shadow);
     }
     
     .el-icon {
@@ -510,7 +510,7 @@ async function onDragEnd() {
     
     &:hover {
       transform: translateY(-1px);
-      box-shadow: 0 6px 16px rgba(166, 94, 46, 0.25);
+      box-shadow: 0 6px 16px var(--coffee-selection);
     }
     
     .el-icon {
@@ -609,7 +609,7 @@ async function onDragEnd() {
     .doc-icon {
       width: 44px;
       height: 44px;
-      background: linear-gradient(135deg, #fff 0%, var(--coffee-primary) 100%);
+      background: linear-gradient(135deg, var(--coffee-bg-warm) 0%, var(--coffee-primary-light) 100%);
       border-radius: 10px;
       display: flex;
       align-items: center;
@@ -617,7 +617,7 @@ async function onDragEnd() {
       
       .el-icon {
         font-size: 22px;
-        color: #000;
+        color: var(--coffee-primary-dark);
       }
     }
     
@@ -634,7 +634,7 @@ async function onDragEnd() {
       cursor: grab;
       
       &:hover {
-        background: rgba(166, 94, 46, 0.08);
+        background: var(--coffee-shadow);
         color: var(--coffee-primary);
       }
       
@@ -652,7 +652,7 @@ async function onDragEnd() {
       transition: all 0.2s;
       
       &:hover {
-        background: rgba(166, 94, 46, 0.08);
+        background: var(--coffee-shadow);
         color: var(--coffee-primary);
       }
     }
