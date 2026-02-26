@@ -139,6 +139,14 @@ export const useProjectStore = defineStore('project', () => {
     }
   }
 
+  async function reorderDocuments(projectId: number, documentIds: number[]) {
+    const res = await documentApi.reorder(projectId, documentIds)
+    if (currentProject.value?.id === projectId) {
+      currentProject.value.documents = res.data
+    }
+    return res.data
+  }
+
   // Memory actions
   async function fetchMemory(projectId: number) {
     const res = await memoryApi.get(projectId)
@@ -171,6 +179,7 @@ export const useProjectStore = defineStore('project', () => {
     createDocument,
     updateDocument,
     deleteDocument,
+    reorderDocuments,
     fetchMemory,
     updateMemory
   }

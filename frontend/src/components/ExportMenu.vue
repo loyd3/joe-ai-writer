@@ -13,7 +13,25 @@
               <el-icon><Document /></el-icon>
               <div class="option-info">
                 <span class="option-title">Markdown</span>
-                <span class="option-desc">包含格式和项目设定</span>
+                <span class="option-desc">通用标记格式</span>
+              </div>
+            </div>
+          </el-dropdown-item>
+          <el-dropdown-item command="pdf">
+            <div class="export-option">
+              <el-icon><Collection /></el-icon>
+              <div class="option-info">
+                <span class="option-title">PDF</span>
+                <span class="option-desc">适合打印和分享</span>
+              </div>
+            </div>
+          </el-dropdown-item>
+          <el-dropdown-item command="docx">
+            <div class="export-option">
+              <el-icon><Files /></el-icon>
+              <div class="option-info">
+                <span class="option-title">Word 文档</span>
+                <span class="option-desc">DOCX 格式，可编辑</span>
               </div>
             </div>
           </el-dropdown-item>
@@ -31,7 +49,7 @@
               <el-icon><Folder /></el-icon>
               <div class="option-info">
                 <span class="option-title">导出整个项目</span>
-                <span class="option-desc">包含所有文档</span>
+                <span class="option-desc">Markdown 格式，包含所有文档</span>
               </div>
             </div>
           </el-dropdown-item>
@@ -66,7 +84,7 @@
 import { ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { exportApi, downloadFile } from '@/api/search-export'
-import { Download, ArrowDown, Document, Folder } from '@element-plus/icons-vue'
+import { Download, ArrowDown, Document, Folder, Collection, Files } from '@element-plus/icons-vue'
 
 const props = defineProps<{
   documentId?: number
@@ -99,23 +117,35 @@ async function confirmExport() {
     const command = pendingCommand.value
     let response
     let filename
+    let mimeType = 'text/plain'
     
     if (command === 'markdown' && props.documentId) {
       response = await exportApi.exportDocumentMarkdown(props.documentId, includeMemory.value)
       filename = `${props.documentTitle || 'document'}.md`
+      mimeType = 'text/markdown'
+    } else if (command === 'pdf' && props.documentId) {
+      response = await exportApi.exportDocumentPdf(props.documentId, includeMemory.value)
+      filename = `${props.documentTitle || 'document'}.pdf`
+      mimeType = 'application/pdf'
+    } else if (command === 'docx' && props.documentId) {
+      response = await exportApi.exportDocumentDocx(props.documentId, includeMemory.value)
+      filename = `${props.documentTitle || 'document'}.docx`
+      mimeType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
     } else if (command === 'txt' && props.documentId) {
       response = await exportApi.exportDocumentTxt(props.documentId)
       filename = `${props.documentTitle || 'document'}.txt`
+      mimeType = 'text/plain'
     } else if (command === 'project' && props.projectId) {
       response = await exportApi.exportProjectMarkdown(props.projectId, includeMemory.value)
       filename = `${props.projectTitle || 'project'}.md`
+      mimeType = 'text/markdown'
     } else {
       ElMessage.error('导出参数错误')
       return
     }
     
     // 下载文件
-    downloadFile(response.data, filename)
+    downloadFile(response.data, filename, mimeType)
     ElMessage.success('导出成功')
     showSettings.value = false
   } catch (error) {

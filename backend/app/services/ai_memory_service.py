@@ -2,6 +2,7 @@ from typing import Optional
 from sqlalchemy.orm import Session
 from app.models.models import AIMemory, Project
 from app.schemas.schemas import AIMemoryUpdate, AIMemoryResponse
+from app.services.rag_service import rag_service
 import json
 
 
@@ -28,7 +29,40 @@ class AIMemoryService:
 
         db.commit()
         db.refresh(memory)
+        
+        # 更新向量索引
+        AIMemoryService._index_memory_to_rag(project_id, memory)
+        
         return memory
+    
+    @staticmethod
+    def _index_memory_to_rag(project_id: int, memory: AIMemory):
+        """将项目设定索引到向量数据库"""
+        try:
+            # 索引大纲
+            if memory.outline:
+                rag_service.index_memory(project_id, "outline", memory.outline)
+            
+            # 索引角色
+            if memory.characters:
+                rag_service.index_memory(project_id, "characters", memory.characters)
+            
+            # 索引世界观
+            if memory.world_building:
+                # 将字典转换为列表格式
+                world_items = [{"title": k, "description": v} for k, v in memory.world_building.items()]
+                rag_service.index_memory(project_id, "world_building", world_items)
+            
+            # 索引关键情节点
+            if memory.key_points:
+                rag_service.index_memory(project_id, "key_points", memory.key_points)
+            
+            # 索引故事线
+            if memory.storyline:
+                rag_service.index_memory(project_id, "storyline", [{"content": memory.storyline}])
+                
+        except Exception as e:
+            print(f"[AIMemoryService] RAG 索引失败: {e}")
 
     @staticmethod
     def build_memory_context(db: Session, project_id: int) -> str:

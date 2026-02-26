@@ -74,7 +74,9 @@ export const documentApi = {
   get: (id: number) => api.get(`/documents/${id}`),
   create: (projectId: number, data: any) => api.post(`/projects/${projectId}/documents`, data),
   update: (id: number, data: any) => api.put(`/documents/${id}`, data),
-  delete: (id: number) => api.delete(`/documents/${id}`)
+  delete: (id: number) => api.delete(`/documents/${id}`),
+  reorder: (projectId: number, documentIds: number[]) => 
+    api.post(`/projects/${projectId}/documents/reorder`, documentIds)
 }
 
 // ========== 项目设定 API ==========

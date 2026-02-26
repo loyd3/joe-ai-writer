@@ -1,5 +1,5 @@
 <template>
-  <div class="block-editor" @click="handleEditorClick">
+  <div class="block-editor" :class="{ 'focus-mode': isFocusMode }" @click="handleEditorClick">
     <div
       v-for="(block, index) in modelValue"
       :key="block.id"
@@ -15,13 +15,25 @@
             <el-icon><Top /></el-icon>
             <span>标题</span>
           </button>
-          <button type="button" class="toolbar-btn" :class="{ active: block.type === 'quote' }" @click.stop="handleCommand('quote', index)" title="引用 (Ctrl+2)">
+          <button type="button" class="toolbar-btn" :class="{ active: block.type === 'subheading' }" @click.stop="handleCommand('subheading', index)" title="小标题 (Ctrl+2)">
+            <el-icon><Rank /></el-icon>
+            <span>小标题</span>
+          </button>
+          <button type="button" class="toolbar-btn" :class="{ active: block.type === 'quote' }" @click.stop="handleCommand('quote', index)" title="引用 (Ctrl+3)">
             <el-icon><ChatDotRound /></el-icon>
             <span>引用</span>
           </button>
-          <button type="button" class="toolbar-btn" :class="{ active: block.type === 'list' }" @click.stop="handleCommand('list', index)" title="列表 (Ctrl+3)">
+          <button type="button" class="toolbar-btn" :class="{ active: block.type === 'list' }" @click.stop="handleCommand('list', index)" title="列表 (Ctrl+4)">
             <el-icon><List /></el-icon>
             <span>列表</span>
+          </button>
+          <button type="button" class="toolbar-btn" :class="{ active: block.type === 'code' }" @click.stop="handleCommand('code', index)" title="代码块 (Ctrl+5)">
+            <el-icon><Code /></el-icon>
+            <span>代码</span>
+          </button>
+          <button type="button" class="toolbar-btn" :class="{ active: block.type === 'divider' }" @click.stop="handleCommand('divider', index)" title="分割线 (Ctrl+6)">
+            <el-icon><Minus /></el-icon>
+            <span>分割线</span>
           </button>
           <button type="button" class="toolbar-btn" :class="{ active: block.type === 'paragraph' }" @click.stop="handleCommand('paragraph', index)" title="正文 (Ctrl+0)">
             <el-icon><Document /></el-icon>
@@ -73,16 +85,25 @@
           <template #dropdown>
             <el-dropdown-menu>
               <el-dropdown-item command="heading">
-                <el-icon><Top /></el-icon> 转为标题 <span class="shortcut">Ctrl+1</span>
+                <el-icon><Top /></el-icon> 大标题 <span class="shortcut">Ctrl+1</span>
+              </el-dropdown-item>
+              <el-dropdown-item command="subheading">
+                <el-icon><Rank /></el-icon> 小标题 <span class="shortcut">Ctrl+2</span>
               </el-dropdown-item>
               <el-dropdown-item command="quote">
-                <el-icon><ChatDotRound /></el-icon> 转为引用 <span class="shortcut">Ctrl+2</span>
+                <el-icon><ChatDotRound /></el-icon> 引用 <span class="shortcut">Ctrl+3</span>
               </el-dropdown-item>
               <el-dropdown-item command="list">
-                <el-icon><List /></el-icon> 转为列表 <span class="shortcut">Ctrl+3</span>
+                <el-icon><List /></el-icon> 列表 <span class="shortcut">Ctrl+4</span>
+              </el-dropdown-item>
+              <el-dropdown-item command="code">
+                <el-icon><Code /></el-icon> 代码块 <span class="shortcut">Ctrl+5</span>
+              </el-dropdown-item>
+              <el-dropdown-item command="divider">
+                <el-icon><Minus /></el-icon> 分割线 <span class="shortcut">Ctrl+6</span>
               </el-dropdown-item>
               <el-dropdown-item divided command="paragraph">
-                <el-icon><Document /></el-icon> 转为正文 <span class="shortcut">Ctrl+0</span>
+                <el-icon><Document /></el-icon> 正文 <span class="shortcut">Ctrl+0</span>
               </el-dropdown-item>
               <el-dropdown-item command="delete" class="delete-item">
                 <el-icon><Delete /></el-icon> 删除
@@ -98,7 +119,7 @@
         <el-icon><EditPen /></el-icon>
       </div>
       <span>点击开始写作，记录您的灵感...</span>
-      <span class="shortcut-hint">Ctrl+1 标题 · Ctrl+2 引用 · Ctrl+3 列表 · Ctrl+0 正文 · Ctrl+B/I/U 加粗/斜体/下划线</span>
+      <span class="shortcut-hint">Ctrl+1~6 切换块类型 · Ctrl+B/I/U 格式 · Ctrl+F 专注模式</span>
     </div>
   </div>
 </template>
@@ -107,26 +128,34 @@
 import { ref, nextTick, onMounted, onUnmounted, watch } from 'vue'
 import type { Block } from '@/stores/project'
 import { ElMessage } from 'element-plus'
-import { Plus, MoreFilled, Top, ChatDotRound, List, Document, Delete, EditPen, Brush } from '@element-plus/icons-vue'
+import { Plus, MoreFilled, Top, ChatDotRound, List, Document, Delete, EditPen, Brush, Rank, Code, Minus } from '@element-plus/icons-vue'
 
 const props = defineProps<{
   modelValue: Block[]
+  focusMode?: boolean
 }>()
 
 const emit = defineEmits<{
   (e: 'update:modelValue', value: Block[]): void
   (e: 'polish', payload: { index: number; text: string }): void
+  (e: 'toggleFocusMode'): void
 }>()
 
 const focusedIndex = ref(-1)
 const blockRefs = ref<Map<number, HTMLElement>>(new Map())
 /** 当前显示快捷栏的块索引，-1 为不显示。悬停 3s 或选中 3s 后赋值 */
 const toolbarVisibleIndex = ref(-1)
+const isFocusMode = ref(props.focusMode || false)
 const TOOLBAR_DELAY_MS = 3000
 const TOOLBAR_HIDE_DELAY_MS = 250
 let hoverTimer: ReturnType<typeof setTimeout> | null = null
 let selectionTimer: ReturnType<typeof setTimeout> | null = null
 let leaveTimer: ReturnType<typeof setTimeout> | null = null
+
+function toggleFocusMode() {
+  isFocusMode.value = !isFocusMode.value
+  emit('toggleFocusMode')
+}
 
 // 初始化块内容
 onMounted(() => {
@@ -367,12 +396,27 @@ function handleKeydown(index: number, event: KeyboardEvent) {
   }
   if (key === '2') {
     event.preventDefault()
-    handleCommand('quote', index)
+    handleCommand('subheading', index)
     return
   }
   if (key === '3') {
     event.preventDefault()
+    handleCommand('quote', index)
+    return
+  }
+  if (key === '4') {
+    event.preventDefault()
     handleCommand('list', index)
+    return
+  }
+  if (key === '5') {
+    event.preventDefault()
+    handleCommand('code', index)
+    return
+  }
+  if (key === '6') {
+    event.preventDefault()
+    handleCommand('divider', index)
     return
   }
   if (key === '0') {
@@ -398,6 +442,12 @@ function handleKeydown(index: number, event: KeyboardEvent) {
   if (key === 'u') {
     event.preventDefault()
     applyFormat(index, 'underline')
+    return
+  }
+  // 专注模式快捷键
+  if (key === 'f') {
+    event.preventDefault()
+    toggleFocusMode()
     return
   }
 }
@@ -493,6 +543,19 @@ function setCursorToEnd(element: HTMLElement) {
 .block-editor {
   min-height: 400px;
   padding: 20px 0;
+  transition: all 0.3s ease;
+  
+  &.focus-mode {
+    .block-wrapper:not(.is-focused) {
+      opacity: 0.3;
+      filter: blur(1px);
+    }
+    
+    .block-wrapper.is-focused {
+      transform: scale(1.01);
+      transition: all 0.3s ease;
+    }
+  }
 }
 
 .block-wrapper {
@@ -565,6 +628,18 @@ function setCursorToEnd(element: HTMLElement) {
     }
   }
   
+  &[data-type="subheading"] {
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--coffee-text);
+    margin: 6px 0;
+    
+    &:empty::before {
+      content: '小标题';
+      color: var(--coffee-text-light);
+    }
+  }
+  
   &[data-type="quote"] {
     border-left: 3px solid var(--coffee-primary-light);
     padding-left: 20px;
@@ -593,6 +668,40 @@ function setCursorToEnd(element: HTMLElement) {
     &:empty::before {
       content: "• 列表项";
       color: var(--coffee-text-light);
+    }
+  }
+  
+  &[data-type="code"] {
+    font-family: 'Fira Code', 'Monaco', 'Consolas', monospace;
+    font-size: 14px;
+    background: #f5f5f5;
+    padding: 16px;
+    border-radius: 8px;
+    white-space: pre-wrap;
+    color: #333;
+    
+    &:empty::before {
+      content: '// 代码块';
+      color: var(--coffee-text-light);
+      font-style: italic;
+    }
+  }
+  
+  &[data-type="divider"] {
+    height: 1px;
+    background: linear-gradient(to right, transparent, var(--coffee-border), transparent);
+    padding: 0;
+    min-height: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+    
+    &::before {
+      content: '***';
+      color: var(--coffee-text-light);
+      font-size: 12px;
+      letter-spacing: 4px;
     }
   }
   

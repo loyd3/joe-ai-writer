@@ -2,6 +2,7 @@ from typing import Optional, AsyncGenerator
 from sqlalchemy.orm import Session
 from app.core.ai_client import ai_client
 from app.services.ai_memory_service import AIMemoryService
+from app.services.rag_service import rag_service
 from app.schemas.schemas import AIRequest, ChatMessage
 from app.models.models import AIInteraction
 
@@ -112,15 +113,32 @@ class AIWritingService:
         db: Session,
         request: AIRequest,
         document_content: str,
-        user_id: int
+        user_id: int,
+        use_rag: bool = True
     ) -> AsyncGenerator[str, None]:
-        """处理 AI 请求（流式）"""
+        """处理 AI 请求（流式），支持 RAG 检索"""
         from app.models.models import Document
         
         memory_context = ""
         doc = db.query(Document).filter(Document.id == request.document_id).first()
         if doc:
-            memory_context = AIMemoryService.build_memory_context(db, doc.project_id)
+            if use_rag:
+                # 使用 RAG 检索相关上下文
+                # 构建查询：结合当前操作、选中文本和指令
+                query_parts = [request.action]
+                if request.selected_text:
+                    query_parts.append(request.selected_text[:200])
+                if request.instruction:
+                    query_parts.append(request.instruction)
+                query = " ".join(query_parts)
+                
+                memory_context = rag_service.build_context_string(
+                    doc.project_id,
+                    query,
+                    max_length=1200
+                )
+            else:
+                memory_context = AIMemoryService.build_memory_context(db, doc.project_id)
         
         messages = AIWritingService._build_messages(
             action=request.action,
@@ -141,7 +159,7 @@ class AIWritingService:
             interaction_type=request.action,
             user_input=request.instruction or request.selected_text or "",
             ai_response="".join(full_response),
-            context_used={"memory_used": bool(memory_context)}
+            context_used={"memory_used": bool(memory_context), "rag_used": use_rag}
         )
         db.add(interaction)
         db.commit()
@@ -152,9 +170,10 @@ class AIWritingService:
         document_id: int,
         messages: list[ChatMessage],
         include_memory: bool = True,
-        user_id: Optional[int] = None
+        user_id: Optional[int] = None,
+        use_rag: bool = True
     ) -> AsyncGenerator[str, None]:
-        """自由对话模式"""
+        """自由对话模式，支持 RAG 检索"""
         from app.models.models import Document
         
         formatted_messages = [{"role": "system", "content": AIWritingService.SYSTEM_PROMPT}]
@@ -162,12 +181,33 @@ class AIWritingService:
         if include_memory:
             doc = db.query(Document).filter(Document.id == document_id).first()
             if doc:
-                memory_context = AIMemoryService.build_memory_context(db, doc.project_id)
-                if memory_context:
-                    formatted_messages.append({
-                        "role": "system",
-                        "content": f"项目背景：\n{memory_context}"
-                    })
+                # 获取用户最新的问题或上下文
+                user_query = ""
+                for msg in reversed(messages):
+                    if msg.role == "user":
+                        user_query = msg.content
+                        break
+                
+                if use_rag and user_query:
+                    # 使用 RAG 检索相关上下文
+                    rag_context = rag_service.build_context_string(
+                        doc.project_id, 
+                        user_query,
+                        max_length=1500
+                    )
+                    if rag_context:
+                        formatted_messages.append({
+                            "role": "system",
+                            "content": f"以下是与当前问题相关的项目设定，请优先参考：\n{rag_context}"
+                        })
+                else:
+                    # 回退到完整上下文
+                    memory_context = AIMemoryService.build_memory_context(db, doc.project_id)
+                    if memory_context:
+                        formatted_messages.append({
+                            "role": "system",
+                            "content": f"项目背景：\n{memory_context}"
+                        })
         
         for msg in messages:
             formatted_messages.append({"role": msg.role, "content": msg.content})

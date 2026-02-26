@@ -2,12 +2,12 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List
 from app.database import get_db
+from app.models.models import Project, Document, AIMemory
 from app.schemas.schemas import (
     ProjectCreate, ProjectUpdate, ProjectResponse,
     DocumentCreate, DocumentUpdate, DocumentResponse,
     AIMemoryUpdate, AIMemoryResponse
 )
-from app.models.models import Project, Document, AIMemory
 from app.services.ai_memory_service import AIMemoryService
 from app.api.auth import get_current_user
 
@@ -209,6 +209,44 @@ def delete_document(
     db.delete(document)
     db.commit()
     return {"message": "Document deleted"}
+
+
+@router.post("/projects/{project_id}/documents/reorder")
+def reorder_documents(
+    project_id: int,
+    document_ids: List[int],
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    批量重排序文档
+    document_ids: 按新顺序排列的文档 ID 列表
+    """
+    check_project_owner(db, project_id, current_user["id"])
+    
+    # 验证所有文档都属于该项目
+    documents = db.query(Document).filter(
+        Document.id.in_(document_ids),
+        Document.project_id == project_id
+    ).all()
+    
+    if len(documents) != len(document_ids):
+        raise HTTPException(status_code=400, detail="Invalid document IDs")
+    
+    # 更新 order_index
+    doc_map = {doc.id: doc for doc in documents}
+    for index, doc_id in enumerate(document_ids):
+        if doc_id in doc_map:
+            doc_map[doc_id].order_index = index
+    
+    db.commit()
+    
+    # 返回更新后的文档列表
+    updated_docs = db.query(Document).filter(
+        Document.project_id == project_id
+    ).order_by(Document.order_index.asc(), Document.id.asc()).all()
+    
+    return updated_docs
 
 # ========== AI Memory Routes ==========
 @router.get("/projects/{project_id}/memory", response_model=AIMemoryResponse)

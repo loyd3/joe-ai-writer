@@ -64,38 +64,59 @@
         </el-button>
       </el-empty>
       
-      <div v-else class="documents-grid">
-        <div 
-          v-for="(doc, index) in documents" 
-          :key="`doc-${doc.id}-${index}`" 
-          class="doc-card"
-          @click="openDocument(doc.id)"
-        >
-          <div class="doc-header">
-            <div class="doc-icon">
-              <el-icon><DocumentIcon /></el-icon>
-            </div>
-            <el-dropdown trigger="click" @command="(cmd) => handleDocCommand(cmd, doc)">
-              <el-icon class="more-icon" @click.stop><MoreFilled /></el-icon>
-              <template #dropdown>
-                <el-dropdown-menu>
-                  <el-dropdown-item command="rename">
-                    <el-icon><Edit /></el-icon> 重命名
-                  </el-dropdown-item>
-                  <el-dropdown-item command="delete" divided class="delete-item">
-                    <el-icon><Delete /></el-icon> 删除
-                  </el-dropdown-item>
-                </el-dropdown-menu>
-              </template>
-            </el-dropdown>
-          </div>
-          <h4 class="doc-title">{{ doc.title }}</h4>
-          <p class="doc-preview">{{ getDocPreview(doc) }}</p>
-          <div class="doc-meta">
-            <el-icon><Calendar /></el-icon>
-            <span>{{ formatDate(doc.updated_at) }}</span>
-          </div>
+      <div v-else>
+        <!-- 拖拽排序提示 -->
+        <div class="drag-hint" v-if="documents.length > 1">
+          <el-icon><InfoFilled /></el-icon>
+          <span>拖拽文档卡片可调整顺序</span>
         </div>
+        
+        <draggable 
+          v-model="draggableDocs" 
+          class="documents-grid"
+          item-key="id"
+          handle=".doc-card"
+          ghost-class="doc-card-ghost"
+          drag-class="doc-card-drag"
+          :animation="200"
+          @end="onDragEnd"
+        >
+          <template #item="{ element: doc, index }">
+            <div 
+              class="doc-card"
+              :class="{ 'is-dragging': draggingIndex === index }"
+              @click="openDocument(doc.id)"
+            >
+              <div class="doc-header">
+                <div class="doc-icon">
+                  <el-icon><DocumentIcon /></el-icon>
+                </div>
+                <div class="drag-handle" @click.stop @mousedown="draggingIndex = index">
+                  <el-icon><Rank /></el-icon>
+                </div>
+                <el-dropdown trigger="click" @command="(cmd) => handleDocCommand(cmd, doc)">
+                  <el-icon class="more-icon" @click.stop><MoreFilled /></el-icon>
+                  <template #dropdown>
+                    <el-dropdown-menu>
+                      <el-dropdown-item command="rename">
+                        <el-icon><Edit /></el-icon> 重命名
+                      </el-dropdown-item>
+                      <el-dropdown-item command="delete" divided class="delete-item">
+                        <el-icon><Delete /></el-icon> 删除
+                      </el-dropdown-item>
+                    </el-dropdown-menu>
+                  </template>
+                </el-dropdown>
+              </div>
+              <h4 class="doc-title">{{ doc.title }}</h4>
+              <p class="doc-preview">{{ getDocPreview(doc) }}</p>
+              <div class="doc-meta">
+                <el-icon><Calendar /></el-icon>
+                <span>{{ formatDate(doc.updated_at) }}</span>
+              </div>
+            </div>
+          </template>
+        </draggable>
       </div>
     </div>
 
@@ -192,8 +213,9 @@ import { computed, ref, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useProjectStore, type Document } from '@/stores/project'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import draggable from 'vuedraggable'
 import ProjectSettingsManager from '@/components/ProjectSettingsManager.vue'
-import { ArrowLeft, Collection, Plus, Document as DocumentIcon, MoreFilled, Edit, Delete, Calendar, Upload } from '@element-plus/icons-vue'
+import { ArrowLeft, Collection, Plus, Document as DocumentIcon, MoreFilled, Edit, Delete, Calendar, Upload, Rank, InfoFilled } from '@element-plus/icons-vue'
 import ExportMenu from '@/components/ExportMenu.vue'
 import TemplateLibrary from '@/components/TemplateLibrary.vue'
 
@@ -213,6 +235,19 @@ const creating = ref(false)
 const savingProject = ref(false)
 const newDoc = ref({ title: '' })
 const editProjectForm = ref({ title: '', description: '' })
+const draggingIndex = ref(-1)
+const isReordering = ref(false)
+
+// 用于拖拽排序的文档列表
+const draggableDocs = computed({
+  get: () => [...(store.currentProject?.documents || [])],
+  set: (val) => {
+    // 本地更新顺序，但不立即提交到服务器
+    if (store.currentProject) {
+      store.currentProject.documents = val
+    }
+  }
+})
 
 onMounted(() => {
   loadProject()
@@ -342,6 +377,28 @@ async function saveProjectEdit() {
     showEditProjectDialog.value = false
   } finally {
     savingProject.value = false
+  }
+}
+
+async function onDragEnd() {
+  draggingIndex.value = -1
+  
+  if (!projectId.value || isReordering.value) return
+  
+  const docs = draggableDocs.value
+  if (!docs.length) return
+  
+  isReordering.value = true
+  try {
+    const documentIds = docs.map(d => d.id)
+    await store.reorderDocuments(Number(projectId.value), documentIds)
+    ElMessage.success('文档顺序已保存')
+  } catch (error) {
+    // 如果保存失败，重新加载项目数据
+    await loadProject()
+    ElMessage.error('保存顺序失败')
+  } finally {
+    isReordering.value = false
   }
 }
 </script>
@@ -500,6 +557,22 @@ async function saveProjectEdit() {
   gap: 20px;
 }
 
+.drag-hint {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--coffee-text-light);
+  margin-bottom: 16px;
+  padding: 8px 12px;
+  background: var(--coffee-bg-warm);
+  border-radius: 8px;
+  
+  .el-icon {
+    font-size: 14px;
+  }
+}
+
 .doc-card {
   background: var(--coffee-bg-card);
   border-radius: 16px;
@@ -507,15 +580,24 @@ async function saveProjectEdit() {
   border: 1px solid var(--coffee-border-light);
   cursor: pointer;
   transition: all 0.3s ease;
+  position: relative;
   
   &:hover {
     transform: translateY(-2px);
     box-shadow: 0 8px 24px var(--coffee-shadow-hover);
     border-color: var(--coffee-border);
     
-    .more-icon {
+    .more-icon,
+    .drag-handle {
       opacity: 1;
     }
+  }
+  
+  &.is-dragging {
+    opacity: 0.8;
+    transform: scale(1.02);
+    box-shadow: 0 12px 32px var(--coffee-shadow-hover);
+    z-index: 100;
   }
   
   .doc-header {
@@ -536,6 +618,28 @@ async function saveProjectEdit() {
       .el-icon {
         font-size: 22px;
         color: #000;
+      }
+    }
+    
+    .drag-handle {
+      position: absolute;
+      top: 12px;
+      right: 44px;
+      font-size: 18px;
+      color: var(--coffee-text-light);
+      padding: 6px;
+      border-radius: 6px;
+      opacity: 0;
+      transition: all 0.2s;
+      cursor: grab;
+      
+      &:hover {
+        background: rgba(166, 94, 46, 0.08);
+        color: var(--coffee-primary);
+      }
+      
+      &:active {
+        cursor: grabbing;
       }
     }
     
@@ -619,6 +723,28 @@ async function saveProjectEdit() {
   color: #f56c6c;
 }
 
+/* 拖拽相关样式 */
+.doc-card-ghost {
+  opacity: 0.4;
+  background: var(--coffee-bg-warm);
+  border: 2px dashed var(--coffee-primary-light);
+}
+
+.doc-card-drag {
+  opacity: 0.9;
+  transform: scale(1.02);
+  box-shadow: 0 16px 48px var(--coffee-shadow-hover);
+}
+
+.sortable-ghost {
+  opacity: 0.3;
+  background: var(--coffee-bg-warm);
+}
+
+.sortable-drag {
+  cursor: grabbing;
+}
+
 @media (max-width: 768px) {
   .project-view {
     padding: 20px;
@@ -633,6 +759,10 @@ async function saveProjectEdit() {
   
   .documents-grid {
     grid-template-columns: 1fr;
+  }
+  
+  .drag-handle {
+    opacity: 1 !important;
   }
 }
 </style>

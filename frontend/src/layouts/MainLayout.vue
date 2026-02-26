@@ -15,8 +15,35 @@
           <GlobalSearch />
         </div>
 
-        <div class="sidebar-content">
+        <!-- 导航菜单 -->
+        <div class="nav-menu">
+          <div 
+            class="nav-item" 
+            :class="{ active: $route.path === '/' }"
+            @click="$router.push('/')"
+          >
+            <el-icon><HomeFilled /></el-icon>
+            <span>我的项目</span>
+          </div>
+          <div 
+            class="nav-item" 
+            :class="{ active: $route.path === '/dashboard' }"
+            @click="$router.push('/dashboard')"
+          >
+            <el-icon><DataLine /></el-icon>
+            <span>数据看板</span>
+          </div>
+        </div>
+
+        <div class="sidebar-content" v-if="$route.path !== '/dashboard'">
           <ProjectSidebar />
+        </div>
+        <div class="sidebar-content dashboard-placeholder" v-else>
+          <div class="placeholder-content">
+            <el-icon><DataLine /></el-icon>
+            <p>数据看板</p>
+            <span>追踪你的创作进度</span>
+          </div>
         </div>
         
         <!-- 用户信息区 -->
@@ -81,7 +108,7 @@ import ProjectSidebar from '@/components/ProjectSidebar.vue'
 import ThemeSettingsDialog from '@/components/ThemeSettingsDialog.vue'
 import GlobalSearch from '@/components/GlobalSearch.vue'
 import AIConfigPanel from '@/components/AIConfigPanel.vue'
-import { EditPen, UserFilled, ArrowDown, User, Setting, SwitchButton, Cpu } from '@element-plus/icons-vue'
+import { EditPen, UserFilled, ArrowDown, User, Setting, SwitchButton, Cpu, HomeFilled, DataLine } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
 const router = useRouter()
@@ -191,11 +218,73 @@ async function handleUserCommand(command: string) {
   flex: 1;
   overflow-y: auto;
   padding: 16px 0;
+
+  &.dashboard-placeholder {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 40px 20px;
+
+    .placeholder-content {
+      text-align: center;
+      color: var(--coffee-text-light);
+
+      .el-icon {
+        font-size: 48px;
+        margin-bottom: 12px;
+        color: var(--coffee-primary-light);
+      }
+
+      p {
+        font-size: 16px;
+        font-weight: 500;
+        color: var(--coffee-text);
+        margin-bottom: 4px;
+      }
+
+      span {
+        font-size: 12px;
+      }
+    }
+  }
 }
 
 .search-section {
   padding: 12px 16px;
   border-bottom: 1px solid var(--coffee-border-light);
+}
+
+.nav-menu {
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--coffee-border-light);
+}
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  margin-bottom: 4px;
+  color: var(--coffee-text-secondary);
+  font-size: 14px;
+
+  .el-icon {
+    font-size: 18px;
+  }
+
+  &:hover {
+    background: var(--coffee-bg-hover);
+    color: var(--coffee-text);
+  }
+
+  &.active {
+    background: var(--coffee-selection);
+    color: var(--coffee-primary);
+    font-weight: 500;
+  }
 }
 
 .user-section {

@@ -25,6 +25,20 @@ export const exportApi = {
     })
   },
   
+  // 导出文档为 PDF
+  exportDocumentPdf: (documentId: number, includeMemory: boolean = true) => {
+    return api.get(`/export/document/${documentId}/pdf?include_memory=${includeMemory}`, {
+      responseType: 'blob'
+    })
+  },
+  
+  // 导出文档为 Word
+  exportDocumentDocx: (documentId: number, includeMemory: boolean = true) => {
+    return api.get(`/export/document/${documentId}/docx?include_memory=${includeMemory}`, {
+      responseType: 'blob'
+    })
+  },
+  
   // 导出文档为纯文本
   exportDocumentTxt: (documentId: number) => {
     return api.get(`/export/document/${documentId}/txt`, {
@@ -41,8 +55,13 @@ export const exportApi = {
 }
 
 // 下载文件辅助函数
-export function downloadFile(blob: Blob, filename: string) {
-  const url = window.URL.createObjectURL(blob)
+export function downloadFile(blob: Blob, filename: string, mimeType?: string) {
+  // 如果 blob 没有 type，使用提供的 mimeType
+  const finalBlob = mimeType && (!blob.type || blob.type === 'application/octet-stream') 
+    ? new Blob([blob], { type: mimeType })
+    : blob
+  
+  const url = window.URL.createObjectURL(finalBlob)
   const link = document.createElement('a')
   link.href = url
   link.download = filename
