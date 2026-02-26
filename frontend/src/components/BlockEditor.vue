@@ -119,7 +119,7 @@
         <el-icon><EditPen /></el-icon>
       </div>
       <span>点击开始写作，记录您的灵感...</span>
-      <span class="shortcut-hint">Ctrl+1~6 切换块类型 · Ctrl+B/I/U 格式 · Ctrl+F 专注模式</span>
+      <span class="shortcut-hint">Ctrl+1~6 切换块类型 · Ctrl+B/I/U 格式 · Ctrl+Z/Y 撤销重做 · Ctrl+F 专注模式</span>
     </div>
   </div>
 </template>
