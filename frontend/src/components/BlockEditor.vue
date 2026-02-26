@@ -276,7 +276,7 @@ const contextBlock = computed(() =>
     : null
 )
 const isFocusMode = ref(props.focusMode || false)
-const TOOLBAR_DELAY_MS = 500
+const TOOLBAR_DELAY_MS = 3000
 const TOOLBAR_HIDE_DELAY_MS = 300
 let hoverTimer: ReturnType<typeof setTimeout> | null = null
 let selectionTimer: ReturnType<typeof setTimeout> | null = null
@@ -570,10 +570,16 @@ function addBlock(index: number, type = 'paragraph') {
   })
 }
 
+function sanitizeBlockContent(html: string): string {
+  const trimmed = html.trim()
+  if (!trimmed || /^(<br\s*\/?>)+$/i.test(trimmed)) return ''
+  return trimmed
+}
+
 function updateBlock(index: number) {
   const el = blockRefs.value.get(index)
   if (!el) return
-  const content = el.innerHTML || ''
+  const content = sanitizeBlockContent(el.innerHTML || '')
   const newBlocks = [...props.modelValue]
   newBlocks[index] = { ...newBlocks[index], content }
   emit('update:modelValue', newBlocks)
@@ -607,8 +613,8 @@ function handleEnter(index: number, event: Event) {
     const afterRange = document.createRange()
     afterRange.setStart(range.endContainer, range.endOffset)
     afterRange.setEnd(target, target.childNodes.length)
-    beforeContent = rangeToHtml(beforeRange)
-    afterContent = rangeToHtml(afterRange)
+    beforeContent = sanitizeBlockContent(rangeToHtml(beforeRange))
+    afterContent = sanitizeBlockContent(rangeToHtml(afterRange))
   } else {
     const text = target.textContent || ''
     const cursorPosition = getCursorPosition(target)

@@ -8,12 +8,9 @@
         <div class="breadcrumb">
           <span class="project-name">{{ project?.title }}</span>
           <el-icon class="separator"><ArrowRight /></el-icon>
-          <el-input
-            v-model="documentTitle"
+          <span
             class="title-input"
-            placeholder="文档标题"
-            @blur="saveTitle"
-          />
+          >{{ documentTitle }}</span>
         </div>
       </div>
       <div class="header-right">
@@ -382,7 +379,6 @@ onBeforeUnmount(() => {
   }
   
   .title-input {
-    width: 280px;
     
     :deep(.el-input__wrapper) {
       box-shadow: none;

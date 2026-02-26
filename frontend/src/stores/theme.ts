@@ -10,7 +10,7 @@ function debouncedSaveToServer(fn: () => void, ms: number) {
 
 const STORAGE_KEY = 'joe-writer-theme'
 
-export type ThemePresetId = 'coffee' | 'teal' | 'indigo' | 'custom'
+export type ThemePresetId = 'coffee' | 'rose' | 'mint' | 'lavender' | 'sky' | 'custom'
 
 export interface ThemePreset {
   id: ThemePresetId
@@ -22,8 +22,10 @@ export interface ThemePreset {
 
 export const THEME_PRESETS: ThemePreset[] = [
   { id: 'coffee', name: '咖啡棕', primary: '#a65e2e', primaryLight: '#c97f4a', primaryDark: '#7a4318' },
-  { id: 'teal', name: '青绿色', primary: '#0d9488', primaryLight: '#14b8a6', primaryDark: '#0f766e' },
-  { id: 'indigo', name: '靛蓝色', primary: '#4f46e5', primaryLight: '#6366f1', primaryDark: '#4338ca' },
+  { id: 'rose', name: '樱花粉', primary: '#C46B83', primaryLight: '#D4889D', primaryDark: '#A8526B' },
+  { id: 'mint', name: '薄荷绿', primary: '#5AAF8F', primaryLight: '#78C4A6', primaryDark: '#3E9475' },
+  { id: 'lavender', name: '香芋紫', primary: '#8574B2', primaryLight: '#A090C8', primaryDark: '#6A5A96' },
+  { id: 'sky', name: '天空蓝', primary: '#5E9AB8', primaryLight: '#7DB2CC', primaryDark: '#4680A0' },
 ]
 
 function hexToRgb(hex: string): [number, number, number] {
@@ -89,38 +91,72 @@ function getPresetPalette(preset: ThemePreset): Record<string, string> {
       divider: '#f5ebe0',
     }
   }
-  if (preset.id === 'teal') {
+  if (preset.id === 'rose') {
     return {
       primary: preset.primary,
       primaryLight: preset.primaryLight,
       primaryDark: preset.primaryDark,
-      bg: '#f0fdfa',
-      bgWarm: '#ccfbf1',
+      bg: '#fdf5f7',
+      bgWarm: '#f9e8ed',
       bgCard: '#ffffff',
-      text: '#134e4a',
-      textSecondary: '#0f766e',
-      textMuted: '#5eead4',
-      textLight: '#99f6e4',
-      border: '#99f6e4',
-      borderLight: '#ccfbf1',
-      divider: '#f0fdfa',
+      text: '#4a1e2e',
+      textSecondary: '#6e3348',
+      textMuted: '#9e6e80',
+      textLight: '#c49dab',
+      border: '#e8ced6',
+      borderLight: '#f2e0e6',
+      divider: '#f8eff2',
     }
   }
-  if (preset.id === 'indigo') {
+  if (preset.id === 'mint') {
     return {
       primary: preset.primary,
       primaryLight: preset.primaryLight,
       primaryDark: preset.primaryDark,
-      bg: '#eef2ff',
-      bgWarm: '#e0e7ff',
+      bg: '#f5faf8',
+      bgWarm: '#e5f2ec',
       bgCard: '#ffffff',
-      text: '#312e81',
-      textSecondary: '#3730a3',
-      textMuted: '#818cf8',
-      textLight: '#a5b4fc',
-      border: '#c7d2fe',
-      borderLight: '#e0e7ff',
-      divider: '#eef2ff',
+      text: '#143d2d',
+      textSecondary: '#2d5e4a',
+      textMuted: '#6a9e8a',
+      textLight: '#9dc5b5',
+      border: '#bcdccc',
+      borderLight: '#d8ece2',
+      divider: '#edf6f2',
+    }
+  }
+  if (preset.id === 'lavender') {
+    return {
+      primary: preset.primary,
+      primaryLight: preset.primaryLight,
+      primaryDark: preset.primaryDark,
+      bg: '#f7f5fb',
+      bgWarm: '#ece8f4',
+      bgCard: '#ffffff',
+      text: '#2a2045',
+      textSecondary: '#46386a',
+      textMuted: '#8878a5',
+      textLight: '#b5a8c8',
+      border: '#d2c8e2',
+      borderLight: '#e5dfee',
+      divider: '#f0edf5',
+    }
+  }
+  if (preset.id === 'sky') {
+    return {
+      primary: preset.primary,
+      primaryLight: preset.primaryLight,
+      primaryDark: preset.primaryDark,
+      bg: '#f4f8fb',
+      bgWarm: '#e3eef5',
+      bgCard: '#ffffff',
+      text: '#152f40',
+      textSecondary: '#2e536e',
+      textMuted: '#6e98b0',
+      textLight: '#9ec0d2',
+      border: '#b8d0de',
+      borderLight: '#d6e4ed',
+      divider: '#ecf2f6',
     }
   }
   return deriveFullPalette(preset.primary) as unknown as Record<string, string>

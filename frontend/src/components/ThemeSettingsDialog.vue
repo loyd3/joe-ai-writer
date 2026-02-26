@@ -65,15 +65,15 @@ const customColorLocal = ref(themeStore.customColor)
 
 const predefineColors = [
   '#a65e2e',
-  '#0d9488',
-  '#4f46e5',
-  '#dc2626',
-  '#ea580c',
-  '#ca8a04',
-  '#16a34a',
-  '#0891b2',
-  '#7c3aed',
-  '#db2777',
+  '#C46B83',
+  '#5AAF8F',
+  '#8574B2',
+  '#5E9AB8',
+  '#D4889D',
+  '#78C4A6',
+  '#A090C8',
+  '#C48A6A',
+  '#7DB2CC',
 ]
 
 watch(
