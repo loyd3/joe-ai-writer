@@ -44,14 +44,19 @@ async function retryRequest<T>(
         throw error
       }
 
-      // 检查是否是可重试的网络错误
-      const isRetryableError = 
-        axiosError.code === 'ECONNABORTED' ||  // 请求超时
-        axiosError.code === 'ERR_NETWORK' ||   // 网络错误
-        axiosError.code === 'ETIMEDOUT' ||     // 连接超时
-        axiosError.message?.includes('timeout') ||
-        axiosError.message?.includes('Network Error') ||
-        !axiosError.response  // 无响应（服务器未启动）
+      // 检查是否是可重试的网络错误（含浏览器 ERR_CONNECTION_TIMED_OUT）
+      const code = axiosError.code ?? ''
+      const msg = axiosError.message ?? ''
+      const isRetryableError =
+        code === 'ECONNABORTED' ||           // 请求超时
+        code === 'ERR_NETWORK' ||            // 网络错误
+        code === 'ETIMEDOUT' ||              // 连接超时
+        code === 'ERR_CONNECTION_TIMED_OUT' || // 浏览器：连接超时
+        code === 'ERR_CONNECTION_REFUSED' ||   // 连接被拒绝
+        msg.includes('timeout') ||
+        msg.includes('Network Error') ||
+        msg.includes('ERR_CONNECTION_TIMED_OUT') ||
+        !axiosError.response                  // 无响应（服务器未启动）
 
       // 如果是连接错误且不是最后一次尝试，等待后重试
       if (isRetryableError && attempt < maxRetries) {
@@ -70,22 +75,34 @@ async function retryRequest<T>(
   throw lastError
 }
 
-// 健康检查 - 检查后端是否可用
-export async function checkBackendHealth(): Promise<{ ok: boolean; message: string }> {
-  try {
-    const response = await axios.get(`${API_BASE_URL}/health`, {
-      timeout: 5000
-    })
-    return { ok: true, message: '后端服务正常' }
-  } catch (error: any) {
-    if (error.code === 'ECONNABORTED' || error.code === 'ETIMEDOUT' || error.message?.includes('timeout')) {
-      return { ok: false, message: '连接超时：后端服务未响应' }
+// 健康检查 - 检查后端是否可用（带重试）
+export async function checkBackendHealth(retries = 2): Promise<{ ok: boolean; message: string }> {
+  for (let i = 0; i < retries; i++) {
+    try {
+      const response = await axios.get(`${API_BASE_URL}/health`, {
+        timeout: 3000
+      })
+      return { ok: true, message: '后端服务正常' }
+    } catch (error: any) {
+      // 最后一次失败才返回错误
+      if (i === retries - 1) {
+        const msg = error.message?.toLowerCase() || ''
+        if (msg.includes('timed out') || msg.includes('timeout') || error.code?.includes('TIMEOUT')) {
+          return { ok: false, message: '连接超时：后端服务未响应 (ERR_CONNECTION_TIMED_OUT)' }
+        }
+        if (msg.includes('refused') || error.code?.includes('REFUSED')) {
+          return { ok: false, message: '连接被拒绝：后端服务未启动 (ERR_CONNECTION_REFUSED)' }
+        }
+        if (error.code === 'ERR_NETWORK' || msg.includes('network')) {
+          return { ok: false, message: '网络错误：无法连接到后端服务' }
+        }
+        return { ok: false, message: '无法连接到后端服务，请检查服务是否已启动' }
+      }
+      // 等待后重试
+      await new Promise(r => setTimeout(r, 1000))
     }
-    if (error.code === 'ERR_NETWORK' || error.message?.includes('Network Error')) {
-      return { ok: false, message: '无法连接到后端服务，请检查服务是否已启动' }
-    }
-    return { ok: false, message: '后端服务异常' }
   }
+  return { ok: false, message: '无法连接到后端服务' }
 }
 
 // 请求拦截器 - 添加 token
@@ -115,8 +132,13 @@ const getErrorMessage = (error: AxiosError): string => {
     return '连接超时：无法连接到后端服务，请检查服务是否已启动'
   }
 
+  // 连接超时（浏览器常见）
+  if (error.code === 'ERR_CONNECTION_TIMED_OUT' || error.message?.includes('ERR_CONNECTION_TIMED_OUT')) {
+    return '连接超时：后端服务未响应，请检查是否已启动 (python start.py)'
+  }
+
   // 网络错误（连接被拒绝、服务器未启动等）
-  if (error.code === 'ERR_NETWORK' || error.message?.includes('Network Error')) {
+  if (error.code === 'ERR_NETWORK' || error.code === 'ERR_CONNECTION_REFUSED' || error.message?.includes('Network Error')) {
     return '无法连接到服务器，请检查后端服务是否已启动 (python start.py)'
   }
 

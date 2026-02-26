@@ -74,18 +74,28 @@ export const useAuthStore = defineStore('auth', () => {
     } catch (error: any) {
       // 处理超时和连接错误
       let msg = '登录失败'
+      const errMsg = error.message?.toLowerCase() || ''
+      const errCode = error.code?.toUpperCase() || ''
 
-      if (error.code === 'ECONNABORTED') {
+      if (errCode.includes('CONNECTION_TIMED_OUT') || errMsg.includes('timed out')) {
+        msg = '连接超时 (ERR_CONNECTION_TIMED_OUT)：后端服务无响应\n请确保服务已启动: python start.py'
+      } else if (errCode.includes('CONNECTION_REFUSED') || errMsg.includes('refused')) {
+        msg = '连接被拒绝 (ERR_CONNECTION_REFUSED)：后端服务未启动\n请运行: python start.py'
+      } else if (error.code === 'ECONNABORTED') {
         msg = '请求超时：后端服务响应时间过长'
-      } else if (error.code === 'ETIMEDOUT' || error.message?.includes('timeout')) {
+      } else if (error.code === 'ETIMEDOUT') {
         msg = '连接超时：无法连接到后端服务'
-      } else if (error.code === 'ERR_NETWORK' || error.message?.includes('Network Error')) {
+      } else if (error.code === 'ERR_NETWORK' || errMsg.includes('network error')) {
         msg = '网络错误：无法连接到后端服务'
       } else if (error.response?.data?.detail) {
         msg = error.response.data.detail
       }
 
-      ElMessage.error(msg)
+      ElMessage.error({
+        message: msg,
+        duration: 5000,
+        showClose: true
+      })
       return false
     } finally {
       loading.value = false
