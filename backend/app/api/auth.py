@@ -1,13 +1,20 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from typing import Optional
+import os
+import shutil
+import uuid
 
 from app.database import get_db
-from app.schemas.schemas import UserCreate, UserResponse, Token, UserProfile, ThemeResponse, ThemeUpdate
+from app.schemas.schemas import (
+    UserCreate, UserResponse, Token, UserProfile, ThemeResponse, ThemeUpdate,
+    ProfileUpdate, PasswordChange
+)
 from app.core.auth import (
     authenticate_user, create_access_token, create_user,
-    get_user_by_username, get_user_by_email, get_user_by_id, decode_token
+    get_user_by_username, get_user_by_email, get_user_by_id, decode_token,
+    get_password_hash, verify_password
 )
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
@@ -116,7 +123,94 @@ def get_profile(
         "username": user.username,
         "email": user.email,
         "project_count": len(user.projects),
-        "created_at": user.created_at
+        "created_at": user.created_at,
+        "avatar_url": getattr(user, "avatar_url", None),
+    }
+
+
+@router.put("/profile", response_model=UserProfile)
+def update_profile(
+    body: ProfileUpdate,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """更新用户资料（用户名、邮箱、头像 URL）"""
+    user = get_user_by_id(db, current_user["id"])
+    if body.username is not None:
+        existing = get_user_by_username(db, body.username)
+        if existing and existing.id != user.id:
+            raise HTTPException(status_code=400, detail="Username already registered")
+        user.username = body.username
+    if body.email is not None:
+        existing = get_user_by_email(db, body.email)
+        if existing and existing.id != user.id:
+            raise HTTPException(status_code=400, detail="Email already registered")
+        user.email = body.email
+    if body.avatar_url is not None:
+        user.avatar_url = body.avatar_url
+    db.commit()
+    db.refresh(user)
+    return {
+        "id": user.id,
+        "username": user.username,
+        "email": user.email,
+        "project_count": len(user.projects),
+        "created_at": user.created_at,
+        "avatar_url": getattr(user, "avatar_url", None),
+    }
+
+
+@router.put("/password")
+def change_password(
+    body: PasswordChange,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """修改密码"""
+    user = get_user_by_id(db, current_user["id"])
+    if not verify_password(body.old_password, user.hashed_password):
+        raise HTTPException(status_code=400, detail="Incorrect current password")
+    user.hashed_password = get_password_hash(body.new_password)
+    db.commit()
+    return {"message": "Password updated"}
+
+
+# 头像上传目录（与 main 中 mount 的 static 对应）
+AVATAR_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "static", "avatars")
+ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
+
+
+@router.put("/avatar", response_model=UserProfile)
+def upload_avatar(
+    file: UploadFile = File(...),
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """上传头像（覆盖式），返回更新后的 profile"""
+    user = get_user_by_id(db, current_user["id"])
+    ext = os.path.splitext(file.filename or "")[1].lower()
+    if ext not in ALLOWED_EXTENSIONS:
+        raise HTTPException(status_code=400, detail="Allowed formats: jpg, png, gif, webp")
+    os.makedirs(AVATAR_DIR, exist_ok=True)
+    # 固定文件名便于覆盖，避免旧文件堆积
+    filename = f"{user.id}{ext}"
+    path = os.path.join(AVATAR_DIR, filename)
+    try:
+        with open(path, "wb") as f:
+            shutil.copyfileobj(file.file, f)
+    finally:
+        file.file.close()
+    avatar_url = f"/static/avatars/{filename}"
+    user.avatar_url = avatar_url
+    db.commit()
+    db.refresh(user)
+    return {
+        "id": user.id,
+        "username": user.username,
+        "email": user.email,
+        "project_count": len(user.projects),
+        "created_at": user.created_at,
+        "avatar_url": user.avatar_url,
     }
 
 

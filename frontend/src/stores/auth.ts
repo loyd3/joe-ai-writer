@@ -8,6 +8,7 @@ export interface User {
   id: number
   username: string
   email: string
+  avatar_url?: string
 }
 
 export const useAuthStore = defineStore('auth', () => {
@@ -106,6 +107,49 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
+  function setUser(profile: { id: number; username: string; email: string; avatar_url?: string }) {
+    user.value = { id: profile.id, username: profile.username, email: profile.email, avatar_url: profile.avatar_url }
+    localStorage.setItem('user', JSON.stringify(user.value))
+  }
+
+  async function updateProfile(data: { username?: string; email?: string; avatar_url?: string }) {
+    try {
+      const res = await authApi.updateProfile(data)
+      setUser(res.data)
+      ElMessage.success('资料已更新')
+      return true
+    } catch (error: any) {
+      const msg = error.response?.data?.detail || '更新失败'
+      ElMessage.error(msg)
+      return false
+    }
+  }
+
+  async function changePassword(oldPassword: string, newPassword: string) {
+    try {
+      await authApi.changePassword({ old_password: oldPassword, new_password: newPassword })
+      ElMessage.success('密码已修改')
+      return true
+    } catch (error: any) {
+      const msg = error.response?.data?.detail || '修改失败'
+      ElMessage.error(msg)
+      return false
+    }
+  }
+
+  async function uploadAvatar(file: File) {
+    try {
+      const res = await authApi.uploadAvatar(file)
+      setUser(res.data)
+      ElMessage.success('头像已更新')
+      return true
+    } catch (error: any) {
+      const msg = error.response?.data?.detail || '上传失败'
+      ElMessage.error(msg)
+      return false
+    }
+  }
+
   return {
     user,
     token,
@@ -117,6 +161,10 @@ export const useAuthStore = defineStore('auth', () => {
     login,
     register,
     logout,
-    fetchProfile
+    fetchProfile,
+    updateProfile,
+    changePassword,
+    uploadAvatar,
+    setUser
   }
 })

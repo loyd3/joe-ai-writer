@@ -15,7 +15,8 @@ class User(Base):
     # 主题：preset 为 coffee | teal | indigo | custom，custom 时用 theme_custom_color
     theme_preset = Column(String(32), nullable=True)
     theme_custom_color = Column(String(32), nullable=True)
-    
+    avatar_url = Column(String(512), nullable=True)
+
     projects = relationship("Project", back_populates="owner", cascade="all, delete-orphan")
 
 class Project(Base):

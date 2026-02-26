@@ -27,7 +27,8 @@ class UserResponse(UserBase):
     id: int
     is_active: bool
     created_at: datetime
-    
+    avatar_url: Optional[str] = None
+
     class Config:
         from_attributes = True
 
@@ -37,6 +38,18 @@ class UserProfile(BaseModel):
     email: EmailStr
     project_count: int
     created_at: datetime
+    avatar_url: Optional[str] = None
+
+
+class ProfileUpdate(BaseModel):
+    username: Optional[str] = Field(None, min_length=3, max_length=50)
+    email: Optional[EmailStr] = None
+    avatar_url: Optional[str] = None
+
+
+class PasswordChange(BaseModel):
+    old_password: str
+    new_password: str = Field(..., min_length=6, max_length=100)
 
 
 class ThemeResponse(BaseModel):

@@ -52,7 +52,8 @@
           <el-dropdown trigger="click" @command="handleUserCommand">
             <div class="user-info">
               <div class="user-avatar">
-                <el-icon><UserFilled /></el-icon>
+                <el-avatar v-if="authStore.currentUser?.avatar_url" :size="36" :src="sidebarAvatarUrl" />
+                <el-icon v-else><UserFilled /></el-icon>
               </div>
               <div class="user-meta">
                 <span class="username">{{ authStore.currentUser?.username }}</span>
@@ -97,6 +98,16 @@
     >
       <AIConfigPanel />
     </el-drawer>
+    <el-drawer
+      v-model="showProfileDrawer"
+      title="个人中心"
+      size="480px"
+      direction="rtl"
+      class="profile-drawer"
+      destroy-on-close
+    >
+      <ProfileCenter />
+    </el-drawer>
   </div>
 </template>
 
@@ -104,10 +115,13 @@
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+import { computed } from 'vue'
 import ProjectSidebar from '@/components/ProjectSidebar.vue'
 import ThemeSettingsDialog from '@/components/ThemeSettingsDialog.vue'
 import GlobalSearch from '@/components/GlobalSearch.vue'
 import AIConfigPanel from '@/components/AIConfigPanel.vue'
+import ProfileCenter from '@/components/ProfileCenter.vue'
+import { API_BASE_URL } from '@/api'
 import { EditPen, UserFilled, ArrowDown, User, Setting, SwitchButton, Cpu, HomeFilled, DataLine } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
@@ -115,6 +129,14 @@ const router = useRouter()
 const authStore = useAuthStore()
 const showSettingsDialog = ref(false)
 const showAIConfigDrawer = ref(false)
+const showProfileDrawer = ref(false)
+
+const sidebarAvatarUrl = computed(() => {
+  const url = authStore.currentUser?.avatar_url
+  if (!url) return ''
+  const base = API_BASE_URL.replace(/\/api\/?$/, '')
+  return base + url
+})
 
 function goToHome() {
   router.push('/')
@@ -123,7 +145,7 @@ function goToHome() {
 async function handleUserCommand(command: string) {
   switch (command) {
     case 'profile':
-      ElMessage.info('个人中心功能开发中')
+      showProfileDrawer.value = true
       break
     case 'aiConfig':
       showAIConfigDrawer.value = true

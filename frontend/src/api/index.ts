@@ -53,6 +53,17 @@ export const authApi = {
   getMe: () => api.get('/auth/me'),
   
   getProfile: () => api.get('/auth/profile'),
+  updateProfile: (data: { username?: string; email?: string; avatar_url?: string }) =>
+    api.put('/auth/profile', data),
+  changePassword: (data: { old_password: string; new_password: string }) =>
+    api.put('/auth/password', data),
+  uploadAvatar: (file: File) => {
+    const formData = new FormData()
+    formData.append('file', file)
+    return api.put('/auth/avatar', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    })
+  },
 
   getTheme: () => api.get('/auth/theme'),
   updateTheme: (data: { preset_id?: string; custom_color?: string }) =>
