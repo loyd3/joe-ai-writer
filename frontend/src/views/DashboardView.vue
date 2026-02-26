@@ -128,7 +128,7 @@
     <!-- 写作目标 -->
     <div class="dashboard-section goals-section">
       <h3>
-        <el-icon><Target /></el-icon>
+        <el-icon><Aim /></el-icon>
         写作目标
       </h3>
       <div class="goals-grid">
@@ -222,7 +222,7 @@ import {
   Cpu,
   TrendCharts,
   MagicStick,
-  Target,
+  Aim,
   Edit,
   Calendar
 } from '@element-plus/icons-vue'

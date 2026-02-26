@@ -271,6 +271,9 @@ function scrollToBottom() {
 <style scoped lang="scss">
 .ai-chat-panel {
   width: 380px;
+  flex-shrink: 0;
+  position: relative;
+  z-index: 1; /* 低于编辑区，保证快捷栏能浮在上方 */
   border-left: 1px solid var(--coffee-border);
   display: flex;
   flex-direction: column;

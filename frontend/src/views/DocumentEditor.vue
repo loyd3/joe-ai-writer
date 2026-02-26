@@ -330,11 +330,14 @@ onBeforeUnmount(() => {
 }
 
 .editor-header {
-  height: 64px;
-  padding: 0 24px;
+  min-height: 64px;
+  height: auto;
+  padding: 12px 24px;
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
   background: var(--coffee-bg-card);
   border-bottom: 1px solid var(--coffee-border);
   box-shadow: 0 2px 8px var(--coffee-shadow);
@@ -403,15 +406,18 @@ onBeforeUnmount(() => {
 .header-right {
   display: flex;
   align-items: center;
-  gap: 12px;
-  
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  min-width: 0;
+
   .doc-actions-dropdown .more-btn {
     color: var(--coffee-text-muted);
     &:hover {
       color: var(--coffee-primary);
     }
   }
-  
+
   :deep(.delete-item) {
     color: var(--el-color-danger);
   }
@@ -490,7 +496,8 @@ onBeforeUnmount(() => {
   flex: 1;
   overflow-y: auto;
   padding: 40px;
-  
+  position: relative;
+  z-index: 2; /* 高于右侧 AI 面板，避免快捷栏被遮挡 */
   &.with-chat {
     flex: 0 0 60%;
   }
@@ -506,29 +513,61 @@ onBeforeUnmount(() => {
   min-height: calc(100vh - 180px);
 }
 
-@media (max-width: 768px) {
-  .editor-header {
-    padding: 0 16px;
-  }
-  
-  .breadcrumb {
-    .title-input {
-      width: 160px;
+@media (max-width: 1024px) {
+  .header-right {
+    .chat-toggle span,
+    .extract-btn span,
+    .generate-btn span,
+    .save-btn span {
+      display: none;
+    }
+    .chat-toggle,
+    .extract-btn,
+    .generate-btn,
+    .save-btn {
+      padding: 0 12px;
+      .el-icon {
+        margin-right: 0;
+      }
     }
   }
-  
+}
+
+@media (max-width: 768px) {
+  .editor-header {
+    padding: 8px 16px;
+  }
+
+  .header-left {
+    min-width: 0;
+  }
+
+  .breadcrumb {
+    .project-name {
+      max-width: 80px;
+    }
+    .title-input {
+      width: 120px;
+      min-width: 0;
+    }
+  }
+
+  .header-right {
+    gap: 6px;
+  }
+
   .editor-main {
     padding: 20px;
-    
+
     &.with-chat {
       flex: 0 0 100%;
     }
   }
-  
+
   .editor-content {
     padding: 24px;
   }
-  
+
   .save-status span {
     display: none;
   }

@@ -28,7 +28,7 @@
             <span>列表</span>
           </button>
           <button type="button" class="toolbar-btn" :class="{ active: block.type === 'code' }" @click.stop="handleCommand('code', index)" title="代码块 (Ctrl+5)">
-            <el-icon><Code /></el-icon>
+            <el-icon><Operation /></el-icon>
             <span>代码</span>
           </button>
           <button type="button" class="toolbar-btn" :class="{ active: block.type === 'divider' }" @click.stop="handleCommand('divider', index)" title="分割线 (Ctrl+6)">
@@ -97,7 +97,7 @@
                 <el-icon><List /></el-icon> 列表 <span class="shortcut">Ctrl+4</span>
               </el-dropdown-item>
               <el-dropdown-item command="code">
-                <el-icon><Code /></el-icon> 代码块 <span class="shortcut">Ctrl+5</span>
+                <el-icon><Operation /></el-icon> 代码块 <span class="shortcut">Ctrl+5</span>
               </el-dropdown-item>
               <el-dropdown-item command="divider">
                 <el-icon><Minus /></el-icon> 分割线 <span class="shortcut">Ctrl+6</span>
@@ -128,7 +128,7 @@
 import { ref, nextTick, onMounted, onUnmounted, watch } from 'vue'
 import type { Block } from '@/stores/project'
 import { ElMessage } from 'element-plus'
-import { Plus, MoreFilled, Top, ChatDotRound, List, Document, Delete, EditPen, Brush, Rank, Code, Minus } from '@element-plus/icons-vue'
+import { Plus, MoreFilled, Top, ChatDotRound, List, Document, Delete, EditPen, Brush, Rank, Operation, Minus } from '@element-plus/icons-vue'
 
 const props = defineProps<{
   modelValue: Block[]
@@ -715,7 +715,7 @@ function setCursorToEnd(element: HTMLElement) {
   }
 }
 
-/* 快捷操作栏：绝对定位浮动在块上方 */
+/* 快捷操作栏：绝对定位浮动在块上方，过长时换行避免被右侧面板遮挡 */
 .quick-toolbar {
   position: absolute;
   left: 32px;
@@ -723,14 +723,15 @@ function setCursorToEnd(element: HTMLElement) {
   margin-bottom: 6px;
   display: flex;
   align-items: center;
-  gap: 2px;
-  flex-wrap: nowrap;
-  padding: 4px 6px;
+  gap: 4px;
+  flex-wrap: wrap;
+  max-width: min(520px, calc(100vw - 440px));
+  padding: 6px 8px;
   background: var(--coffee-bg-card);
   border: 1px solid var(--coffee-border);
   border-radius: 8px;
   box-shadow: 0 4px 12px var(--coffee-shadow);
-  z-index: 20;
+  z-index: 9999;
 }
 
 .toolbar-btn {

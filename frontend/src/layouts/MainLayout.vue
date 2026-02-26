@@ -348,8 +348,8 @@ async function handleUserCommand(command: string) {
 .main-content {
   padding: 0;
   background: var(--coffee-gradient-light);
-  overflow: hidden;
-  min-height: 0; /* 让 flex 子项可收缩，以便内部滚动生效 */
+  overflow-y: auto; /* 内容超出时主区域可滚动 */
+  min-height: 0;
 }
 
 /* 下拉菜单样式 */

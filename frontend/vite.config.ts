@@ -4,6 +4,9 @@ import { resolve } from 'path'
 
 export default defineConfig({
   plugins: [vue()],
+  optimizeDeps: {
+    include: ['vuedraggable']
+  },
   resolve: {
     alias: {
       '@': resolve(__dirname, 'src')
