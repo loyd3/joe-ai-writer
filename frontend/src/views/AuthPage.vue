@@ -5,9 +5,8 @@
         <div class="logo">
           <el-icon><EditPen /></el-icon>
         </div>
-        <h1>墨言</h1>
-        <p class="tagline">AI 辅助写作</p>
-        <p class="tagline">用文字书写灵魂</p>
+        <h1>墨心</h1>
+        <p class="tagline">AI 辅助写作 - 用文字书写灵魂</p>
       </div>
 
       <div class="auth-card">
@@ -84,7 +83,7 @@
 
       <div class="auth-quote">
         <p>"写作是一种灵魂的独白，每一行字都是心灵的印记。"</p>
-        <span class="author">— 墨言</span>
+        <span class="author">— 墨心</span>
       </div>
     </div>
 
@@ -204,7 +203,7 @@ async function handleSubmit() {
     display: flex;
     align-items: center;
     justify-content: center;
-    margin: 0 auto 20px;
+    margin: 0 auto 10px;
     box-shadow: 0 10px 40px rgba(166, 94, 46, 0.3);
     
     .el-icon {

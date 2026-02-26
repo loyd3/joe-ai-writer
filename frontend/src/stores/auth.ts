@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { authApi } from '@/api'
 import { ElMessage } from 'element-plus'
+import { useThemeStore } from '@/stores/theme'
 
 export interface User {
   id: number
@@ -32,6 +33,7 @@ export const useAuthStore = defineStore('auth', () => {
       try {
         const res = await authApi.getMe()
         user.value = res.data
+        useThemeStore().loadFromServer()
       } catch {
         // Token 无效，清除本地存储
         logout()
@@ -53,7 +55,7 @@ export const useAuthStore = defineStore('auth', () => {
       const userRes = await authApi.getMe()
       user.value = userRes.data
       localStorage.setItem('user', JSON.stringify(userRes.data))
-      
+      useThemeStore().loadFromServer()
       ElMessage.success('登录成功')
       return true
     } catch (error: any) {

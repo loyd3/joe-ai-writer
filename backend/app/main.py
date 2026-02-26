@@ -1,13 +1,13 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.database import engine, Base
-from app.api import projects, ai, auth, search, export, templates, versions, extract
+from app.api import projects, ai, auth, search, export, templates, versions, extract, system
 
 # 创建数据库表
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(
-    title="墨言 API（AI 辅助写作）",
+    title="墨心 API（AI 辅助写作）",
     description="AI-powered writing assistant with memory",
     version="2.0.0"
 )
@@ -36,10 +36,11 @@ app.include_router(export.router)
 app.include_router(templates.router)
 app.include_router(versions.router)
 app.include_router(extract.router)
+app.include_router(system.router)
 
 @app.get("/")
 def root():
-    return {"message": "墨言 API · AI 辅助写作", "version": "2.0.0"}
+    return {"message": "墨心 API · AI 辅助写作", "version": "2.0.0"}
 
 @app.get("/health")
 def health():

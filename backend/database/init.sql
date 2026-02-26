@@ -1,4 +1,4 @@
--- 墨言 数据库初始化 SQL
+-- 墨心 数据库初始化 SQL
 -- 数据库: aiwriter
 -- 字符集: utf8mb4
 
@@ -19,6 +19,8 @@ CREATE TABLE IF NOT EXISTS users (
     hashed_password VARCHAR(255) NOT NULL,
     is_active BOOLEAN DEFAULT TRUE,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    theme_preset VARCHAR(32) DEFAULT NULL,
+    theme_custom_color VARCHAR(32) DEFAULT NULL,
     INDEX idx_email (email),
     INDEX idx_username (username)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

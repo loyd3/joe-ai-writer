@@ -52,7 +52,11 @@ export const authApi = {
   
   getMe: () => api.get('/auth/me'),
   
-  getProfile: () => api.get('/auth/profile')
+  getProfile: () => api.get('/auth/profile'),
+
+  getTheme: () => api.get('/auth/theme'),
+  updateTheme: (data: { preset_id?: string; custom_color?: string }) =>
+    api.put('/auth/theme', data)
 }
 
 // ========== 项目 API ==========
@@ -103,7 +107,40 @@ export const aiApi = {
       },
       body: JSON.stringify(data)
     })
+  },
+  /** 根据项目设定生成内容（流式） */
+  generateFromMemoryStream: (data: {
+    project_id: number
+    document_id?: number
+    generate_type: 'opening' | 'continue' | 'outline_section' | 'scene' | 'custom'
+    custom_instruction?: string
+    current_content?: string
+  }) => {
+    const token = localStorage.getItem('token')
+    return fetch(`${API_BASE_URL}/api/ai/generate-from-memory/stream`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify(data)
+    })
   }
+}
+
+// ========== 系统 / AI 配置 API ==========
+export const systemApi = {
+  aiConfig: () => api.get('/system/ai-config'),
+  testAI: (data: { provider: string; model?: string; api_key?: string; base_url?: string; temperature?: number }) =>
+    api.post('/system/ai-config/test', data),
+  saveUserAIConfig: (data: {
+    provider: string
+    model?: string
+    api_key?: string
+    base_url?: string
+    temperature?: number
+    max_tokens?: number
+  }) => api.post('/system/user-ai-config', data),
 }
 
 export default api

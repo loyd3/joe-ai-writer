@@ -410,7 +410,7 @@ function resetToDefault() {
 
 <style scoped>
 .ai-config-panel {
-  padding: 20px;
+  padding: 0 20px;
   max-width: 800px;
   margin: 0 auto;
 }

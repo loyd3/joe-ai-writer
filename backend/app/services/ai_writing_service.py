@@ -174,3 +174,53 @@ class AIWritingService:
         
         async for chunk in ai_client.stream_completion(formatted_messages):
             yield chunk
+
+    # 根据项目设定生成的提示词模板
+    GENERATE_PROMPTS = {
+        "opening": "请根据以上项目设定，生成故事/文章的开头段落（约 300–500 字）。要求：自然引入世界观与角色，符合写作风格。",
+        "continue": "请根据以上项目设定和当前文档已有内容，续写下一段（约 300–500 字）。保持风格一致，情节自然衔接。",
+        "outline_section": "请根据以上项目设定中的大纲，任选一节或按顺序写一节正文（约 400–600 字）。需符合角色与世界观设定。",
+        "scene": "请根据以上项目设定，生成一个具体场景片段（约 300–400 字），可包含对话与动作，贴合角色性格与世界观。",
+        "custom": None,  # 由前端传入 custom_instruction
+    }
+
+    @staticmethod
+    async def generate_from_memory(
+        db: Session,
+        project_id: int,
+        generate_type: str,
+        custom_instruction: Optional[str] = None,
+        current_content: Optional[str] = None,
+        user_id: Optional[int] = None,
+    ) -> AsyncGenerator[str, None]:
+        """根据项目设定生成内容（流式）"""
+        memory_context = AIMemoryService.build_memory_context(db, project_id)
+        if not memory_context.strip():
+            yield "[错误] 该项目暂无设定内容，请先在「项目设定」中填写大纲、角色或世界观后再生成。"
+            return
+
+        system_prompt = """你是一位专业的写作助手。用户将提供「项目设定」和具体生成要求。
+请严格依据设定中的角色、世界观、写作风格和大纲来生成内容，保持风格统一、逻辑自洽。只输出生成的正文，不要输出解释或标题。"""
+
+        user_parts = [f"【项目设定】\n{memory_context}"]
+        if current_content:
+            user_parts.append(f"\n【当前文档末尾内容】\n{current_content}")
+
+        prompt_template = AIWritingService.GENERATE_PROMPTS.get(generate_type)
+        if generate_type == "custom" and custom_instruction:
+            instruction = custom_instruction
+        elif prompt_template:
+            instruction = prompt_template
+        else:
+            instruction = custom_instruction or "请根据项目设定生成一段正文。"
+
+        user_parts.append(f"\n【生成要求】\n{instruction}")
+        user_content = "\n".join(user_parts)
+
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_content},
+        ]
+
+        async for chunk in ai_client.stream_completion(messages):
+            yield chunk

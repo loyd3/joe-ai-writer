@@ -5,7 +5,7 @@
         <div class="logo" @click="goToHome" @keydown.enter="goToHome" role="button" tabindex="0" title="回到我的创作空间">
           <el-icon class="logo-icon"><EditPen /></el-icon>
           <div class="logo-text-wrap">
-            <span class="logo-text">墨言</span>
+            <span class="logo-text">墨心</span>
             <span class="logo-sub">AI 辅助写作</span>
           </div>
         </div>
@@ -38,8 +38,11 @@
                 <el-dropdown-item command="profile">
                   <el-icon><User /></el-icon> 个人中心
                 </el-dropdown-item>
+                <el-dropdown-item command="aiConfig">
+                  <el-icon><Cpu /></el-icon> AI 模型配置
+                </el-dropdown-item>
                 <el-dropdown-item command="settings">
-                  <el-icon><Setting /></el-icon> 设置
+                  <el-icon><Setting /></el-icon> 主题设置
                 </el-dropdown-item>
                 <el-dropdown-item divided command="logout">
                   <el-icon><SwitchButton /></el-icon> 退出登录
@@ -57,6 +60,16 @@
       </el-container>
     </el-container>
     <ThemeSettingsDialog v-model="showSettingsDialog" />
+    <el-drawer
+      v-model="showAIConfigDrawer"
+      title="AI 模型配置"
+      size="520px"
+      direction="rtl"
+      class="ai-config-drawer"
+      destroy-on-close
+    >
+      <AIConfigPanel />
+    </el-drawer>
   </div>
 </template>
 
@@ -67,12 +80,14 @@ import { useAuthStore } from '@/stores/auth'
 import ProjectSidebar from '@/components/ProjectSidebar.vue'
 import ThemeSettingsDialog from '@/components/ThemeSettingsDialog.vue'
 import GlobalSearch from '@/components/GlobalSearch.vue'
-import { EditPen, UserFilled, ArrowDown, User, Setting, SwitchButton } from '@element-plus/icons-vue'
+import AIConfigPanel from '@/components/AIConfigPanel.vue'
+import { EditPen, UserFilled, ArrowDown, User, Setting, SwitchButton, Cpu } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
 const router = useRouter()
 const authStore = useAuthStore()
 const showSettingsDialog = ref(false)
+const showAIConfigDrawer = ref(false)
 
 function goToHome() {
   router.push('/')
@@ -82,6 +97,9 @@ async function handleUserCommand(command: string) {
   switch (command) {
     case 'profile':
       ElMessage.info('个人中心功能开发中')
+      break
+    case 'aiConfig':
+      showAIConfigDrawer.value = true
       break
     case 'settings':
       showSettingsDialog.value = true

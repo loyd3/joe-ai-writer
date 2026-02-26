@@ -2,7 +2,7 @@
   <div class="ai-extract">
     <div class="extract-header">
       <h3>
-        <el-icon><Magic /></el-icon>
+        <el-icon><MagicStick /></el-icon>
         AI 智能提取
       </h3>
       <p class="subtitle">自动分析文档，提取角色、大纲等信息</p>
@@ -150,7 +150,7 @@
 import { ref, computed } from 'vue'
 import { ElMessage } from 'element-plus'
 import { extractApi } from '@/api/extract'
-import { Magic, Aim, TrendCharts, User, List, Star, MapLocation, EditPen, Check } from '@element-plus/icons-vue'
+import { MagicStick, Aim, TrendCharts, User, List, Star, MapLocation, EditPen, Check } from '@element-plus/icons-vue'
 
 const props = defineProps<{
   documentId: number

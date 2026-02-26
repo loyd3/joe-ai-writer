@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-墨言（AI 辅助写作）- 一键启动脚本
+墨心（AI 辅助写作）- 一键启动脚本
 同时启动后端 (FastAPI) 和前端 (Vue3)
 """
 import subprocess
@@ -21,7 +21,7 @@ class Colors:
     END = '\033[0m'
 
 def log(msg, color=Colors.GREEN):
-    print(f"{color}[墨言]{Colors.END} {msg}")
+    print(f"{color}[墨心]{Colors.END} {msg}")
 
 def get_project_root():
     """获取项目根目录"""
@@ -134,7 +134,7 @@ def wait_for_service(url, timeout=30):
     return False
 
 def main():
-    parser = argparse.ArgumentParser(description="墨言 AI 辅助写作 启动脚本")
+    parser = argparse.ArgumentParser(description="墨心 AI 辅助写作 启动脚本")
     parser.add_argument("--backend-port", type=int, default=8000, help="后端端口 (默认: 8000)")
     parser.add_argument("--frontend-port", type=int, default=5173, help="前端端口 (默认: 5173)")
     parser.add_argument("--no-reload", action="store_true", help="禁用后端热重载")
@@ -192,7 +192,7 @@ def main():
         
         # 打印访问信息
         print("\n" + "="*60)
-        print(f"  {Colors.GREEN}墨言 · AI 辅助写作 已启动!{Colors.END}")
+        print(f"  {Colors.GREEN}墨心 · AI 辅助写作 已启动!{Colors.END}")
         print("="*60)
         if not args.frontend_only:
             print(f"  后端 API: {Colors.BLUE}http://localhost:{args.backend_port}{Colors.END}")

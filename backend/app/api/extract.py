@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import flag_modified
 from typing import List, Dict, Any
 from app.database import get_db
 from app.api.auth import get_current_user
@@ -115,7 +116,8 @@ async def apply_extraction(
                 if memory.characters is None:
                     memory.characters = []
                 memory.characters.append(char)
-    
+        flag_modified(memory, "characters")
+
     # 合并大纲
     if extracted.get("outline"):
         if memory.outline is None:
@@ -125,7 +127,8 @@ async def apply_extraction(
         for item in extracted["outline"]:
             if item.get("title") not in existing_titles:
                 memory.outline.append(item)
-    
+        flag_modified(memory, "outline")
+
     # 合并关键情节点
     if extracted.get("key_points"):
         if memory.key_points is None:
@@ -133,12 +136,14 @@ async def apply_extraction(
         for point in extracted["key_points"]:
             if point not in memory.key_points:
                 memory.key_points.append(point)
-    
+        flag_modified(memory, "key_points")
+
     # 合并世界观
     if extracted.get("world_building"):
         if memory.world_building is None:
             memory.world_building = {}
         memory.world_building.update(extracted["world_building"])
+        flag_modified(memory, "world_building")
     
     # 写作风格（直接覆盖或追加）
     if extracted.get("writing_style"):

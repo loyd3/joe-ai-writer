@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-墨言 - 测试脚本
+墨心 - 测试脚本
 验证所有组件是否正确配置
 """
 import sys
@@ -91,7 +91,7 @@ def test_env_template():
 
 def main():
     print("="*60)
-    print("墨言 - Configuration Test")
+    print("墨心 - Configuration Test")
     print("="*60)
     
     results = [

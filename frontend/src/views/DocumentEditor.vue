@@ -33,7 +33,15 @@
           <el-icon><ChatDotRound /></el-icon>
           <span>AI 助手</span>
         </el-button>
-        <el-button type="primary" class="save-btn" @click="saveDocument" :loading="saving">
+        <el-button class="extract-btn" @click="showExtractDrawer = true">
+          <el-icon><Aim /></el-icon>
+          <span>AI 智能提取</span>
+        </el-button>
+        <el-button class="generate-btn" @click="showGenerateDrawer = true">
+          <el-icon><MagicStick /></el-icon>
+          <span>根据设定生成</span>
+        </el-button>
+        <el-button class="save-btn" type="primary" @click="saveDocument" :loading="saving">
           <el-icon><Check /></el-icon>
           <span>保存</span>
         </el-button>
@@ -82,6 +90,40 @@
         @replace="replaceText"
       />
     </div>
+
+    <el-drawer
+      v-model="showExtractDrawer"
+      title="AI 智能提取"
+      size="520px"
+      direction="rtl"
+      class="extract-drawer"
+      destroy-on-close
+    >
+      <AIExtract
+        v-if="document?.project_id"
+        :document-id="Number(documentId)"
+        :project-id="document.project_id"
+        :content="content"
+        @applied="onExtractApplied"
+      />
+    </el-drawer>
+
+    <el-drawer
+      v-model="showGenerateDrawer"
+      title="根据项目设定生成"
+      size="520px"
+      direction="rtl"
+      class="generate-drawer"
+      destroy-on-close
+    >
+      <AIGenerateFromMemory
+        v-if="document?.project_id"
+        :project-id="document.project_id"
+        :document-id="Number(documentId)"
+        :current-content="content"
+        @insert="insertText"
+      />
+    </el-drawer>
   </div>
 </template>
 
@@ -92,9 +134,11 @@ import { useProjectStore, type Block } from '@/stores/project'
 import { ElMessage } from 'element-plus'
 import BlockEditor from '@/components/BlockEditor.vue'
 import AIChatPanel from '@/components/AIChatPanel.vue'
+import AIExtract from '@/components/AIExtract.vue'
+import AIGenerateFromMemory from '@/components/AIGenerateFromMemory.vue'
 import ExportMenu from '@/components/ExportMenu.vue'
 import { ElMessageBox } from 'element-plus'
-import { ArrowLeft, ArrowRight, ChatDotRound, Check, Loading, CircleCheck, MoreFilled, Edit, Delete } from '@element-plus/icons-vue'
+import { ArrowLeft, ArrowRight, ChatDotRound, Check, Loading, CircleCheck, MoreFilled, Edit, Delete, Aim, MagicStick } from '@element-plus/icons-vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -108,6 +152,8 @@ const documentTitle = ref('')
 const content = ref<Block[]>([])
 const saving = ref(false)
 const showChatPanel = ref(true)
+const showExtractDrawer = ref(false)
+const showGenerateDrawer = ref(false)
 const hasChanges = ref(false)
 const lastSaved = ref<Date | null>(null)
 const aiChatRef = ref<{ polishWithText: (text: string) => Promise<void> } | null>(null)
@@ -178,6 +224,13 @@ async function saveDocument() {
     lastSaved.value = new Date()
   } finally {
     saving.value = false
+  }
+}
+
+async function onExtractApplied() {
+  showExtractDrawer.value = false
+  if (document.value?.project_id) {
+    await store.fetchMemory(document.value.project_id)
   }
 }
 
@@ -373,6 +426,7 @@ onBeforeUnmount(() => {
   padding: 6px 12px;
   border-radius: 6px;
   background: var(--coffee-bg-warm);
+  white-space: nowrap;
   
   .el-icon {
     font-size: 14px;
@@ -383,7 +437,9 @@ onBeforeUnmount(() => {
   }
 }
 
-.chat-toggle {
+.chat-toggle,
+.extract-btn,
+.generate-btn {
   height: 40px;
   padding: 0 16px;
   border-radius: 8px;

@@ -2,10 +2,11 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from app.database import get_db
-from app.schemas.schemas import AIRequest, AIChatRequest
+from app.schemas.schemas import AIRequest, AIChatRequest, AIGenerateFromMemoryRequest
 from app.services.ai_writing_service import AIWritingService
 from app.models.models import Document, Project
 from app.api.auth import get_current_user
+from app.api.projects import check_project_owner
 
 router = APIRouter(prefix="/api/ai", tags=["ai"])
 
@@ -73,4 +74,28 @@ async def ai_chat_stream(
             yield f"data: {chunk}\n\n"
         yield "data: [DONE]\n\n"
     
+    return StreamingResponse(generate(), media_type="text/event-stream")
+
+
+@router.post("/generate-from-memory/stream")
+async def ai_generate_from_memory_stream(
+    request: AIGenerateFromMemoryRequest,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """根据项目设定 AI 自动生成内容（流式）"""
+    check_project_owner(db, request.project_id, current_user["id"])
+
+    async def generate():
+        async for chunk in AIWritingService.generate_from_memory(
+            db,
+            project_id=request.project_id,
+            generate_type=request.generate_type,
+            custom_instruction=request.custom_instruction,
+            current_content=request.current_content,
+            user_id=current_user["id"],
+        ):
+            yield f"data: {chunk}\n\n"
+        yield "data: [DONE]\n\n"
+
     return StreamingResponse(generate(), media_type="text/event-stream")

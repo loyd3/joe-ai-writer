@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from typing import Optional
 
 from app.database import get_db
-from app.schemas.schemas import UserCreate, UserResponse, Token, UserProfile
+from app.schemas.schemas import UserCreate, UserResponse, Token, UserProfile, ThemeResponse, ThemeUpdate
 from app.core.auth import (
     authenticate_user, create_access_token, create_user,
     get_user_by_username, get_user_by_email, get_user_by_id, decode_token
@@ -118,3 +118,36 @@ def get_profile(
         "project_count": len(user.projects),
         "created_at": user.created_at
     }
+
+
+@router.get("/theme", response_model=ThemeResponse)
+def get_theme(
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """获取当前用户主题设置"""
+    user = get_user_by_id(db, current_user["id"])
+    return ThemeResponse(
+        preset_id=user.theme_preset or "coffee",
+        custom_color=user.theme_custom_color
+    )
+
+
+@router.put("/theme", response_model=ThemeResponse)
+def update_theme(
+    body: ThemeUpdate,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """保存当前用户主题设置"""
+    user = get_user_by_id(db, current_user["id"])
+    if body.preset_id is not None:
+        user.theme_preset = body.preset_id
+    if body.custom_color is not None:
+        user.theme_custom_color = body.custom_color
+    db.commit()
+    db.refresh(user)
+    return ThemeResponse(
+        preset_id=user.theme_preset or "coffee",
+        custom_color=user.theme_custom_color
+    )

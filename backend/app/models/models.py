@@ -12,6 +12,9 @@ class User(Base):
     hashed_password = Column(String(255))
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+    # 主题：preset 为 coffee | teal | indigo | custom，custom 时用 theme_custom_color
+    theme_preset = Column(String(32), nullable=True)
+    theme_custom_color = Column(String(32), nullable=True)
     
     projects = relationship("Project", back_populates="owner", cascade="all, delete-orphan")
 

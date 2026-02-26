@@ -1,5 +1,12 @@
 import { defineStore } from 'pinia'
 import { ref, watch } from 'vue'
+import { authApi } from '@/api'
+
+let saveToServerTimer: ReturnType<typeof setTimeout> | null = null
+function debouncedSaveToServer(fn: () => void, ms: number) {
+  if (saveToServerTimer) clearTimeout(saveToServerTimer)
+  saveToServerTimer = setTimeout(fn, ms)
+}
 
 const STORAGE_KEY = 'joe-writer-theme'
 
@@ -163,6 +170,32 @@ export const useThemeStore = defineStore('theme', () => {
     }
   }
 
+  /** 从服务器加载主题（登录后调用） */
+  async function loadFromServer() {
+    try {
+      const res = await authApi.getTheme()
+      const data = res.data as { preset_id?: string; custom_color?: string }
+      if (data.preset_id) presetId.value = data.preset_id as ThemePresetId
+      if (data.custom_color) customColor.value = data.custom_color
+      applyTheme()
+      save()
+    } catch {
+      // 未登录或接口失败，保留本地主题
+    }
+  }
+
+  /** 保存主题到服务器 */
+  async function saveToServer() {
+    try {
+      await authApi.updateTheme({
+        preset_id: presetId.value,
+        custom_color: customColor.value
+      })
+    } catch {
+      // 未登录或网络错误，仅保留在本地
+    }
+  }
+
   function applyTheme() {
     if (presetId.value === 'custom') {
       const palette = deriveFullPalette(customColor.value)
@@ -197,6 +230,7 @@ export const useThemeStore = defineStore('theme', () => {
   watch([presetId, customColor], () => {
     applyTheme()
     save()
+    debouncedSaveToServer(saveToServer, 600)
   })
 
   return {
@@ -206,5 +240,7 @@ export const useThemeStore = defineStore('theme', () => {
     setCustomColor,
     applyTheme,
     loadSaved,
+    loadFromServer,
+    saveToServer,
   }
 })

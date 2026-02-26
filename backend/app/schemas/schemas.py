@@ -38,6 +38,18 @@ class UserProfile(BaseModel):
     project_count: int
     created_at: datetime
 
+
+class ThemeResponse(BaseModel):
+    """用户主题偏好"""
+    preset_id: str = "coffee"
+    custom_color: Optional[str] = None
+
+
+class ThemeUpdate(BaseModel):
+    preset_id: Optional[str] = None
+    custom_color: Optional[str] = None
+
+
 # ========== AI Memory Schemas ==========
 class Character(BaseModel):
     name: str
@@ -143,6 +155,15 @@ class AIChatRequest(BaseModel):
     document_id: int
     messages: List[ChatMessage]
     include_memory: bool = True
+
+
+class AIGenerateFromMemoryRequest(BaseModel):
+    """根据项目设定 AI 生成请求"""
+    project_id: int
+    document_id: Optional[int] = None  # 可选，续写时传入当前文档 id
+    generate_type: str = "opening"  # opening | continue | outline_section | scene | custom
+    custom_instruction: Optional[str] = None  # generate_type=custom 时使用
+    current_content: Optional[str] = None  # 续写时传入当前文档末尾内容
 
 # ========== Template Schemas ==========
 class TemplateCreate(BaseModel):
