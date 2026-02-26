@@ -1,6 +1,6 @@
 <template>
   <div class="project-sidebar">
-    <div class="sidebar-header">
+    <!-- <div class="sidebar-header">
       <el-button 
         type="primary" 
         class="create-btn"
@@ -9,7 +9,7 @@
         <el-icon><Plus /></el-icon>
         <span>新建项目</span>
       </el-button>
-    </div>
+    </div> -->
     
     <div class="menu-section">
       <div class="section-title">

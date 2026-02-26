@@ -6,14 +6,14 @@
         <p class="subtitle">在这里记录您的灵感与故事</p>
       </div>
       <div class="header-actions">
-        <el-button type="primary" class="action-btn" @click="showTemplateLibrary = true">
+        <!-- <el-button type="primary" class="action-btn" @click="showTemplateLibrary = true">
           <el-icon><Collection /></el-icon>
           <span>从模板开始</span>
-        </el-button>
-        <el-button class="action-btn" @click="showCreateDialog = true">
+        </el-button> -->
+        <!-- <el-button class="action-btn" @click="showCreateDialog = true">
           <el-icon><Plus /></el-icon>
           <span>新建项目</span>
-        </el-button>
+        </el-button> -->
       </div>
     </div>
     

@@ -527,7 +527,7 @@ async function saveProjectEdit() {
     .doc-icon {
       width: 44px;
       height: 44px;
-      background: linear-gradient(135deg, #e8f5e9 0%, #c8e6c9 100%);
+      background: linear-gradient(135deg, #fff 0%, var(--coffee-primary) 100%);
       border-radius: 10px;
       display: flex;
       align-items: center;
@@ -535,7 +535,7 @@ async function saveProjectEdit() {
       
       .el-icon {
         font-size: 22px;
-        color: #4caf50;
+        color: #000;
       }
     }
     
