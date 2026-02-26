@@ -1,11 +1,24 @@
 from pathlib import Path
+import secrets
+import warnings
 
 from pydantic_settings import BaseSettings
+from pydantic import Field
 from functools import lru_cache
 from typing import Literal
 
 # 项目根目录（backend 的上级），便于加载根目录 .env（start.py 场景）
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent
+
+def _generate_or_load_secret() -> str:
+    """生成或加载 JWT 密钥"""
+    secret_file = _PROJECT_ROOT / ".jwt_secret"
+    if secret_file.exists():
+        return secret_file.read_text().strip()
+    # 生成新密钥并保存
+    new_secret = secrets.token_urlsafe(32)
+    secret_file.write_text(new_secret)
+    return new_secret
 
 
 class Settings(BaseSettings):
@@ -47,10 +60,14 @@ class Settings(BaseSettings):
     ai_temperature: float = 0.7
     ai_max_tokens: int = 4096
 
-    # JWT
-    secret_key: str = "your-secret-key-change-in-production"
+    # JWT - 自动生成的安全密钥，或在 .env 中设置
+    secret_key: str = Field(default_factory=_generate_or_load_secret)
     algorithm: str = "HS256"
     access_token_expire_minutes: int = 60 * 24 * 7  # 7 days
+    
+    # API 限流配置
+    rate_limit_ai: str = "10/minute"  # AI 接口每分钟限制
+    rate_limit_general: str = "60/minute"  # 普通接口每分钟限制
 
     # CORS 允许的来源（逗号分隔，空则用默认开发列表）
     cors_origins: str = ""

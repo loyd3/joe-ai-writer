@@ -59,32 +59,48 @@ class AIClient:
         messages: list,
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
+        timeout: float = 60.0,
         **kwargs,
     ) -> str:
         """通用对话接口（非流式）"""
-        response = await self.client.chat.completions.create(
-            model=self.model,
-            messages=messages,
-            temperature=temperature or self.settings.ai_temperature,
-            max_tokens=max_tokens or self.settings.ai_max_tokens,
-            **kwargs,
-        )
-        return response.choices[0].message.content
+        import asyncio
+        try:
+            response = await asyncio.wait_for(
+                self.client.chat.completions.create(
+                    model=self.model,
+                    messages=messages,
+                    temperature=temperature or self.settings.ai_temperature,
+                    max_tokens=max_tokens or self.settings.ai_max_tokens,
+                    **kwargs,
+                ),
+                timeout=timeout
+            )
+            return response.choices[0].message.content
+        except asyncio.TimeoutError:
+            raise Exception("AI 请求超时，请稍后重试")
 
     async def stream_completion(
-        self, messages: list, temperature: Optional[float] = None, max_tokens: Optional[int] = None
+        self, messages: list, temperature: Optional[float] = None, max_tokens: Optional[int] = None,
+        timeout: float = 120.0
     ) -> AsyncGenerator[str, None]:
-        """流式对话接口"""
-        stream = await self.client.chat.completions.create(
-            model=self.model,
-            messages=messages,
-            temperature=temperature or self.settings.ai_temperature,
-            max_tokens=max_tokens or self.settings.ai_max_tokens,
-            stream=True,
-        )
-        async for chunk in stream:
-            if chunk.choices[0].delta.content:
-                yield chunk.choices[0].delta.content
+        """流式对话接口，带超时保护"""
+        import asyncio
+        try:
+            stream = await asyncio.wait_for(
+                self.client.chat.completions.create(
+                    model=self.model,
+                    messages=messages,
+                    temperature=temperature or self.settings.ai_temperature,
+                    max_tokens=max_tokens or self.settings.ai_max_tokens,
+                    stream=True,
+                ),
+                timeout=30.0  # 连接超时
+            )
+            async for chunk in stream:
+                if chunk.choices[0].delta.content:
+                    yield chunk.choices[0].delta.content
+        except asyncio.TimeoutError:
+            raise Exception("AI 连接超时，请稍后重试")
 
 
 # 全局客户端实例（延迟初始化）

@@ -1,53 +1,10 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { projectApi, documentApi, memoryApi } from '@/api'
+import type { Project, Document, AIMemory, ProjectCreate, ProjectUpdate, DocumentCreate, DocumentUpdate, AIMemoryUpdate } from '@/api'
 
-export interface Project {
-  id: number
-  title: string
-  description?: string
-  created_at: string
-  updated_at: string
-  documents?: Document[]
-  ai_memory?: AIMemory
-}
-
-export interface Document {
-  id: number
-  title: string
-  content: Block[]
-  project_id: number
-  parent_id?: number
-  created_at: string
-  updated_at: string
-}
-
-export interface Block {
-  id: string
-  type: string
-  content: string
-  props?: Record<string, any>
-}
-
-export interface Character {
-  name: string
-  description: string
-  personality?: string
-  background?: string
-  goals?: string
-}
-
-export interface AIMemory {
-  id: number
-  project_id: number
-  outline: any[]
-  storyline?: string
-  characters: Character[]
-  world_building: Record<string, any>
-  writing_style?: string
-  key_points: string[]
-  notes?: string
-}
+// 从 API 模块重新导出类型，保持兼容性
+export type { Project, Document, AIMemory }
 
 export const useProjectStore = defineStore('project', () => {
   // State
@@ -85,13 +42,13 @@ export const useProjectStore = defineStore('project', () => {
     }
   }
 
-  async function createProject(data: Partial<Project>) {
+  async function createProject(data: ProjectCreate) {
     const res = await projectApi.create(data)
     projects.value.push(res.data)
     return res.data
   }
 
-  async function updateProject(id: number, data: Partial<Project>) {
+  async function updateProject(id: number, data: ProjectUpdate) {
     const res = await projectApi.update(id, data)
     const index = projects.value.findIndex(p => p.id === id)
     if (index !== -1) {
@@ -115,7 +72,7 @@ export const useProjectStore = defineStore('project', () => {
     return res.data
   }
 
-  async function createDocument(projectId: number, data: Partial<Document>) {
+  async function createDocument(projectId: number, data: DocumentCreate) {
     const res = await documentApi.create(projectId, data)
     if (currentProject.value) {
       currentProject.value.documents = currentProject.value.documents || []
@@ -124,7 +81,7 @@ export const useProjectStore = defineStore('project', () => {
     return res.data
   }
 
-  async function updateDocument(id: number, data: Partial<Document>) {
+  async function updateDocument(id: number, data: DocumentUpdate) {
     const res = await documentApi.update(id, data)
     if (currentDocument.value?.id === id) {
       currentDocument.value = { ...currentDocument.value, ...res.data }
@@ -156,7 +113,7 @@ export const useProjectStore = defineStore('project', () => {
     return res.data
   }
 
-  async function updateMemory(projectId: number, data: Partial<AIMemory>) {
+  async function updateMemory(projectId: number, data: AIMemoryUpdate) {
     const res = await memoryApi.update(projectId, data)
     if (currentProject.value) {
       currentProject.value.ai_memory = res.data
