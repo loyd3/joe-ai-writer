@@ -152,6 +152,77 @@ let hoverTimer: ReturnType<typeof setTimeout> | null = null
 let selectionTimer: ReturnType<typeof setTimeout> | null = null
 let leaveTimer: ReturnType<typeof setTimeout> | null = null
 
+// ========== 撤销重做系统 ==========
+const history = ref<Block[][]>([])
+const historyIndex = ref(-1)
+const maxHistorySize = 50
+let isUndoing = false
+
+// 保存历史状态
+function saveHistory() {
+  if (isUndoing) return
+  
+  // 如果当前不是最新状态，删除当前之后的历史
+  if (historyIndex.value < history.value.length - 1) {
+    history.value = history.value.slice(0, historyIndex.value + 1)
+  }
+  
+  // 深拷贝当前内容
+  const snapshot = JSON.parse(JSON.stringify(props.modelValue))
+  history.value.push(snapshot)
+  
+  // 限制历史记录大小
+  if (history.value.length > maxHistorySize) {
+    history.value.shift()
+  } else {
+    historyIndex.value++
+  }
+}
+
+// 撤销
+function undo() {
+  if (historyIndex.value > 0) {
+    isUndoing = true
+    historyIndex.value--
+    const snapshot = history.value[historyIndex.value]
+    emit('update:modelValue', JSON.parse(JSON.stringify(snapshot)))
+    nextTick(() => {
+      initBlockContents()
+      isUndoing = false
+    })
+  }
+}
+
+// 重做
+function redo() {
+  if (historyIndex.value < history.value.length - 1) {
+    isUndoing = true
+    historyIndex.value++
+    const snapshot = history.value[historyIndex.value]
+    emit('update:modelValue', JSON.parse(JSON.stringify(snapshot)))
+    nextTick(() => {
+      initBlockContents()
+      isUndoing = false
+    })
+  }
+}
+
+// 防抖保存历史
+let historyTimer: ReturnType<typeof setTimeout> | null = null
+function debouncedSaveHistory() {
+  if (historyTimer) clearTimeout(historyTimer)
+  historyTimer = setTimeout(() => {
+    saveHistory()
+  }, 500)
+}
+
+// 初始化历史
+onMounted(() => {
+  if (props.modelValue.length > 0) {
+    saveHistory()
+  }
+})
+
 function toggleFocusMode() {
   isFocusMode.value = !isFocusMode.value
   emit('toggleFocusMode')
@@ -278,7 +349,8 @@ function addBlock(index: number, type = 'paragraph') {
   const newBlocks = [...props.modelValue]
   newBlocks.splice(index + 1, 0, newBlock)
   emit('update:modelValue', newBlocks)
-  
+  saveHistory()
+
   nextTick(() => {
     const newIndex = index + 1
     const el = blockRefs.value.get(newIndex)
@@ -295,6 +367,7 @@ function updateBlock(index: number) {
   const newBlocks = [...props.modelValue]
   newBlocks[index] = { ...newBlocks[index], content }
   emit('update:modelValue', newBlocks)
+  debouncedSaveHistory()
 }
 
 function handleBlur() {
@@ -337,6 +410,7 @@ function handleEnter(index: number, event: Event) {
   }
   newBlocks.splice(index + 1, 0, newBlock)
   emit('update:modelValue', newBlocks)
+  saveHistory()
   nextTick(() => {
     const el = blockRefs.value.get(index + 1)
     if (el) {
@@ -361,7 +435,8 @@ function handleBackspace(index: number, event: Event) {
     event.preventDefault()
     const newBlocks = props.modelValue.filter((_, i) => i !== index)
     emit('update:modelValue', newBlocks)
-    
+    saveHistory()
+
     nextTick(() => {
       const prevIndex = index - 1
       const el = blockRefs.value.get(prevIndex)
@@ -388,7 +463,22 @@ function moveFocus(index: number, direction: number, event: Event) {
 function handleKeydown(index: number, event: KeyboardEvent) {
   const isMod = event.ctrlKey || event.metaKey
   if (!isMod) return
-  const key = event.key
+  const key = event.key.toLowerCase()
+
+  // 撤销 Ctrl+Z
+  if (key === 'z' && !event.shiftKey) {
+    event.preventDefault()
+    undo()
+    return
+  }
+
+  // 重做 Ctrl+Y 或 Ctrl+Shift+Z
+  if (key === 'y' || (key === 'z' && event.shiftKey)) {
+    event.preventDefault()
+    redo()
+    return
+  }
+
   if (key === '1') {
     event.preventDefault()
     handleCommand('heading', index)
@@ -487,11 +577,13 @@ function handleCommand(command: string, index: number) {
     if (props.modelValue.length <= 1) return
     const newBlocks = props.modelValue.filter((_, i) => i !== index)
     emit('update:modelValue', newBlocks)
+    saveHistory()
   } else {
     const newBlocks = [...props.modelValue]
     newBlocks[index] = { ...newBlocks[index], type: command }
     emit('update:modelValue', newBlocks)
-    
+    saveHistory()
+
     // 保持焦点
     nextTick(() => {
       const el = blockRefs.value.get(index)

@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from typing import List
 from app.database import get_db
 from app.models.models import Project, Document, AIMemory
@@ -19,8 +19,13 @@ def list_projects(
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
 ):
-    """获取当前用户的所有项目"""
-    projects = db.query(Project).filter(Project.owner_id == current_user["id"]).all()
+    """获取当前用户的所有项目（优化版，预加载关联数据）"""
+    projects = db.query(Project).filter(
+        Project.owner_id == current_user["id"]
+    ).options(
+        joinedload(Project.documents),
+        joinedload(Project.ai_memory)
+    ).all()
     return projects
 
 @router.post("/projects", response_model=ProjectResponse)
@@ -47,20 +52,23 @@ def get_project(
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
 ):
-    """获取项目详情（检查所有权），文档列表按 order_index 排序"""
+    """获取项目详情（检查所有权），文档列表按 order_index 排序（优化版）"""
     project = db.query(Project).filter(
         Project.id == project_id,
         Project.owner_id == current_user["id"]
+    ).options(
+        joinedload(Project.documents),
+        joinedload(Project.ai_memory)
     ).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
-    # 显式加载文档并按 order_index 排序，避免懒加载导致顺序或数量异常
-    project.documents = (
-        db.query(Document)
-        .filter(Document.project_id == project_id)
-        .order_by(Document.order_index.asc(), Document.id.asc())
-        .all()
-    )
+
+    # 对文档进行内存排序（避免额外查询）
+    if project.documents:
+        project.documents = sorted(
+            project.documents,
+            key=lambda d: (d.order_index, d.id)
+        )
     return project
 
 @router.put("/projects/{project_id}", response_model=ProjectResponse)

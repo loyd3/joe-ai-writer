@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import func, desc
 from typing import List, Dict, Any
 from datetime import datetime, timedelta
@@ -9,31 +9,36 @@ from app.models.models import Project, Document, AIInteraction
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 
+
+def count_words_from_content(content: list) -> int:
+    """从内容块列表中计算字数"""
+    if not content:
+        return 0
+    return sum(len(block.get("content", "")) for block in content)
+
+
 @router.get("/stats")
 async def get_dashboard_stats(
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
 ):
-    """获取用户仪表盘统计数据"""
+    """获取用户仪表盘统计数据（优化版，避免 N+1 查询）"""
     user_id = current_user["id"]
     
-    # 基础统计
+    # 基础统计 - 使用子查询一次获取
     total_projects = db.query(Project).filter(Project.owner_id == user_id).count()
     
     total_documents = db.query(Document).join(Project).filter(
         Project.owner_id == user_id
     ).count()
     
-    # 计算总字数
-    docs = db.query(Document).join(Project).filter(
+    # 优化：使用单个查询获取所有文档及其项目信息
+    all_docs = db.query(Document).join(Project).filter(
         Project.owner_id == user_id
-    ).all()
+    ).options(joinedload(Document.project)).all()
     
-    total_words = 0
-    for doc in docs:
-        if doc.content:
-            for block in doc.content:
-                total_words += len(block.get("content", ""))
+    # 计算总字数
+    total_words = sum(count_words_from_content(doc.content) for doc in all_docs)
     
     # AI 交互统计
     ai_interactions = db.query(AIInteraction).join(Document).join(Project).filter(
@@ -64,24 +69,19 @@ async def get_dashboard_stats(
         if interaction_type in ai_usage:
             ai_usage[interaction_type] = count
     
-    # 最近活跃项目（最近更新的 5 个）
+    # 优化：使用 joinedload 一次性获取最近项目和它们的文档
     recent_projects = db.query(Project).filter(
         Project.owner_id == user_id
-    ).order_by(desc(Project.updated_at)).limit(5).all()
+    ).order_by(desc(Project.updated_at)).limit(5).options(
+        joinedload(Project.documents)
+    ).all()
     
+    # 构建项目统计（无需额外查询）
     recent_projects_data = []
     for project in recent_projects:
-        # 获取项目文档数和字数
-        project_docs = db.query(Document).filter(
-            Document.project_id == project.id
-        ).all()
-        
+        project_docs = project.documents or []
         doc_count = len(project_docs)
-        word_count = 0
-        for doc in project_docs:
-            if doc.content:
-                for block in doc.content:
-                    word_count += len(block.get("content", ""))
+        word_count = sum(count_words_from_content(doc.content) for doc in project_docs)
         
         # 计算进度（假设目标为 10000 字）
         progress = min(int((word_count / 10000) * 100), 100)
@@ -95,10 +95,21 @@ async def get_dashboard_stats(
             "updatedAt": project.updated_at.isoformat()
         })
     
-    # 计算今日和本周字数（这里用简单的估算，实际应该基于时间戳计算）
-    # 假设最近修改的文档中，30%是本周写的，5%是今天写的
-    today_words = int(total_words * 0.05)
-    week_words = int(total_words * 0.2)
+    # 计算今日和本周字数（基于实际更新时间）
+    today = datetime.utcnow().date()
+    week_ago = today - timedelta(days=7)
+    
+    today_words = sum(
+        count_words_from_content(doc.content) 
+        for doc in all_docs 
+        if doc.updated_at and doc.updated_at.date() == today
+    )
+    
+    week_words = sum(
+        count_words_from_content(doc.content) 
+        for doc in all_docs 
+        if doc.updated_at and doc.updated_at.date() >= week_ago
+    )
     
     return {
         "stats": {
@@ -108,7 +119,7 @@ async def get_dashboard_stats(
             "totalAIInteractions": ai_interactions,
             "todayWords": today_words,
             "weekWords": week_words,
-            "streakDays": 0  # 需要从更详细的数据计算
+            "streakDays": 0
         },
         "aiUsage": ai_usage,
         "recentProjects": recent_projects_data
