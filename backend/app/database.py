@@ -1,6 +1,6 @@
 import time
 import logging
-from sqlalchemy import create_engine, event
+from sqlalchemy import create_engine, event, text
 from sqlalchemy.exc import OperationalError, DatabaseError
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
@@ -70,7 +70,7 @@ def get_db(max_retries: int = 3, retry_delay: float = 1.0):
         db = SessionLocal()
         try:
             # 测试连接
-            db.execute("SELECT 1")
+            db.execute(text("SELECT 1"))
             yield db
             return
         except OperationalError as e:
@@ -101,7 +101,7 @@ def get_db_with_fallback(max_retries: int = 3):
     for attempt in range(max_retries):
         db = SessionLocal()
         try:
-            db.execute("SELECT 1")
+            db.execute(text("SELECT 1"))
             return db
         except OperationalError as e:
             last_exception = e

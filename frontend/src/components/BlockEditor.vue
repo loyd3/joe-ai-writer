@@ -11,6 +11,15 @@
       <!-- 快捷操作栏：悬停 3s 或选中内容 3s 后显示 -->
       <Transition name="toolbar">
         <div v-show="toolbarVisibleIndex === index" class="quick-toolbar" @mousedown.prevent>
+          <button type="button" class="toolbar-btn" :disabled="!canUndo" @click.stop="undo()" title="撤销 (Ctrl+Z)">
+            <el-icon><RefreshLeft /></el-icon>
+            <span>撤销</span>
+          </button>
+          <button type="button" class="toolbar-btn" :disabled="!canRedo" @click.stop="redo()" title="重做 (Ctrl+Shift+Z)">
+            <el-icon><RefreshRight /></el-icon>
+            <span>重做</span>
+          </button>
+          <span class="toolbar-divider" />
           <button type="button" class="toolbar-btn" :class="{ active: block.type === 'heading' }" @click.stop="handleCommand('heading', index)" title="标题 (Ctrl+1)">
             <el-icon><Top /></el-icon>
             <span>标题</span>
@@ -70,8 +79,9 @@
         :data-type="block.type"
         contenteditable="true"
         @input="updateBlock(index)"
-        @focus="focusedIndex = index"
+        @focus="onBlockFocus(index)"
         @blur="handleBlur"
+        @contextmenu.prevent="onBlockContextMenu(index, $event)"
         @keydown.enter.prevent="handleEnter(index, $event)"
         @keydown.backspace="handleBackspace(index, $event)"
         @keydown.up="moveFocus(index, -1, $event)"
@@ -114,7 +124,120 @@
       </div>
     </div>
     
-    <div v-if="!modelValue.length" class="empty-state" @click="addBlock(-1)">
+    <!-- 右键快捷菜单 -->
+    <Teleport to="body">
+      <Transition name="context-menu">
+        <div
+          v-show="contextMenu.visible"
+          class="context-menu"
+          :style="{ left: contextMenu.x + 'px', top: contextMenu.y + 'px' }"
+          @mousedown.prevent
+          @click.stop
+        >
+          <div class="context-menu-section">
+            <button type="button" class="context-item" :disabled="!canUndo" @click="handleContextAction('undo')">
+              <el-icon><RefreshLeft /></el-icon>
+              <span>撤销</span>
+              <span class="shortcut">Ctrl+Z</span>
+            </button>
+            <button type="button" class="context-item" :disabled="!canRedo" @click="handleContextAction('redo')">
+              <el-icon><RefreshRight /></el-icon>
+              <span>重做</span>
+              <span class="shortcut">Ctrl+Y</span>
+            </button>
+          </div>
+          <div class="context-menu-divider" />
+          <div class="context-menu-section">
+            <button type="button" class="context-item" :class="{ active: contextBlock && modelValue[contextMenu.blockIndex]?.type === 'heading' }" @click="handleContextAction('heading')">
+              <el-icon><Top /></el-icon>
+              <span>大标题</span>
+              <span class="shortcut">Ctrl+1</span>
+            </button>
+            <button type="button" class="context-item" :class="{ active: contextBlock && modelValue[contextMenu.blockIndex]?.type === 'subheading' }" @click="handleContextAction('subheading')">
+              <el-icon><Rank /></el-icon>
+              <span>小标题</span>
+              <span class="shortcut">Ctrl+2</span>
+            </button>
+            <button type="button" class="context-item" :class="{ active: contextBlock && modelValue[contextMenu.blockIndex]?.type === 'quote' }" @click="handleContextAction('quote')">
+              <el-icon><ChatDotRound /></el-icon>
+              <span>引用</span>
+              <span class="shortcut">Ctrl+3</span>
+            </button>
+            <button type="button" class="context-item" :class="{ active: contextBlock && modelValue[contextMenu.blockIndex]?.type === 'list' }" @click="handleContextAction('list')">
+              <el-icon><List /></el-icon>
+              <span>列表</span>
+              <span class="shortcut">Ctrl+4</span>
+            </button>
+            <button type="button" class="context-item" :class="{ active: contextBlock && modelValue[contextMenu.blockIndex]?.type === 'code' }" @click="handleContextAction('code')">
+              <el-icon><Operation /></el-icon>
+              <span>代码块</span>
+              <span class="shortcut">Ctrl+5</span>
+            </button>
+            <button type="button" class="context-item" :class="{ active: contextBlock && modelValue[contextMenu.blockIndex]?.type === 'divider' }" @click="handleContextAction('divider')">
+              <el-icon><Minus /></el-icon>
+              <span>分割线</span>
+              <span class="shortcut">Ctrl+6</span>
+            </button>
+            <button type="button" class="context-item" :class="{ active: contextBlock && modelValue[contextMenu.blockIndex]?.type === 'paragraph' }" @click="handleContextAction('paragraph')">
+              <el-icon><Document /></el-icon>
+              <span>正文</span>
+              <span class="shortcut">Ctrl+0</span>
+            </button>
+          </div>
+          <div class="context-menu-divider" />
+          <div class="context-menu-section">
+            <button type="button" class="context-item ai-item" @click="handleContextAction('polish')">
+              <el-icon><Brush /></el-icon>
+              <span>AI 润色</span>
+            </button>
+          </div>
+          <div class="context-menu-divider" />
+          <div class="context-menu-section">
+            <button type="button" class="context-item" :class="{ active: contextBlock && isFormatActive(contextMenu.blockIndex, 'bold') }" @click="handleContextAction('formatBold')">
+              <span class="fmt-bold">B</span>
+              <span>加粗</span>
+              <span class="shortcut">Ctrl+B</span>
+            </button>
+            <button type="button" class="context-item" :class="{ active: contextBlock && isFormatActive(contextMenu.blockIndex, 'italic') }" @click="handleContextAction('formatItalic')">
+              <span class="fmt-italic">I</span>
+              <span>斜体</span>
+              <span class="shortcut">Ctrl+I</span>
+            </button>
+            <button type="button" class="context-item" :class="{ active: contextBlock && isFormatActive(contextMenu.blockIndex, 'underline') }" @click="handleContextAction('formatUnderline')">
+              <span class="fmt-underline">U</span>
+              <span>下划线</span>
+              <span class="shortcut">Ctrl+U</span>
+            </button>
+          </div>
+          <div class="context-menu-divider" />
+          <div class="context-menu-section">
+            <button type="button" class="context-item" @click="handleContextAction('insertAbove')">
+              <el-icon><Plus /></el-icon>
+              <span>在上方插入块</span>
+            </button>
+            <button type="button" class="context-item" @click="handleContextAction('insertBelow')">
+              <el-icon><Plus /></el-icon>
+              <span>在下方插入块</span>
+            </button>
+          </div>
+          <div class="context-menu-divider" />
+          <div class="context-menu-section">
+            <button type="button" class="context-item danger" :disabled="modelValue.length <= 1" @click="handleContextAction('delete')">
+              <el-icon><Delete /></el-icon>
+              <span>删除块</span>
+              <span class="shortcut">Ctrl+Shift+D</span>
+            </button>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
+
+    <div
+      v-if="!modelValue.length"
+      class="empty-state"
+      @click="addBlock(-1)"
+      @contextmenu.prevent="onEmptyAreaContextMenu($event)"
+    >
       <div class="empty-icon">
         <el-icon><EditPen /></el-icon>
       </div>
@@ -125,10 +248,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref, nextTick, onMounted, onUnmounted, watch } from 'vue'
+import { ref, computed, nextTick, onMounted, onUnmounted, watch } from 'vue'
 import type { Block } from '@/stores/project'
 import { ElMessage } from 'element-plus'
-import { Plus, MoreFilled, Top, ChatDotRound, List, Document, Delete, EditPen, Brush, Rank, Operation, Minus } from '@element-plus/icons-vue'
+import { Plus, MoreFilled, Top, ChatDotRound, List, Document, Delete, EditPen, Brush, Rank, Operation, Minus, RefreshLeft, RefreshRight } from '@element-plus/icons-vue'
 
 const props = defineProps<{
   modelValue: Block[]
@@ -145,9 +268,16 @@ const focusedIndex = ref(-1)
 const blockRefs = ref<Map<number, HTMLElement>>(new Map())
 /** 当前显示快捷栏的块索引，-1 为不显示。悬停 3s 或选中 3s 后赋值 */
 const toolbarVisibleIndex = ref(-1)
+/** 右键快捷菜单状态 */
+const contextMenu = ref({ visible: false, x: 0, y: 0, blockIndex: -1 })
+const contextBlock = computed(() =>
+  contextMenu.value.visible && contextMenu.value.blockIndex >= 0 && props.modelValue[contextMenu.value.blockIndex]
+    ? props.modelValue[contextMenu.value.blockIndex]
+    : null
+)
 const isFocusMode = ref(props.focusMode || false)
-const TOOLBAR_DELAY_MS = 3000
-const TOOLBAR_HIDE_DELAY_MS = 250
+const TOOLBAR_DELAY_MS = 500
+const TOOLBAR_HIDE_DELAY_MS = 300
 let hoverTimer: ReturnType<typeof setTimeout> | null = null
 let selectionTimer: ReturnType<typeof setTimeout> | null = null
 let leaveTimer: ReturnType<typeof setTimeout> | null = null
@@ -157,6 +287,9 @@ const history = ref<Block[][]>([])
 const historyIndex = ref(-1)
 const maxHistorySize = 50
 let isUndoing = false
+
+const canUndo = computed(() => historyIndex.value > 0)
+const canRedo = computed(() => historyIndex.value >= 0 && historyIndex.value < history.value.length - 1)
 
 // 保存历史状态
 function saveHistory() {
@@ -229,13 +362,90 @@ function toggleFocusMode() {
 }
 
 // 初始化块内容
+function onBlockContextMenu(index: number, event: MouseEvent) {
+  contextMenu.value = {
+    visible: true,
+    x: event.clientX,
+    y: event.clientY,
+    blockIndex: index
+  }
+}
+
+function onEmptyAreaContextMenu(event: MouseEvent) {
+  contextMenu.value = {
+    visible: true,
+    x: event.clientX,
+    y: event.clientY,
+    blockIndex: -1
+  }
+}
+
+function closeContextMenu() {
+  contextMenu.value = { ...contextMenu.value, visible: false }
+}
+
+function handleContextAction(action: string) {
+  const idx = contextMenu.value.blockIndex
+  if (idx < 0 && action !== 'undo' && action !== 'redo') {
+    closeContextMenu()
+    return
+  }
+  switch (action) {
+    case 'undo':
+      undo()
+      break
+    case 'redo':
+      redo()
+      break
+    case 'heading':
+    case 'subheading':
+    case 'quote':
+    case 'list':
+    case 'code':
+    case 'divider':
+    case 'paragraph':
+      handleCommand(action, idx)
+      break
+    case 'polish':
+      emitPolish(idx)
+      break
+    case 'formatBold':
+      applyFormat(idx, 'bold')
+      break
+    case 'formatItalic':
+      applyFormat(idx, 'italic')
+      break
+    case 'formatUnderline':
+      applyFormat(idx, 'underline')
+      break
+    case 'insertAbove':
+      addBlock(idx - 1)
+      nextTick(() => {
+        const el = blockRefs.value.get(idx)
+        if (el) el.focus()
+      })
+      break
+    case 'insertBelow':
+      addBlock(idx >= 0 ? idx : -1)
+      break
+    case 'delete':
+      if (props.modelValue.length > 1) handleCommand('delete', idx)
+      break
+    default:
+      break
+  }
+  closeContextMenu()
+}
+
 onMounted(() => {
   initBlockContents()
   document.addEventListener('selectionchange', onSelectionChange)
+  document.addEventListener('click', closeContextMenu)
 })
 
 onUnmounted(() => {
   document.removeEventListener('selectionchange', onSelectionChange)
+  document.removeEventListener('click', closeContextMenu)
   if (hoverTimer) clearTimeout(hoverTimer)
   if (selectionTimer) clearTimeout(selectionTimer)
   if (leaveTimer) clearTimeout(leaveTimer)
@@ -368,6 +578,11 @@ function updateBlock(index: number) {
   newBlocks[index] = { ...newBlocks[index], content }
   emit('update:modelValue', newBlocks)
   debouncedSaveHistory()
+}
+
+function onBlockFocus(index: number) {
+  focusedIndex.value = index
+  toolbarVisibleIndex.value = index
 }
 
 function handleBlur() {
@@ -973,5 +1188,94 @@ function setCursorToEnd(element: HTMLElement) {
   color: var(--coffee-text-light);
   flex-shrink: 0;
   white-space: nowrap;
+}
+
+/* 右键快捷菜单 */
+.context-menu {
+  position: fixed;
+  z-index: 10000;
+  min-width: 200px;
+  max-width: 280px;
+  padding: 6px 0;
+  background: var(--coffee-bg-card);
+  border: 1px solid var(--coffee-border);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px var(--coffee-shadow);
+}
+
+.context-menu-section {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.context-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 14px;
+  border: none;
+  background: transparent;
+  color: var(--coffee-text-secondary);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+  border-radius: 6px;
+  margin: 0 4px;
+  width: calc(100% - 8px);
+  box-sizing: border-box;
+}
+.context-item .el-icon {
+  font-size: 16px;
+  flex-shrink: 0;
+}
+.context-item .shortcut {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--coffee-text-light);
+}
+.context-item:hover:not(:disabled) {
+  background: rgba(93, 58, 26, 0.08);
+  color: var(--coffee-primary);
+}
+.context-item.active {
+  background: rgba(139, 90, 43, 0.12);
+  color: var(--coffee-primary);
+  font-weight: 500;
+}
+.context-item.ai-item {
+  color: var(--coffee-primary);
+}
+.context-item.ai-item:hover:not(:disabled) {
+  color: var(--coffee-primary);
+}
+.context-item.danger:hover:not(:disabled) {
+  background: rgba(245, 108, 108, 0.12);
+  color: #f56c6c;
+}
+.context-item:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.context-item .fmt-bold { font-weight: 700; }
+.context-item .fmt-italic { font-style: italic; font-weight: 600; }
+.context-item .fmt-underline { text-decoration: underline; font-weight: 600; }
+
+.context-menu-divider {
+  height: 1px;
+  background: var(--coffee-border);
+  margin: 4px 0;
+}
+
+.context-menu-enter-active,
+.context-menu-leave-active {
+  transition: opacity 0.12s ease, transform 0.12s ease;
+}
+.context-menu-enter-from,
+.context-menu-leave-to {
+  opacity: 0;
+  transform: scale(0.96);
 }
 </style>

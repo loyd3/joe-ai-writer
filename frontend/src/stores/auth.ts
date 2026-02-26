@@ -48,10 +48,10 @@ export const useAuthStore = defineStore('auth', () => {
     try {
       const res = await authApi.login(username, password)
       const { access_token } = res.data
-      
+
       token.value = access_token
       localStorage.setItem('token', access_token)
-      
+
       // 获取用户信息
       const userRes = await authApi.getMe()
       user.value = userRes.data
@@ -60,7 +60,17 @@ export const useAuthStore = defineStore('auth', () => {
       ElMessage.success('登录成功')
       return true
     } catch (error: any) {
-      const msg = error.response?.data?.detail || '登录失败'
+      // 处理超时和连接错误
+      let msg = '登录失败'
+
+      if (error.code === 'ECONNABORTED' || error.message?.includes('timeout')) {
+        msg = '连接超时：后端服务未响应，请检查服务是否已启动'
+      } else if (error.code === 'ERR_NETWORK' || error.message?.includes('Network Error')) {
+        msg = '无法连接到服务器，请检查：\n1. 后端服务是否已启动 (python start.py)\n2. 网络连接是否正常'
+      } else if (error.response?.data?.detail) {
+        msg = error.response.data.detail
+      }
+
       ElMessage.error(msg)
       return false
     } finally {
