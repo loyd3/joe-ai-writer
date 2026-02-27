@@ -1,0 +1,84 @@
+# ============================================
+# Joe AI Writer - Docker Compose 生产环境配置
+# ============================================
+
+version: '3.8'
+
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: joe-writer-mysql
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-joe_writer}
+      MYSQL_USER: ${MYSQL_USER:-joewriter}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      TZ: Asia/Shanghai
+    volumes:
+      - mysql_data:/var/lib/mysql
+    ports:
+      - "3306:3306"
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      timeout: 20s
+      retries: 10
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    networks:
+      - joe-writer-network
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: joe-writer-backend
+    restart: always
+    environment:
+      DATABASE_URL: mysql+pymysql://${MYSQL_USER}:${MYSQL_PASSWORD}@mysql:3306/${MYSQL_DATABASE:-joe_writer}?charset=utf8mb4
+      AI_PROVIDER: ${AI_PROVIDER:-deepseek}
+      AI_TEMPERATURE: ${AI_TEMPERATURE:-0.7}
+      AI_MAX_TOKENS: ${AI_MAX_TOKENS:-4096}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
+      DEEPSEEK_MODEL: ${DEEPSEEK_MODEL:-deepseek-chat}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4}
+      SILICONFLOW_API_KEY: ${SILICONFLOW_API_KEY}
+      SILICONFLOW_MODEL: ${SILICONFLOW_MODEL:-deepseek-ai/DeepSeek-V3}
+      CUSTOM_API_KEY: ${CUSTOM_API_KEY}
+      CUSTOM_BASE_URL: ${CUSTOM_BASE_URL}
+      CUSTOM_MODEL: ${CUSTOM_MODEL}
+      SECRET_KEY: ${SECRET_KEY}
+      DEBUG: "false"
+      TZ: Asia/Shanghai
+    ports:
+      - "8000:8000"
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks:
+      - joe-writer-network
+    command: >
+      sh -c "python init_db.py --auto &&
+             uvicorn app.main:app --host 0.0.0.0 --port 8000"
+
+  nginx:
+    image: nginx:alpine
+    container_name: joe-writer-nginx
+    restart: always
+    ports:
+      - "80:80"
+    volumes:
+      - ./frontend/dist:/usr/share/nginx/html:ro
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - backend
+    networks:
+      - joe-writer-network
+
+volumes:
+  mysql_data:
+    driver: local
+
+networks:
+  joe-writer-network:
+    driver: bridge

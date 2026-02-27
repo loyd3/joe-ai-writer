@@ -114,3 +114,24 @@ def get_db_with_fallback(max_retries: int = 3):
             raise
     
     raise last_exception or DatabaseError("Unable to connect to database")
+
+
+def init_database():
+    """
+    初始化数据库 - 创建所有表
+    用于 Docker 容器启动时自动初始化
+    """
+    from app.models.models import Base as ModelsBase
+    
+    logger.info("Initializing database...")
+    try:
+        # 导入所有模型以确保它们被注册
+        import app.models.models
+        
+        # 创建所有表
+        ModelsBase.metadata.create_all(bind=engine)
+        logger.info("Database initialized successfully!")
+        return True
+    except Exception as e:
+        logger.error(f"Failed to initialize database: {e}")
+        raise

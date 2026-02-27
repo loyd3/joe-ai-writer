@@ -100,15 +100,83 @@ npm install
 npm run dev
 ```
 
-### 方式三：Docker 部署
+### 方式三：Docker 部署（推荐用于生产）
+
+#### 快速启动（开发环境）
 
 ```bash
-# 配置环境变量
-export OPENAI_API_KEY=your-key
+# 1. 克隆项目
+git clone https://github.com/loyd3/joe-ai-writer.git
+cd joe-ai-writer
 
-# 启动全部服务
+# 2. 配置环境变量
+cp .env.docker .env
+# 编辑 .env，配置你的 AI API Key
+
+# 3. 启动服务
 docker-compose up -d
+
+# 4. 查看日志
+docker-compose logs -f
+
+# 5. 停止服务
+docker-compose down
 ```
+
+访问 http://localhost:5173
+
+#### 生产环境部署
+
+```bash
+# 1. 配置生产环境变量
+cp .env.docker .env
+# 编辑 .env，设置强密码和正式的 API Key
+
+# 2. 构建前端生产版本
+cd frontend
+npm install
+npm run build
+cd ..
+
+# 3. 使用生产配置启动
+docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+
+# 4. 查看服务状态
+docker-compose ps
+```
+
+访问 http://localhost (Nginx 默认 80 端口)
+
+#### 常用 Docker 命令
+
+```bash
+# 查看日志
+docker-compose logs -f backend      # 后端日志
+docker-compose logs -f frontend     # 前端日志
+docker-compose logs -f mysql        # 数据库日志
+
+# 重启服务
+docker-compose restart backend
+
+# 进入容器
+docker-compose exec backend bash
+docker-compose exec mysql mysql -u joewriter -p
+
+# 备份数据库
+docker-compose exec mysql mysqldump -u root -p joe_writer > backup.sql
+
+# 完全清理（包括数据卷）
+docker-compose down -v
+```
+
+#### Docker 服务架构
+
+| 服务 | 端口 | 说明 |
+|------|------|------|
+| mysql | 3306 | MySQL 8.0 数据库 |
+| backend | 8000 | FastAPI 后端服务 |
+| frontend | 5173 | Vite 开发服务器 |
+| nginx | 80 | 生产环境静态服务器（可选）|
 
 ---
 
@@ -116,35 +184,33 @@ docker-compose up -d
 
 ```
 joe-ai-writer/
-├── start.py              # 一键启动脚本
-├── init_db.py            # 数据库初始化脚本
-├── .env.example          # 环境变量模板
-├── backend/              # FastAPI 后端
+├── start.py                      # 一键启动脚本
+├── init_db.py                    # 数据库初始化脚本
+├── .env.example                  # 环境变量模板
+├── .env.docker                   # Docker 环境变量模板
+├── docker-compose.yml            # Docker Compose 配置
+├── docker-compose.prod.yml       # Docker 生产环境配置
+├── docker-compose.override.yml   # Docker 开发环境覆盖
+├── nginx.conf                    # Nginx 配置
+├── backend/                      # FastAPI 后端
+│   ├── Dockerfile                # 后端 Docker 镜像
+│   ├── .dockerignore             # Docker 忽略文件
 │   ├── app/
-│   │   ├── api/         # API 路由
-│   │   │   ├── ai.py           # AI 写作接口
-│   │   │   ├── events.py       # 事件管理接口
-│   │   │   ├── projects.py     # 项目/文档接口
-│   │   │   └── system.py       # 系统配置接口
-│   │   ├── core/
-│   │   │   ├── ai_client.py    # 多模型 AI 客户端
-│   │   │   └── config.py       # 配置管理
-│   │   ├── models/      # 数据库模型
-│   │   └── services/    # 业务逻辑
+│   │   ├── api/                  # API 路由
+│   │   ├── core/                 # AI 客户端和配置
+│   │   ├── models/               # 数据库模型
+│   │   └── services/             # 业务逻辑
 │   ├── database/
-│   │   └── init.sql     # 数据库建表 SQL
+│   │   └── init.sql              # 数据库建表 SQL
 │   └── requirements.txt
-├── frontend/            # Vue3 前端
+├── frontend/                     # Vue3 前端
+│   ├── Dockerfile                # 前端 Docker 镜像
+│   ├── .dockerignore             # Docker 忽略文件
 │   └── src/
-│       ├── components/
-│       │   ├── ProjectSettingsManager.vue   # 项目设定管理
-│       │   ├── AIConfigPanel.vue     # AI 配置面板
-│       │   ├── EventManager.vue      # 事件管理
-│       │   ├── BlockEditor.vue       # 块级编辑器
-│       │   └── AIChatPanel.vue       # AI 对话面板
-│       ├── stores/      # Pinia 状态管理
-│       └── views/       # 页面视图
-└── docs/                # 文档
+│       ├── components/           # UI 组件
+│       ├── stores/               # Pinia 状态管理
+│       └── views/               # 页面视图
+└── docs/                        # 文档
 ```
 
 ---

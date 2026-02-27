@@ -2,12 +2,22 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# 安装依赖
+# 安装系统依赖 (MySQL 客户端等)
+RUN apt-get update && apt-get install -y \
+    default-libmysqlclient-dev \
+    pkg-config \
+    gcc \
+    && rm -rf /var/lib/apt/lists/*
+
+# 安装 Python 依赖
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # 复制代码
 COPY . .
+
+# 确保 init_db.py 可执行
+RUN chmod +x init_db.py
 
 # 暴露端口
 EXPOSE 8000
