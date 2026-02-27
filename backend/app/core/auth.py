@@ -15,15 +15,18 @@ SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key-here-change-in-production"
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # 7 天
 
+def _truncate_password_72_bytes(password: str) -> str:
+    """bcrypt 限制为 72 字节；按 UTF-8 截断避免多字节字符超长。"""
+    raw = password.encode("utf-8")[:72]
+    return raw.decode("utf-8", errors="ignore") or password[:1]
+
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """验证密码"""
-    # bcrypt 限制密码长度最多 72 字节
-    return pwd_context.verify(plain_password[:72], hashed_password)
+    return pwd_context.verify(_truncate_password_72_bytes(plain_password), hashed_password)
 
 def get_password_hash(password: str) -> str:
     """生成密码哈希"""
-    # bcrypt 限制密码长度最多 72 字节
-    return pwd_context.hash(password[:72])
+    return pwd_context.hash(_truncate_password_72_bytes(password))
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     """创建 JWT 访问令牌"""

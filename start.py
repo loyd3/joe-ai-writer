@@ -11,6 +11,9 @@ import time
 import argparse
 from pathlib import Path
 
+# On Windows, "npm" is npm.cmd; Popen with shell=False cannot run .cmd files.
+_WIN = sys.platform == "win32"
+
 # 颜色输出
 class Colors:
     GREEN = '\033[92m'
@@ -56,11 +59,14 @@ def check_frontend_deps(frontend_path):
     
     log("安装前端依赖...")
     try:
-        subprocess.run(
-            ["npm", "install"],
-            cwd=str(frontend_path),
-            check=True
-        )
+        if _WIN:
+            subprocess.run("npm install", cwd=str(frontend_path), check=True, shell=True)
+        else:
+            subprocess.run(
+                ["npm", "install"],
+                cwd=str(frontend_path),
+                check=True
+            )
         log("前端依赖安装完成")
         return True
     except subprocess.CalledProcessError as e:
@@ -103,6 +109,18 @@ def start_frontend(frontend_path, port=5173):
     env = os.environ.copy()
     env["VITE_API_BASE_URL"] = f"http://localhost:8000"
     
+    if _WIN:
+        cmd = f"npm run dev -- --port {port}"
+        return subprocess.Popen(
+            cmd,
+            cwd=str(frontend_path),
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+            shell=True,
+        )
     return subprocess.Popen(
         ["npm", "run", "dev", "--", "--port", str(port)],
         cwd=str(frontend_path),

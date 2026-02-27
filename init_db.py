@@ -20,7 +20,7 @@ def load_env_file():
     
     for env_path in env_paths:
         if env_path.exists():
-            print(f"[DB Setup] 加载环境变量: {env_path}")
+            print(f"[DB Setup]: {env_path}")
             with open(env_path, 'r') as f:
                 for line in f:
                     line = line.strip()
