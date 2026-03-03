@@ -22,6 +22,7 @@ class RAGService:
     _instance = None
     _client = None
     _embedding_model = None
+    _embedding_load_attempted = False  # 是否已尝试过加载（仅尝试一次，避免启动时连 Hugging Face）
     
     def __new__(cls):
         if cls._instance is None:
@@ -33,10 +34,7 @@ class RAGService:
             self._init_client()
     
     def _init_client(self):
-        """初始化 ChromaDB 客户端"""
-        settings = get_settings()
-        
-        # 使用持久化存储
+        """初始化 ChromaDB 客户端（不加载 embedding 模型，改为懒加载）"""
         persist_dir = os.path.join(os.getcwd(), "chroma_db")
         os.makedirs(persist_dir, exist_ok=True)
         
@@ -47,21 +45,27 @@ class RAGService:
                 allow_reset=True
             )
         )
-        
-        # 加载 embedding 模型
+    
+    def _ensure_embedding_model(self) -> bool:
+        """按需加载 embedding 模型（首次使用 RAG 时才请求 Hugging Face，失败则不再重试）"""
+        if RAGService._embedding_load_attempted:
+            return self._embedding_model is not None
+        RAGService._embedding_load_attempted = True
         try:
             self._embedding_model = SentenceTransformer(EMBEDDING_MODEL)
+            return True
         except Exception as e:
-            print(f"[RAG] 加载 embedding 模型失败: {e}")
-            # 如果模型加载失败，使用 ChromaDB 默认的 embedding
+            print(f"[RAG] 按需加载 embedding 模型失败，RAG 语义检索不可用: {e}")
             self._embedding_model = None
+            return False
     
     def _get_collection_name(self, project_id: int, memory_type: str) -> str:
         """获取集合名称"""
         return f"project_{project_id}_{memory_type}"
     
-    def _get_embedding(self, text: str) -> List[float]:
-        """获取文本的向量表示"""
+    def _get_embedding(self, text: str) -> Optional[List[float]]:
+        """获取文本的向量表示（首次调用时会按需加载模型）"""
+        self._ensure_embedding_model()
         if self._embedding_model:
             return self._embedding_model.encode(text).tolist()
         return None
@@ -79,6 +83,7 @@ class RAGService:
             memory_type: 设定类型 (outline, characters, world_building, key_points, storyline)
             items: 要索引的条目列表
         """
+        self._ensure_embedding_model()
         collection_name = self._get_collection_name(project_id, memory_type)
         
         # 获取或创建集合
@@ -166,6 +171,7 @@ class RAGService:
         if memory_types is None:
             memory_types = ["outline", "characters", "world_building", "key_points", "storyline"]
         
+        self._ensure_embedding_model()
         results = {}
         query_embedding = self._get_embedding(query) if self._embedding_model else None
         

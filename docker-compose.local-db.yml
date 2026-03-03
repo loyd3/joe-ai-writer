@@ -1,0 +1,77 @@
+# ============================================
+# Docker Compose - 使用本地 MySQL 数据库
+# 使用方法:
+#   docker-compose -f docker-compose.local-db.yml up -d
+# ============================================
+
+version: '3.8'
+
+services:
+  # 后端服务 - 连接本地 MySQL
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: joe-writer-backend
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      # 覆盖数据库连接，使用 host.docker.internal 连接宿主机 MySQL
+      # 从 .env 读取密码并替换 localhost 为 host.docker.internal
+      DATABASE_URL: mysql+pymysql://root:Lord2013@host.docker.internal:3306/aiwriter?charset=utf8mb4
+      DB_POOL_SIZE: 5
+      DB_MAX_OVERFLOW: 10
+      DB_POOL_RECYCLE: 3600
+      # AI 配置
+      AI_PROVIDER: ${AI_PROVIDER:-deepseek}
+      AI_TEMPERATURE: ${AI_TEMPERATURE:-0.7}
+      AI_MAX_TOKENS: ${AI_MAX_TOKENS:-4096}
+      # DeepSeek
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
+      DEEPSEEK_MODEL: ${DEEPSEEK_MODEL:-deepseek-chat}
+      # OpenAI
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4}
+      # SiliconFlow
+      SILICONFLOW_API_KEY: ${SILICONFLOW_API_KEY}
+      SILICONFLOW_MODEL: ${SILICONFLOW_MODEL:-deepseek-ai/DeepSeek-V3}
+      # Custom
+      CUSTOM_API_KEY: ${CUSTOM_API_KEY}
+      CUSTOM_BASE_URL: ${CUSTOM_BASE_URL}
+      CUSTOM_MODEL: ${CUSTOM_MODEL}
+      # 应用配置
+      SECRET_KEY: ${SECRET_KEY:-your-secret-key-change-in-production}
+      DEBUG: "false"
+      TZ: Asia/Shanghai
+    # 使用 host 网络模式可以简化本地数据库连接
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "8000:8000"
+    networks:
+      - joe-writer-network
+    command: >
+      sh -c "python init_db.py --auto &&
+             uvicorn app.main:app --host 0.0.0.0 --port 8000"
+
+  # 前端开发服务器
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: joe-writer-frontend
+    restart: unless-stopped
+    environment:
+      - VITE_API_URL=http://localhost:8000
+    ports:
+      - "5173:5173"
+    depends_on:
+      - backend
+    networks:
+      - joe-writer-network
+    command: npm run dev -- --host 0.0.0.0
+
+networks:
+  joe-writer-network:
+    driver: bridge
