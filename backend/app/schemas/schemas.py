@@ -178,6 +178,44 @@ class AIGenerateFromMemoryRequest(BaseModel):
     custom_instruction: Optional[str] = None  # generate_type=custom 时使用
     current_content: Optional[str] = None  # 续写时传入当前文档末尾内容
 
+class AIGenerateChapterRequest(BaseModel):
+    """生成单个章节的请求"""
+    outline_node: Dict[str, Any]  # 大纲节点信息
+    previous_context: str = ""  # 前文内容
+    max_tokens: int = 2000  # 字数/token限制
+    instruction: Optional[str] = None  # 额外要求
+
+class AIBatchGenerateRequest(BaseModel):
+    """批量/多轮次 AI 写作请求"""
+    project_id: int
+    document_id: int  # 目标文档ID
+    outline_nodes: List[Dict[str, Any]]  # 要生成的大纲节点列表
+    max_tokens_per_chapter: int = Field(default=2000, ge=500, le=8000)  # 每章字数限制
+    continue_on_complete: bool = True  # 完成后是否继续下一章
+    custom_instruction: Optional[str] = None  # 全局额外要求
+
+class AIGenerateProgress(BaseModel):
+    """批量生成进度"""
+    total_chapters: int
+    current_chapter: int
+    current_title: str
+    status: str  # 'generating' | 'completed' | 'error' | 'paused'
+    generated_chars: int  # 已生成字符数
+    estimated_total_chars: int  # 预估总字符数
+    content_preview: str  # 当前内容预览
+
+class AIGenerateChunk(BaseModel):
+    """流式生成数据块"""
+    type: str  # 'content' | 'progress' | 'chapter_complete' | 'error' | 'done'
+    content: Optional[str] = None
+    progress: Optional[AIGenerateProgress] = None
+    chapter_index: Optional[int] = None
+    chapter_title: Optional[str] = None
+    chapter_content: Optional[str] = None  # 完整的章节内容（章节完成时）
+    chapter_chars: Optional[int] = None
+    total_chars: Optional[int] = None
+    error_message: Optional[str] = None
+
 # ========== Template Schemas ==========
 class TemplateCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=100)

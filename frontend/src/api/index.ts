@@ -4,7 +4,7 @@ import type {
   Project, ProjectCreate, ProjectUpdate,
   Document, DocumentCreate, DocumentUpdate,
   AIMemory, AIMemoryUpdate,
-  AIRequest, AIChatRequest, AIGenerateRequest,
+  AIRequest, AIChatRequest, AIGenerateRequest, AIBatchGenerateRequest,
   Template, TemplateCreate,
   AIConfig, Theme
 } from './types'
@@ -309,6 +309,18 @@ export const aiApi = {
   generateFromMemoryStream: (data: AIGenerateRequest) => {
     const token = localStorage.getItem('token')
     return fetch(`${API_BASE_URL}/api/ai/generate-from-memory/stream`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify(data)
+    })
+  },
+  /** 批量/多轮次写作（流式） */
+  batchGenerateStream: (data: AIBatchGenerateRequest) => {
+    const token = localStorage.getItem('token')
+    return fetch(`${API_BASE_URL}/api/ai/batch-generate/stream`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

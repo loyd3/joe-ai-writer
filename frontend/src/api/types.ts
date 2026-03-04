@@ -147,6 +147,43 @@ export interface AIGenerateRequest {
   current_content?: string
 }
 
+// 批量/多轮次 AI 写作
+export interface OutlineNode {
+  title: string
+  description?: string
+}
+
+export interface AIBatchGenerateRequest {
+  project_id: number
+  document_id: number
+  outline_nodes: OutlineNode[]
+  max_tokens_per_chapter: number
+  continue_on_complete: boolean
+  custom_instruction?: string
+}
+
+export interface AIGenerateProgress {
+  total_chapters: number
+  current_chapter: number
+  current_title: string
+  status: 'generating' | 'completed' | 'error' | 'paused'
+  generated_chars: number
+  estimated_total_chars: number
+  content_preview: string
+}
+
+export interface AIGenerateChunk {
+  type: 'content' | 'progress' | 'chapter_complete' | 'error' | 'done'
+  content?: string
+  progress?: AIGenerateProgress
+  chapter_index?: number
+  chapter_title?: string
+  chapter_content?: string  // 完整的章节内容
+  chapter_chars?: number
+  total_chars?: number
+  error_message?: string
+}
+
 // 模板
 export interface Template {
   id: number

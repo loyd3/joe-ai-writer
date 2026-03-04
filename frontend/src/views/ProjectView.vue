@@ -12,39 +12,66 @@
           </div>
         </div>
         <div class="actions">
-          <el-button class="memory-btn" @click="showTemplateLibrary = true">
-            <el-icon><Upload /></el-icon>
-            <span>导入模板</span>
+          <!-- 折叠时只显示 3 个：新建文档、项目设定、更多 -->
+          <el-button type="primary" class="create-btn" @click="showCreateDocDialog = true">
+            <el-icon><Plus /></el-icon>
+            <span>新建文档</span>
           </el-button>
           <el-button class="memory-btn" @click="showMemoryDrawer = true">
             <el-icon><Collection /></el-icon>
             <span>项目设定</span>
           </el-button>
-          <el-dropdown trigger="click" @command="handleProjectCommand" class="project-actions-dropdown">
+          <el-dropdown v-if="!headerExpanded" trigger="click" @command="handleProjectMoreCommand" class="project-actions-dropdown">
             <el-button class="more-btn">
               <el-icon><MoreFilled /></el-icon>
-              <span>项目操作</span>
+              <span>更多</span>
+              <el-icon class="arrow-icon"><ArrowDown /></el-icon>
             </el-button>
             <template #dropdown>
               <el-dropdown-menu>
-                <el-dropdown-item command="edit">
+                <el-dropdown-item command="template">
+                  <el-icon><Upload /></el-icon> 导入模板
+                </el-dropdown-item>
+                <el-dropdown-item command="autowrite">
+                  <el-icon><EditPen /></el-icon> AI 自动写作
+                </el-dropdown-item>
+                <el-dropdown-item command="export-project">
+                  <el-icon><Folder /></el-icon> 导出整个项目
+                </el-dropdown-item>
+                <el-dropdown-item divided command="edit">
                   <el-icon><Edit /></el-icon> 编辑项目
                 </el-dropdown-item>
-                <el-dropdown-item command="delete" divided class="delete-item">
+                <el-dropdown-item command="delete" class="delete-item">
                   <el-icon><Delete /></el-icon> 删除项目
                 </el-dropdown-item>
               </el-dropdown-menu>
             </template>
           </el-dropdown>
-          <el-button type="primary" class="create-btn" @click="showCreateDocDialog = true">
-            <el-icon><Plus /></el-icon>
-            <span>新建文档</span>
-          </el-button>
-          <!-- 导出项目按钮 -->
+          <template v-if="headerExpanded">
+            <el-button class="memory-btn" @click="showTemplateLibrary = true">
+              <el-icon><Upload /></el-icon>
+              <span>导入模板</span>
+            </el-button>
+            <el-button class="auto-write-btn" type="warning" plain @click="showAutoWriteDrawer = true">
+              <el-icon><EditPen /></el-icon>
+              <span>AI 自动写作</span>
+            </el-button>
+          </template>
           <ExportMenu
+            ref="exportMenuRef"
+            mode="project"
+            :show-button="headerExpanded"
             :project-id="Number(projectId)"
             :project-title="project?.title"
           />
+          <el-button v-if="headerExpanded" class="collapse-btn" link @click="headerExpanded = false">
+            <el-icon><ArrowUp /></el-icon>
+            <span>收起</span>
+          </el-button>
+          <el-button v-else class="expand-btn" link @click="headerExpanded = true">
+            <el-icon><ArrowDown /></el-icon>
+            <span>展开</span>
+          </el-button>
         </div>
       </div>
     </div>
@@ -171,10 +198,37 @@
       />
     </el-dialog>
 
+    <!-- AI 自动写作抽屉 -->
+    <el-drawer
+      v-model="showAutoWriteDrawer"
+      title="AI 自动写作"
+      size="600px"
+      direction="rtl"
+      class="auto-write-drawer"
+      destroy-on-close
+    >
+      <AIAutoWrite
+        v-if="project?.ai_memory?.outline"
+        :project-id="Number(projectId)"
+        :document-id="currentDocumentId"
+        :outline="project.ai_memory.outline"
+        :existing-documents="project?.documents || []"
+        @document-created="onDocumentCreated"
+        @refresh-documents="loadProject"
+        @close="showAutoWriteDrawer = false"
+      />
+      <div v-else class="no-outline-tip">
+        <el-empty description="暂无大纲数据">
+          <p>请先在「项目设定」中创建大纲，才能使用 AI 自动写作功能</p>
+          <el-button type="primary" @click="openMemoryDrawer">前往项目设定</el-button>
+        </el-empty>
+      </div>
+    </el-drawer>
+
     <!-- 编辑项目对话框 -->
-    <el-dialog 
-      v-model="showEditProjectDialog" 
-      title="编辑项目" 
+    <el-dialog
+      v-model="showEditProjectDialog"
+      title="编辑项目"
       width="420px"
       class="coffee-dialog"
     >
@@ -215,7 +269,8 @@ import { useProjectStore, type Document } from '@/stores/project'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import draggable from 'vuedraggable'
 import ProjectSettingsManager from '@/components/ProjectSettingsManager.vue'
-import { ArrowLeft, Collection, Plus, Document as DocumentIcon, MoreFilled, Edit, Delete, Calendar, Upload, Rank, InfoFilled } from '@element-plus/icons-vue'
+import AIAutoWrite from '@/components/AIAutoWrite.vue'
+import { ArrowLeft, ArrowDown, ArrowUp, Collection, Plus, Document as DocumentIcon, MoreFilled, Edit, Delete, Calendar, Upload, Rank, InfoFilled, EditPen, Folder } from '@element-plus/icons-vue'
 import ExportMenu from '@/components/ExportMenu.vue'
 import TemplateLibrary from '@/components/TemplateLibrary.vue'
 
@@ -228,15 +283,19 @@ const project = computed(() => store.currentProject)
 const documents = computed(() => store.currentProject?.documents || [])
 
 const showMemoryDrawer = ref(false)
+const showAutoWriteDrawer = ref(false)
 const showTemplateLibrary = ref(false)
 const showCreateDocDialog = ref(false)
 const showEditProjectDialog = ref(false)
 const creating = ref(false)
+const currentDocumentId = ref(0)
 const savingProject = ref(false)
 const newDoc = ref({ title: '' })
 const editProjectForm = ref({ title: '', description: '' })
 const draggingIndex = ref(-1)
 const isReordering = ref(false)
+const headerExpanded = ref(false)
+const exportMenuRef = ref<{ triggerExport: (command: string) => void } | null>(null)
 
 // 用于拖拽排序的文档列表
 const draggableDocs = computed({
@@ -337,6 +396,18 @@ function handleDocCommand(cmd: string, doc: Document) {
   }
 }
 
+function handleProjectMoreCommand(command: string) {
+  if (command === 'template') {
+    showTemplateLibrary.value = true
+  } else if (command === 'autowrite') {
+    showAutoWriteDrawer.value = true
+  } else if (command === 'export-project') {
+    exportMenuRef.value?.triggerExport('project')
+  } else if (command === 'edit' || command === 'delete') {
+    handleProjectCommand(command)
+  }
+}
+
 function handleProjectCommand(cmd: string) {
   if (cmd === 'edit' && project.value) {
     editProjectForm.value = {
@@ -382,12 +453,12 @@ async function saveProjectEdit() {
 
 async function onDragEnd() {
   draggingIndex.value = -1
-  
+
   if (!projectId.value || isReordering.value) return
-  
+
   const docs = draggableDocs.value
   if (!docs.length) return
-  
+
   isReordering.value = true
   try {
     const documentIds = docs.map(d => d.id)
@@ -400,6 +471,18 @@ async function onDragEnd() {
   } finally {
     isReordering.value = false
   }
+}
+
+function openMemoryDrawer() {
+  showAutoWriteDrawer.value = false
+  showMemoryDrawer.value = true
+}
+
+async function onDocumentCreated(docId: number) {
+  ElMessage.success('新文档已创建')
+  await loadProject()
+  // 可选：自动打开新创建的文档
+  // router.push(`/document/${docId}`)
 }
 </script>
 
@@ -467,15 +550,26 @@ async function onDragEnd() {
   
   .project-actions-dropdown .more-btn {
     height: 44px;
-    padding: 0 16px;
+    padding: 0 12px;
     border-radius: 10px;
     border-color: var(--coffee-border);
     color: var(--coffee-text-secondary);
     .el-icon { margin-right: 6px; }
+    .arrow-icon { margin-left: 2px; font-size: 12px; }
     &:hover {
       border-color: var(--coffee-primary);
       color: var(--coffee-primary);
     }
+  }
+
+  .collapse-btn,
+  .expand-btn {
+    height: 44px;
+    padding: 0 8px;
+    color: var(--coffee-text-muted);
+    font-size: 13px;
+    &:hover { color: var(--coffee-primary); }
+    .el-icon { margin-right: 2px; font-size: 14px; }
   }
   
   :deep(.delete-item) {
@@ -749,20 +843,48 @@ async function onDragEnd() {
   .project-view {
     padding: 20px;
   }
-  
+
   .project-header {
     .header-content {
       flex-direction: column;
       gap: 20px;
     }
   }
-  
+
   .documents-grid {
     grid-template-columns: 1fr;
   }
-  
+
   .drag-handle {
     opacity: 1 !important;
+  }
+}
+
+.auto-write-btn {
+  height: 44px;
+  padding: 0 20px;
+  border-radius: 10px;
+
+  .el-icon {
+    margin-right: 6px;
+  }
+}
+
+.no-outline-tip {
+  padding: 40px 20px;
+  text-align: center;
+
+  p {
+    margin: 16px 0;
+    color: var(--el-text-color-secondary);
+    font-size: 14px;
+  }
+}
+
+:deep(.auto-write-drawer) {
+  .el-drawer__body {
+    padding: 0;
+    overflow-y: auto;
   }
 }
 </style>

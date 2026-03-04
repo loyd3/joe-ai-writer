@@ -1,6 +1,6 @@
 <template>
   <div class="export-menu">
-    <el-dropdown trigger="click" @command="handleExport">
+    <el-dropdown v-if="showButton" trigger="click" @command="handleExport">
       <el-button class="export-btn">
         <el-icon><Download /></el-icon>
         <span>导出</span>
@@ -8,54 +8,61 @@
       </el-button>
       <template #dropdown>
         <el-dropdown-menu class="export-dropdown">
-          <el-dropdown-item command="markdown">
-            <div class="export-option">
-              <el-icon><Document /></el-icon>
-              <div class="option-info">
-                <span class="option-title">Markdown</span>
-                <span class="option-desc">通用标记格式</span>
+          <!-- 项目页：仅显示导出项目 -->
+          <template v-if="mode === 'project'">
+            <el-dropdown-item command="project">
+              <div class="export-option">
+                <el-icon><Folder /></el-icon>
+                <div class="option-info">
+                  <span class="option-title">导出整个项目</span>
+                  <span class="option-desc">Markdown 格式，包含所有文档</span>
+                </div>
               </div>
-            </div>
-          </el-dropdown-item>
-          <el-dropdown-item command="pdf">
-            <div class="export-option">
-              <el-icon><Collection /></el-icon>
-              <div class="option-info">
-                <span class="option-title">PDF</span>
-                <span class="option-desc">适合打印和分享</span>
+            </el-dropdown-item>
+          </template>
+          <!-- 文档页：仅显示文档导出，不显示导出项目 -->
+          <template v-else>
+            <el-dropdown-item command="markdown">
+              <div class="export-option">
+                <el-icon><Document /></el-icon>
+                <div class="option-info">
+                  <span class="option-title">Markdown</span>
+                  <span class="option-desc">通用标记格式</span>
+                </div>
               </div>
-            </div>
-          </el-dropdown-item>
-          <el-dropdown-item command="docx">
-            <div class="export-option">
-              <el-icon><Files /></el-icon>
-              <div class="option-info">
-                <span class="option-title">Word 文档</span>
-                <span class="option-desc">DOCX 格式，可编辑</span>
+            </el-dropdown-item>
+            <el-dropdown-item command="pdf">
+              <div class="export-option">
+                <el-icon><Collection /></el-icon>
+                <div class="option-info">
+                  <span class="option-title">PDF</span>
+                  <span class="option-desc">适合打印和分享</span>
+                </div>
               </div>
-            </div>
-          </el-dropdown-item>
-          <el-dropdown-item command="txt">
-            <div class="export-option">
-              <el-icon><Document /></el-icon>
-              <div class="option-info">
-                <span class="option-title">纯文本</span>
-                <span class="option-desc">仅文本内容</span>
+            </el-dropdown-item>
+            <el-dropdown-item command="docx">
+              <div class="export-option">
+                <el-icon><Files /></el-icon>
+                <div class="option-info">
+                  <span class="option-title">Word 文档</span>
+                  <span class="option-desc">DOCX 格式，可编辑</span>
+                </div>
               </div>
-            </div>
-          </el-dropdown-item>
-          <el-dropdown-item v-if="projectId" command="project" divided>
-            <div class="export-option">
-              <el-icon><Folder /></el-icon>
-              <div class="option-info">
-                <span class="option-title">导出整个项目</span>
-                <span class="option-desc">Markdown 格式，包含所有文档</span>
+            </el-dropdown-item>
+            <el-dropdown-item command="txt">
+              <div class="export-option">
+                <el-icon><Document /></el-icon>
+                <div class="option-info">
+                  <span class="option-title">纯文本</span>
+                  <span class="option-desc">仅文本内容</span>
+                </div>
               </div>
-            </div>
-          </el-dropdown-item>
+            </el-dropdown-item>
+          </template>
         </el-dropdown-menu>
       </template>
     </el-dropdown>
+    <!-- 无按钮时仅保留对话框，供外部 triggerExport 使用 -->
     
     <!-- 导出设置对话框 -->
     <el-dialog
@@ -86,12 +93,17 @@ import { ElMessage } from 'element-plus'
 import { exportApi, downloadFile } from '@/api/search-export'
 import { Download, ArrowDown, Document, Folder, Collection, Files } from '@element-plus/icons-vue'
 
-const props = defineProps<{
-  documentId?: number
-  projectId?: number
-  documentTitle?: string
-  projectTitle?: string
-}>()
+const props = withDefaults(
+  defineProps<{
+    mode?: 'project' | 'document'
+    showButton?: boolean
+    documentId?: number
+    projectId?: number
+    documentTitle?: string
+    projectTitle?: string
+  }>(),
+  { mode: 'document', showButton: true }
+)
 
 const showSettings = ref(false)
 const includeMemory = ref(true)
@@ -155,6 +167,12 @@ async function confirmExport() {
     exporting.value = false
   }
 }
+
+defineExpose({
+  triggerExport(command: string) {
+    handleExport(command)
+  }
+})
 </script>
 
 <style scoped lang="scss">

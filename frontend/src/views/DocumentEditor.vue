@@ -22,6 +22,11 @@
           <el-icon><CircleCheck /></el-icon>
           <span>已保存 {{ formatTime(lastSaved) }}</span>
         </div>
+        <!-- 折叠时只显示 3 个：保存、AI 助手、更多 -->
+        <el-button class="save-btn" type="primary" @click="saveDocument" :loading="saving">
+          <el-icon><Check /></el-icon>
+          <span>保存</span>
+        </el-button>
         <el-button 
           class="chat-toggle" 
           :type="showChatPanel ? 'primary' : 'default'"
@@ -30,40 +35,77 @@
           <el-icon><ChatDotRound /></el-icon>
           <span>AI 助手</span>
         </el-button>
-        <el-button class="extract-btn" @click="showExtractDrawer = true">
-          <el-icon><Aim /></el-icon>
-          <span>AI 智能提取</span>
-        </el-button>
-        <el-button class="generate-btn" @click="showGenerateDrawer = true">
-          <el-icon><MagicStick /></el-icon>
-          <span>根据设定生成</span>
-        </el-button>
-        <el-button class="save-btn" type="primary" @click="saveDocument" :loading="saving">
-          <el-icon><Check /></el-icon>
-          <span>保存</span>
-        </el-button>
-        <!-- 导出按钮 -->
-        <ExportMenu
-          :document-id="Number(documentId)"
-          :project-id="document?.project_id"
-          :document-title="documentTitle"
-        />
-        <el-dropdown trigger="click" @command="handleDocCommand" class="doc-actions-dropdown">
+        <el-dropdown v-if="!headerExpanded" trigger="click" @command="handleMoreCommand" class="doc-actions-dropdown">
           <el-button class="more-btn">
             <el-icon><MoreFilled /></el-icon>
+            <span>更多</span>
+            <el-icon class="arrow-icon"><ArrowDown /></el-icon>
           </el-button>
           <template #dropdown>
             <el-dropdown-menu>
-              <el-dropdown-item command="rename">
+              <el-dropdown-item command="extract">
+                <el-icon><Aim /></el-icon> AI 智能提取
+              </el-dropdown-item>
+              <el-dropdown-item command="generate">
+                <el-icon><MagicStick /></el-icon> 根据设定生成
+              </el-dropdown-item>
+              <el-dropdown-item command="export-markdown">
+                <el-icon><Document /></el-icon> 导出 Markdown
+              </el-dropdown-item>
+              <el-dropdown-item command="export-pdf">
+                <el-icon><Collection /></el-icon> 导出 PDF
+              </el-dropdown-item>
+              <el-dropdown-item command="export-docx">
+                <el-icon><Files /></el-icon> 导出 Word
+              </el-dropdown-item>
+              <el-dropdown-item command="export-txt">
+                <el-icon><Document /></el-icon> 导出纯文本
+              </el-dropdown-item>
+              <el-dropdown-item divided command="rename">
                 <el-icon><Edit /></el-icon> 重命名
               </el-dropdown-item>
-              <el-dropdown-item command="delete" divided class="delete-item">
+              <el-dropdown-item command="delete" class="delete-item">
                 <el-icon><Delete /></el-icon> 删除文档
               </el-dropdown-item>
             </el-dropdown-menu>
           </template>
         </el-dropdown>
-        
+        <!-- 展开时显示的其余按钮 -->
+        <template v-if="headerExpanded">
+          <el-button class="extract-btn" @click="showExtractDrawer = true">
+            <el-icon><Aim /></el-icon>
+            <span>AI 智能提取</span>
+          </el-button>
+          <el-button class="generate-btn" @click="showGenerateDrawer = true">
+            <el-icon><MagicStick /></el-icon>
+            <span>根据设定生成</span>
+          </el-button>
+        </template>
+        <ExportMenu
+          ref="exportMenuRef"
+          mode="document"
+          :show-button="headerExpanded"
+          :document-id="Number(documentId)"
+          :document-title="documentTitle"
+        />
+        <el-button
+          v-if="headerExpanded"
+          class="collapse-btn"
+          link
+          @click="headerExpanded = false"
+        >
+          <el-icon><ArrowUp /></el-icon>
+          <span>收起</span>
+        </el-button>
+        <el-button
+          v-else
+          class="expand-btn"
+          link
+          @click="headerExpanded = true"
+        >
+          <el-icon><ArrowDown /></el-icon>
+          <span>展开</span>
+        </el-button>
       </div>
     </div>
 
@@ -135,7 +177,7 @@ import AIExtract from '@/components/AIExtract.vue'
 import AIGenerateFromMemory from '@/components/AIGenerateFromMemory.vue'
 import ExportMenu from '@/components/ExportMenu.vue'
 import { ElMessageBox } from 'element-plus'
-import { ArrowLeft, ArrowRight, ChatDotRound, Check, Loading, CircleCheck, MoreFilled, Edit, Delete, Aim, MagicStick } from '@element-plus/icons-vue'
+import { ArrowLeft, ArrowRight, ArrowDown, ArrowUp, ChatDotRound, Check, Loading, CircleCheck, MoreFilled, Edit, Delete, Aim, MagicStick, Document, Collection, Files } from '@element-plus/icons-vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -154,6 +196,8 @@ const showGenerateDrawer = ref(false)
 const hasChanges = ref(false)
 const lastSaved = ref<Date | null>(null)
 const aiChatRef = ref<{ polishWithText: (text: string) => Promise<void> } | null>(null)
+const exportMenuRef = ref<{ triggerExport: (command: string) => void } | null>(null)
+const headerExpanded = ref(false)
 
 let autoSaveInterval: number | null = null
 
@@ -236,6 +280,24 @@ function goBack() {
     router.push(`/project/${project.value.id}`)
   } else {
     router.push('/')
+  }
+}
+
+function handleMoreCommand(command: string) {
+  if (command === 'extract') {
+    showExtractDrawer.value = true
+  } else if (command === 'generate') {
+    showGenerateDrawer.value = true
+  } else if (command === 'export-markdown') {
+    exportMenuRef.value?.triggerExport('markdown')
+  } else if (command === 'export-pdf') {
+    exportMenuRef.value?.triggerExport('pdf')
+  } else if (command === 'export-docx') {
+    exportMenuRef.value?.triggerExport('docx')
+  } else if (command === 'export-txt') {
+    exportMenuRef.value?.triggerExport('txt')
+  } else if (command === 'rename' || command === 'delete') {
+    handleDocCommand(command)
   }
 }
 
@@ -408,10 +470,28 @@ onBeforeUnmount(() => {
   min-width: 0;
 
   .doc-actions-dropdown .more-btn {
+    height: 40px;
+    padding: 0 12px;
     color: var(--coffee-text-muted);
+    .arrow-icon {
+      margin-left: 4px;
+      font-size: 12px;
+      transition: transform 0.2s;
+      &.expanded { transform: rotate(180deg); }
+    }
     &:hover {
       color: var(--coffee-primary);
     }
+  }
+
+  .collapse-btn,
+  .expand-btn {
+    height: 40px;
+    padding: 0 8px;
+    color: var(--coffee-text-muted);
+    font-size: 13px;
+    &:hover { color: var(--coffee-primary); }
+    .el-icon { margin-right: 2px; font-size: 14px; }
   }
 
   :deep(.delete-item) {
@@ -568,4 +648,5 @@ onBeforeUnmount(() => {
     display: none;
   }
 }
+
 </style>

@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from app.database import get_db
-from app.schemas.schemas import AIRequest, AIChatRequest, AIGenerateFromMemoryRequest
+from app.schemas.schemas import AIRequest, AIChatRequest, AIGenerateFromMemoryRequest, AIBatchGenerateRequest
 from app.services.ai_writing_service import AIWritingService
 from app.models.models import Document, Project
 from app.api.auth import get_current_user
@@ -93,6 +93,32 @@ async def ai_generate_from_memory_stream(
             generate_type=request.generate_type,
             custom_instruction=request.custom_instruction,
             current_content=request.current_content,
+            user_id=current_user["id"],
+        ):
+            yield f"data: {chunk}\n\n"
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(generate(), media_type="text/event-stream")
+
+
+@router.post("/batch-generate/stream")
+async def ai_batch_generate_stream(
+    request: AIBatchGenerateRequest,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """批量/多轮次 AI 写作（流式），基于大纲自动逐章生成"""
+    check_document_access(db, request.document_id, current_user["id"])
+
+    async def generate():
+        async for chunk in AIWritingService.batch_generate(
+            db,
+            project_id=request.project_id,
+            document_id=request.document_id,
+            outline_nodes=request.outline_nodes,
+            max_tokens_per_chapter=request.max_tokens_per_chapter,
+            continue_on_complete=request.continue_on_complete,
+            custom_instruction=request.custom_instruction,
             user_id=current_user["id"],
         ):
             yield f"data: {chunk}\n\n"

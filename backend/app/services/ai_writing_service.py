@@ -1,9 +1,10 @@
 from typing import Optional, AsyncGenerator
 from sqlalchemy.orm import Session
+import json
 from app.core.ai_client import ai_client
 from app.services.ai_memory_service import AIMemoryService
 from app.services.rag_service import rag_service
-from app.schemas.schemas import AIRequest, ChatMessage
+from app.schemas.schemas import AIRequest, ChatMessage, AIGenerateProgress, AIGenerateChunk
 from app.models.models import AIInteraction
 
 class AIWritingService:
@@ -264,3 +265,187 @@ class AIWritingService:
 
         async for chunk in ai_client.stream_completion(messages):
             yield chunk
+
+    @staticmethod
+    def _estimate_chinese_chars(tokens: int) -> int:
+        """估算中文字符数（中文约1.5 tokens/字）"""
+        return int(tokens / 1.5)
+
+    @staticmethod
+    def _build_chapter_prompt(
+        memory_context: str,
+        outline_node: dict,
+        previous_context: str,
+        custom_instruction: Optional[str],
+        max_chars: int
+    ) -> list:
+        """构建章节生成的 prompt"""
+        node_title = outline_node.get('title', '未命名章节')
+        node_description = outline_node.get('description', '')
+        
+        system_prompt = f"""你是一位专业的小说/文章写作助手。请根据项目设定和章节大纲，生成高质量的正文内容。
+
+要求：
+1. 严格遵循世界观、角色设定和写作风格
+2. 内容紧扣章节主题和大纲描述
+3. 保持与前文的连贯性（如有前文）
+4. 字数控制在 {max_chars} 字符以内
+5. 只输出生成的正文，不要输出章节标题或解释
+6. 使用自然流畅的中文写作"""
+
+        user_parts = [f"【项目设定】\n{memory_context}"]
+        
+        user_parts.append(f"\n【当前章节】\n标题：{node_title}")
+        if node_description:
+            user_parts.append(f"大纲描述：{node_description}")
+        
+        if previous_context:
+            # 限制前文长度，避免超出上下文
+            truncated_prev = previous_context[-3000:] if len(previous_context) > 3000 else previous_context
+            user_parts.append(f"\n【前文回顾（最后部分）】\n{truncated_prev}")
+        
+        user_parts.append(f"\n【写作要求】\n请生成本章正文，字数约 {max_chars} 字符。")
+        if custom_instruction:
+            user_parts.append(f"额外要求：{custom_instruction}")
+        
+        user_content = "\n".join(user_parts)
+        
+        return [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_content}
+        ]
+
+    @staticmethod
+    async def batch_generate(
+        db: Session,
+        project_id: int,
+        document_id: int,
+        outline_nodes: list,
+        max_tokens_per_chapter: int = 2000,
+        continue_on_complete: bool = True,
+        custom_instruction: Optional[str] = None,
+        user_id: Optional[int] = None,
+    ) -> AsyncGenerator[str, None]:
+        """批量/多轮次生成章节内容
+        
+        基于大纲节点列表，逐章生成内容，每章完成后发送进度更新
+        """
+        from app.models.models import Document
+        
+        # 获取项目记忆上下文
+        memory_context = AIMemoryService.build_memory_context(db, project_id)
+        if not memory_context.strip():
+            error_chunk = AIGenerateChunk(
+                type="error",
+                error_message="该项目暂无设定内容，请先在「项目设定」中填写大纲、角色或世界观后再生成。"
+            )
+            yield json.dumps(error_chunk.dict(), ensure_ascii=False)
+            return
+        
+        # 获取当前文档内容（用于续写）
+        doc = db.query(Document).filter(Document.id == document_id).first()
+        accumulated_content = ""
+        if doc and doc.content:
+            # 提取已有文本内容
+            for block in doc.content:
+                if isinstance(block, dict) and block.get('content'):
+                    accumulated_content += block.get('content', '') + "\n"
+        
+        total_chapters = len(outline_nodes)
+        estimated_chars_per_chapter = AIWritingService._estimate_chinese_chars(max_tokens_per_chapter)
+        
+        for idx, node in enumerate(outline_nodes):
+            chapter_title = node.get('title', f'章节 {idx + 1}')
+            
+            # 发送进度更新 - 开始生成
+            progress = AIGenerateProgress(
+                total_chapters=total_chapters,
+                current_chapter=idx + 1,
+                current_title=chapter_title,
+                status="generating",
+                generated_chars=len(accumulated_content),
+                estimated_total_chars=estimated_chars_per_chapter * total_chapters,
+                content_preview=accumulated_content[-200:] if accumulated_content else ""
+            )
+            chunk = AIGenerateChunk(
+                type="progress",
+                progress=progress,
+                chapter_index=idx,
+                chapter_title=chapter_title
+            )
+            yield json.dumps(chunk.dict(), ensure_ascii=False)
+            
+            # 构建 prompt
+            messages = AIWritingService._build_chapter_prompt(
+                memory_context=memory_context,
+                outline_node=node,
+                previous_context=accumulated_content,
+                custom_instruction=custom_instruction,
+                max_chars=estimated_chars_per_chapter
+            )
+            
+            # 生成章节内容
+            chapter_content = []
+            try:
+                async for text_chunk in ai_client.stream_completion(
+                    messages,
+                    max_tokens=max_tokens_per_chapter
+                ):
+                    chapter_content.append(text_chunk)
+                    # 实时发送内容块
+                    content_chunk = AIGenerateChunk(
+                        type="content",
+                        content=text_chunk,
+                        chapter_index=idx,
+                        chapter_title=chapter_title
+                    )
+                    yield json.dumps(content_chunk.dict(), ensure_ascii=False)
+                
+                full_chapter = "".join(chapter_content)
+                accumulated_content += full_chapter + "\n\n"
+                chapter_chars = len(full_chapter)
+
+                # 发送章节完成通知（包含完整内容）
+                complete_chunk = AIGenerateChunk(
+                    type="chapter_complete",
+                    chapter_index=idx,
+                    chapter_title=chapter_title,
+                    chapter_content=full_chapter,
+                    chapter_chars=chapter_chars,
+                    total_chars=len(accumulated_content)
+                )
+                yield json.dumps(complete_chunk.dict(), ensure_ascii=False)
+
+                # 记录交互
+                interaction = AIInteraction(
+                    document_id=document_id,
+                    interaction_type="batch_generate",
+                    user_input=f"生成章节: {chapter_title}",
+                    ai_response=full_chapter,
+                    context_used={
+                        "project_id": project_id,
+                        "outline_node": node,
+                        "max_tokens": max_tokens_per_chapter
+                    }
+                )
+                db.add(interaction)
+                db.commit()
+                
+            except Exception as e:
+                error_chunk = AIGenerateChunk(
+                    type="error",
+                    error_message=f"生成章节 '{chapter_title}' 时出错: {str(e)}",
+                    chapter_index=idx,
+                    chapter_title=chapter_title
+                )
+                yield json.dumps(error_chunk.dict(), ensure_ascii=False)
+                
+                if not continue_on_complete:
+                    break
+        
+        # 发送完成通知
+        done_chunk = AIGenerateChunk(
+            type="done",
+            total_chars=len(accumulated_content)
+        )
+        yield json.dumps(done_chunk.dict(), ensure_ascii=False)
