@@ -1,12 +1,78 @@
 <template>
-  <div class="block-editor" :class="{ 'focus-mode': isFocusMode }" @click="handleEditorClick">
+  <div class="block-editor" :class="{ 'focus-mode': isFocusMode, 'multi-select': isMultiSelectMode }" @click="handleEditorClick">
+    <!-- 多选块工具栏 -->
+    <Teleport to="body">
+      <Transition name="multi-select-toolbar">
+        <div v-if="isMultiSelectMode && selectedBlocks.size > 0" class="multi-select-toolbar">
+          <span class="selected-count">已选 {{ selectedBlocks.size }} 个块</span>
+          <button type="button" class="toolbar-btn" @click="copySelectedBlocks" title="复制 (Ctrl+C)">
+            <el-icon><DocumentCopy /></el-icon>
+            <span>复制</span>
+          </button>
+          <button type="button" class="toolbar-btn" @click="cutSelectedBlocks" title="剪切 (Ctrl+X)">
+            <el-icon><Scissor /></el-icon>
+            <span>剪切</span>
+          </button>
+          <button type="button" class="toolbar-btn delete" @click="deleteSelectedBlocks" title="删除 (Delete)">
+            <el-icon><Delete /></el-icon>
+            <span>删除</span>
+          </button>
+          <button type="button" class="toolbar-btn" @click="clearBlockSelection" title="取消选择 (Esc)">
+            <el-icon><Close /></el-icon>
+            <span>取消</span>
+          </button>
+        </div>
+      </Transition>
+    </Teleport>
+
+    <!-- 斜杠命令菜单 -->
+    <Teleport to="body">
+      <Transition name="slash-menu">
+        <div
+          v-if="slashMenuVisible"
+          class="slash-menu"
+          :style="slashMenuStyle"
+        >
+          <div class="slash-menu-header">基本块</div>
+          <div
+            v-for="(cmd, idx) in filteredSlashCommands"
+            :key="cmd.id"
+            class="slash-menu-item"
+            :class="{ active: selectedSlashIndex === idx }"
+            @mousedown.prevent
+            @click="applySlashCommand(idx, currentSlashBlockIndex)"
+          >
+            <div class="slash-icon">
+              <el-icon v-if="cmd.icon === 'Top'"><Top /></el-icon>
+              <el-icon v-else-if="cmd.icon === 'Rank'"><Rank /></el-icon>
+              <el-icon v-else-if="cmd.icon === 'ChatDotRound'"><ChatDotRound /></el-icon>
+              <el-icon v-else-if="cmd.icon === 'List'"><List /></el-icon>
+              <el-icon v-else-if="cmd.icon === 'Operation'"><Operation /></el-icon>
+              <el-icon v-else-if="cmd.icon === 'Minus'"><Minus /></el-icon>
+              <el-icon v-else-if="cmd.icon === 'Document'"><Document /></el-icon>
+            </div>
+            <div class="slash-info">
+              <span class="slash-label">{{ cmd.label }}</span>
+              <span class="slash-shortcut">{{ cmd.shortcut }}</span>
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
+
     <div
       v-for="(block, index) in modelValue"
       :key="block.id"
       class="block-wrapper"
-      :class="{ 'is-focused': focusedIndex === index, 'is-toolbar-visible': toolbarVisibleIndex === index, [`type-${block.type}`]: true }"
+      :class="{
+        'is-focused': focusedIndex === index,
+        'is-toolbar-visible': toolbarVisibleIndex === index,
+        'is-selected': selectedBlocks.has(index),
+        [`type-${block.type}`]: true
+      }"
       @mouseenter="onBlockMouseEnter(index)"
       @mouseleave="onBlockMouseLeave"
+      @mousedown="handleBlockMouseDown(index, $event)"
     >
       <!-- 快捷操作栏：悬停 3s 或选中内容 3s 后显示 -->
       <Transition name="toolbar">
@@ -87,6 +153,9 @@
         @keydown.up="moveFocus(index, -1, $event)"
         @keydown.down="moveFocus(index, 1, $event)"
         @keydown="handleKeydown(index, $event)"
+        @keydown.ctrl.a.prevent="handleSelectAll(index, $event)"
+        @keydown.meta.a.prevent="handleSelectAll(index, $event)"
+        @mouseup="handleMouseUp(index, $event)"
       />
       
       <div class="block-actions">
@@ -129,8 +198,9 @@
       <Transition name="context-menu">
         <div
           v-show="contextMenu.visible"
+          ref="contextMenuRef"
           class="context-menu"
-          :style="{ left: contextMenu.x + 'px', top: contextMenu.y + 'px' }"
+          :style="contextMenuStyle"
           @mousedown.prevent
           @click.stop
         >
@@ -242,7 +312,7 @@
         <el-icon><EditPen /></el-icon>
       </div>
       <span>点击开始写作，记录您的灵感...</span>
-      <span class="shortcut-hint">Ctrl+1~6 切换块类型 · Ctrl+B/I/U 格式 · Ctrl+Z/Y 撤销重做 · Ctrl+F 专注模式</span>
+      <span class="shortcut-hint">Ctrl+1~6 切换块 · Ctrl+B/I/U 格式 · Ctrl+Z/Y 撤销 · Ctrl+↑↓ 导航 · / 斜杠命令 · Ctrl+点击多选 · Ctrl+C/X/V 复制剪切粘贴</span>
     </div>
   </div>
 </template>
@@ -251,7 +321,7 @@
 import { ref, computed, nextTick, onMounted, onUnmounted, watch } from 'vue'
 import type { Block } from '@/stores/project'
 import { ElMessage } from 'element-plus'
-import { Plus, MoreFilled, Top, ChatDotRound, List, Document, Delete, EditPen, Brush, Rank, Operation, Minus, RefreshLeft, RefreshRight } from '@element-plus/icons-vue'
+import { Plus, MoreFilled, Top, ChatDotRound, List, Document, Delete, EditPen, Brush, Rank, Operation, Minus, RefreshLeft, RefreshRight, DocumentCopy, Scissor, Close } from '@element-plus/icons-vue'
 
 const props = defineProps<{
   modelValue: Block[]
@@ -270,17 +340,250 @@ const blockRefs = ref<Map<number, HTMLElement>>(new Map())
 const toolbarVisibleIndex = ref(-1)
 /** 右键快捷菜单状态 */
 const contextMenu = ref({ visible: false, x: 0, y: 0, blockIndex: -1 })
+const contextMenuRef = ref<HTMLElement | null>(null)
 const contextBlock = computed(() =>
   contextMenu.value.visible && contextMenu.value.blockIndex >= 0 && props.modelValue[contextMenu.value.blockIndex]
     ? props.modelValue[contextMenu.value.blockIndex]
     : null
 )
+
+// 动态计算右键菜单位置，确保不超出屏幕
+const contextMenuStyle = computed(() => {
+  const menuWidth = 280 // 菜单最大宽度
+  const menuHeight = 400 // 预估菜单高度（滚动区域）
+  const padding = 10 // 屏幕边缘留白
+
+  let x = contextMenu.value.x
+  let y = contextMenu.value.y
+
+  // 获取屏幕尺寸
+  const screenWidth = window.innerWidth
+  const screenHeight = window.innerHeight
+
+  // 水平方向：如果超出右边界，则向左显示
+  if (x + menuWidth + padding > screenWidth) {
+    x = screenWidth - menuWidth - padding
+  }
+
+  // 垂直方向：如果超出下边界，则向上显示
+  if (y + menuHeight + padding > screenHeight) {
+    y = screenHeight - menuHeight - padding
+    // 如果向上显示也会超出上边界，则显示在屏幕顶部附近
+    if (y < padding) {
+      y = padding
+    }
+  }
+
+  // 确保不会显示在屏幕左上角之外
+  x = Math.max(padding, x)
+  y = Math.max(padding, y)
+
+  return {
+    left: x + 'px',
+    top: y + 'px'
+  }
+})
+
+// 动态计算斜杠菜单位置
+const slashMenuStyle = computed(() => {
+  const menuWidth = 320 // 菜单最大宽度
+  const menuHeight = 350 // 预估菜单高度
+  const padding = 10 // 屏幕边缘留白
+
+  let x = slashMenuPosition.value.x
+  let y = slashMenuPosition.value.y
+
+  // 获取屏幕尺寸
+  const screenWidth = window.innerWidth
+  const screenHeight = window.innerHeight
+
+  // 水平方向：如果超出右边界，则向左显示
+  if (x + menuWidth + padding > screenWidth) {
+    x = Math.max(padding, screenWidth - menuWidth - padding)
+  }
+
+  // 垂直方向：优先向下显示，如果超出下边界则向上显示
+  if (y + menuHeight + padding > screenHeight) {
+    // 向上显示（在光标上方）
+    y = Math.max(padding, y - menuHeight - 40) // 40是块的高度
+  }
+
+  // 确保不会显示在屏幕之外
+  x = Math.max(padding, x)
+  y = Math.max(padding, y)
+
+  return {
+    left: x + 'px',
+    top: y + 'px'
+  }
+})
 const isFocusMode = ref(props.focusMode || false)
 const TOOLBAR_DELAY_MS = 3000
 const TOOLBAR_HIDE_DELAY_MS = 300
 let hoverTimer: ReturnType<typeof setTimeout> | null = null
 let selectionTimer: ReturnType<typeof setTimeout> | null = null
 let leaveTimer: ReturnType<typeof setTimeout> | null = null
+
+// ========== 斜杠命令菜单 ==========
+const slashMenuVisible = ref(false)
+const slashMenuPosition = ref({ x: 0, y: 0 })
+const selectedSlashIndex = ref(0)
+const slashQuery = ref('')
+const currentSlashBlockIndex = ref(-1)
+
+const slashCommands = [
+  { id: 'heading', label: '大标题', icon: 'Top', shortcut: 'Ctrl+1', type: 'heading' },
+  { id: 'subheading', label: '小标题', icon: 'Rank', shortcut: 'Ctrl+2', type: 'subheading' },
+  { id: 'quote', label: '引用', icon: 'ChatDotRound', shortcut: 'Ctrl+3', type: 'quote' },
+  { id: 'list', label: '列表', icon: 'List', shortcut: 'Ctrl+4', type: 'list' },
+  { id: 'code', label: '代码块', icon: 'Operation', shortcut: 'Ctrl+5', type: 'code' },
+  { id: 'divider', label: '分割线', icon: 'Minus', shortcut: 'Ctrl+6', type: 'divider' },
+  { id: 'paragraph', label: '正文', icon: 'Document', shortcut: 'Ctrl+0', type: 'paragraph' },
+]
+
+const filteredSlashCommands = computed(() => {
+  if (!slashQuery.value) return slashCommands
+  const query = slashQuery.value.toLowerCase()
+  return slashCommands.filter(cmd =>
+    cmd.label.toLowerCase().includes(query) ||
+    cmd.id.toLowerCase().includes(query)
+  )
+})
+
+function showSlashMenu(index: number, rect: DOMRect) {
+  currentSlashBlockIndex.value = index
+  slashMenuPosition.value = {
+    x: rect.left,
+    y: rect.bottom + 8
+  }
+  slashMenuVisible.value = true
+  selectedSlashIndex.value = 0
+  slashQuery.value = ''
+}
+
+function hideSlashMenu() {
+  slashMenuVisible.value = false
+  slashQuery.value = ''
+  currentSlashBlockIndex.value = -1
+}
+
+function applySlashCommand(commandIndex: number, blockIndex?: number) {
+  const commands = filteredSlashCommands.value
+  if (commandIndex < 0 || commandIndex >= commands.length) return
+
+  const command = commands[commandIndex]
+  const targetIndex = blockIndex !== undefined ? blockIndex : currentSlashBlockIndex.value
+  if (targetIndex < 0) return
+
+  // 清除斜杠命令文本
+  const el = blockRefs.value.get(targetIndex)
+  if (el) {
+    const text = el.textContent || ''
+    const newText = text.replace(/\/[^\s]*$/, '').trim()
+    el.textContent = newText
+    updateBlock(targetIndex)
+  }
+
+  handleCommand(command.type, targetIndex)
+  hideSlashMenu()
+}
+
+// ========== 多选块功能 ==========
+const selectedBlocks = ref<Set<number>>(new Set())
+const isMultiSelectMode = ref(false)
+
+function toggleBlockSelection(index: number, event?: MouseEvent) {
+  if (event) {
+    if (event.ctrlKey || event.metaKey) {
+      // Ctrl/Cmd + 点击：切换选择
+      if (selectedBlocks.value.has(index)) {
+        selectedBlocks.value.delete(index)
+      } else {
+        selectedBlocks.value.add(index)
+      }
+      isMultiSelectMode.value = true
+    } else if (event.shiftKey && selectedBlocks.value.size > 0) {
+      // Shift + 点击：范围选择
+      const lastSelected = Math.max(...selectedBlocks.value)
+      const start = Math.min(lastSelected, index)
+      const end = Math.max(lastSelected, index)
+      for (let i = start; i <= end; i++) {
+        selectedBlocks.value.add(i)
+      }
+      isMultiSelectMode.value = true
+    } else {
+      // 普通点击：清除其他选择，只选当前
+      selectedBlocks.value.clear()
+      selectedBlocks.value.add(index)
+      isMultiSelectMode.value = false
+    }
+  } else {
+    selectedBlocks.value.clear()
+    selectedBlocks.value.add(index)
+    isMultiSelectMode.value = false
+  }
+}
+
+function clearBlockSelection() {
+  selectedBlocks.value.clear()
+  isMultiSelectMode.value = false
+}
+
+function selectAllBlocks() {
+  selectedBlocks.value.clear()
+  for (let i = 0; i < props.modelValue.length; i++) {
+    selectedBlocks.value.add(i)
+  }
+  isMultiSelectMode.value = true
+}
+
+function handleSelectAll(index: number, event: Event) {
+  const el = blockRefs.value.get(index)
+  if (!el) return
+
+  const selection = window.getSelection()
+  if (!selection) return
+
+  const range = document.createRange()
+  range.selectNodeContents(el)
+  selection.removeAllRanges()
+  selection.addRange(range)
+
+  // 如果已经在全选状态，则跨块选择
+  const text = selection.toString()
+  const elText = el.textContent || ''
+  if (text === elText && props.modelValue.length > 1) {
+    selectAllBlocks()
+  }
+}
+
+function handleMouseUp(index: number, event: MouseEvent) {
+  const selection = window.getSelection()
+  if (!selection || selection.rangeCount === 0) return
+
+  // 检查是否是跨块选择
+  const range = selection.getRangeAt(0)
+  let startBlock = -1
+  let endBlock = -1
+
+  for (const [idx, el] of blockRefs.value) {
+    if (el && range.intersectsNode(el)) {
+      if (startBlock === -1) startBlock = idx
+      endBlock = idx
+    }
+  }
+
+  if (startBlock !== -1 && endBlock !== -1 && startBlock !== endBlock) {
+    // 跨块选择
+    selectedBlocks.value.clear()
+    for (let i = startBlock; i <= endBlock; i++) {
+      selectedBlocks.value.add(i)
+    }
+    isMultiSelectMode.value = true
+  } else if (event.ctrlKey || event.metaKey || event.shiftKey) {
+    toggleBlockSelection(index, event)
+  }
+}
 
 // ========== 撤销重做系统 ==========
 const history = ref<Block[][]>([])
@@ -565,7 +868,8 @@ function addBlock(index: number, type = 'paragraph') {
     const newIndex = index + 1
     const el = blockRefs.value.get(newIndex)
     if (el) {
-      el.focus()
+      el.focus({ preventScroll: true })
+      scrollElementIntoView(el)
     }
   })
 }
@@ -602,6 +906,14 @@ function handleEnter(index: number, event: Event) {
   const target = event.target as HTMLElement
   const selection = window.getSelection()
   if (!selection || selection.rangeCount === 0) return
+
+  // 检查是否是斜杠命令菜单激活状态
+  if (slashMenuVisible.value) {
+    event.preventDefault()
+    applySlashCommand(selectedSlashIndex.value, index)
+    return
+  }
+
   const range = selection.getRangeAt(0)
   const hasHtml = /<(b|i|u|strong|em)\b/i.test(target.innerHTML || '')
   let beforeContent: string
@@ -635,10 +947,25 @@ function handleEnter(index: number, event: Event) {
   nextTick(() => {
     const el = blockRefs.value.get(index + 1)
     if (el) {
-      el.focus()
+      // 使用 preventScroll 选项阻止自动滚动，页面保持不动
+      el.focus({ preventScroll: true })
       setCursorToStart(el)
     }
   })
+}
+
+// 滚动元素到可视区域，但避免跳转到页面底部
+function scrollElementIntoView(element: HTMLElement) {
+  const rect = element.getBoundingClientRect()
+  const viewportHeight = window.innerHeight
+  const headerOffset = 100 // 预留头部空间
+
+  // 只有当元素在可视区域外时才滚动
+  if (rect.bottom > viewportHeight - headerOffset) {
+    element.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  } else if (rect.top < headerOffset) {
+    element.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }
 }
 
 function rangeToHtml(range: Range): string {
@@ -651,7 +978,41 @@ function rangeToHtml(range: Range): string {
 function handleBackspace(index: number, event: Event) {
   const target = event.target as HTMLElement
   const text = target.textContent || ''
-  
+  const cursorPosition = getCursorPosition(target)
+
+  // 如果在斜杠命令菜单中，隐藏菜单
+  if (slashMenuVisible.value) {
+    hideSlashMenu()
+  }
+
+  // 在块的最开始位置按 Backspace，且不是第一个块
+  if (index > 0 && cursorPosition === 0) {
+    event.preventDefault()
+
+    const currentBlock = props.modelValue[index]
+    const prevBlock = props.modelValue[index - 1]
+
+    // 将当前块内容合并到上一个块
+    const newContent = prevBlock.content + currentBlock.content
+    const newBlocks = [...props.modelValue]
+    newBlocks[index - 1] = { ...prevBlock, content: newContent }
+    newBlocks.splice(index, 1)
+
+    emit('update:modelValue', newBlocks)
+    saveHistory()
+
+    nextTick(() => {
+      const el = blockRefs.value.get(index - 1)
+      if (el) {
+        el.focus({ preventScroll: true })
+        // 将光标移到合并前的位置（即上一个块原来的末尾）
+        setCursorToPosition(el, prevBlock.content.length)
+      }
+    })
+    return
+  }
+
+  // 空块删除（原有逻辑）
   if (text === '' && props.modelValue.length > 1) {
     event.preventDefault()
     const newBlocks = props.modelValue.filter((_, i) => i !== index)
@@ -662,7 +1023,8 @@ function handleBackspace(index: number, event: Event) {
       const prevIndex = index - 1
       const el = blockRefs.value.get(prevIndex)
       if (el) {
-        el.focus()
+        el.focus({ preventScroll: true })
+        scrollElementIntoView(el)
         // 将光标移到末尾
         setCursorToEnd(el)
       }
@@ -676,12 +1038,77 @@ function moveFocus(index: number, direction: number, event: Event) {
     event.preventDefault()
     const el = blockRefs.value.get(newIndex)
     if (el) {
-      el.focus()
+      el.focus({ preventScroll: true })
+      scrollElementIntoView(el)
     }
   }
 }
 
 function handleKeydown(index: number, event: KeyboardEvent) {
+  // 斜杠命令菜单导航
+  if (slashMenuVisible.value) {
+    switch (event.key) {
+      case 'ArrowDown':
+        event.preventDefault()
+        selectedSlashIndex.value = (selectedSlashIndex.value + 1) % filteredSlashCommands.value.length
+        return
+      case 'ArrowUp':
+        event.preventDefault()
+        selectedSlashIndex.value = (selectedSlashIndex.value - 1 + filteredSlashCommands.value.length) % filteredSlashCommands.value.length
+        return
+      case 'Enter':
+        event.preventDefault()
+        applySlashCommand(selectedSlashIndex.value, index)
+        return
+      case 'Escape':
+        event.preventDefault()
+        hideSlashMenu()
+        return
+      case 'Backspace':
+        // 更新斜杠查询
+        if (slashQuery.value.length > 0) {
+          slashQuery.value = slashQuery.value.slice(0, -1)
+          selectedSlashIndex.value = 0
+        } else {
+          hideSlashMenu()
+        }
+        return
+      default:
+        // 累积查询字符
+        if (event.key.length === 1 && !event.ctrlKey && !event.metaKey && !event.altKey) {
+          slashQuery.value += event.key
+          selectedSlashIndex.value = 0
+          return
+        }
+        break
+    }
+  }
+
+  // 检测斜杠命令触发
+  if (event.key === '/' && !event.ctrlKey && !event.metaKey) {
+    const el = blockRefs.value.get(index)
+    if (el) {
+      const text = el.textContent || ''
+      const selection = window.getSelection()
+      if (selection && selection.rangeCount > 0) {
+        const range = selection.getRangeAt(0)
+        const cursorPos = getCursorPosition(el)
+        // 只有在开头或空格后才触发斜杠命令
+        if (cursorPos === 0 || text[cursorPos - 1] === ' ' || text[cursorPos - 1] === '\n') {
+          const rect = range.getBoundingClientRect()
+          showSlashMenu(index, rect)
+        }
+      }
+    }
+    return
+  }
+
+  // Esc 清除多选
+  if (event.key === 'Escape') {
+    clearBlockSelection()
+    return
+  }
+
   const isMod = event.ctrlKey || event.metaKey
   if (!isMod) return
   const key = event.key.toLowerCase()
@@ -697,6 +1124,13 @@ function handleKeydown(index: number, event: KeyboardEvent) {
   if (key === 'y' || (key === 'z' && event.shiftKey)) {
     event.preventDefault()
     redo()
+    return
+  }
+
+  // 全选所有块
+  if (key === 'a') {
+    event.preventDefault()
+    selectAllBlocks()
     return
   }
 
@@ -740,6 +1174,38 @@ function handleKeydown(index: number, event: KeyboardEvent) {
     if (props.modelValue.length > 1) handleCommand('delete', index)
     return
   }
+
+  // 多选块操作：复制、粘贴、删除
+  if (selectedBlocks.value.size > 0) {
+    // 复制选中的块
+    if (key === 'c') {
+      event.preventDefault()
+      copySelectedBlocks()
+      return
+    }
+    // 剪切选中的块
+    if (key === 'x') {
+      event.preventDefault()
+      cutSelectedBlocks()
+      return
+    }
+    // 删除选中的块
+    if (key === 'delete' || key === 'backspace') {
+      event.preventDefault()
+      deleteSelectedBlocks()
+      return
+    }
+  }
+
+  // 粘贴块
+  if (key === 'v') {
+    const pasted = pasteBlocks(index)
+    if (pasted) {
+      event.preventDefault()
+      return
+    }
+  }
+
   if (key === 'b') {
     event.preventDefault()
     applyFormat(index, 'bold')
@@ -761,6 +1227,76 @@ function handleKeydown(index: number, event: KeyboardEvent) {
     toggleFocusMode()
     return
   }
+}
+
+// ========== 多选块操作：复制、剪切、删除 ==========
+const copiedBlocks = ref<Block[]>([])
+
+function copySelectedBlocks() {
+  if (selectedBlocks.value.size === 0) return
+
+  const sortedIndices = Array.from(selectedBlocks.value).sort((a, b) => a - b)
+  copiedBlocks.value = sortedIndices.map(i => ({ ...props.modelValue[i], id: generateId() }))
+
+  // 也复制到系统剪贴板
+  const textContent = sortedIndices.map(i => stripHtml(props.modelValue[i].content)).join('\n\n')
+  navigator.clipboard.writeText(textContent).catch(() => {
+    // 忽略剪贴板权限错误
+  })
+
+  ElMessage.success(`已复制 ${copiedBlocks.value.length} 个块`)
+  clearBlockSelection()
+}
+
+function cutSelectedBlocks() {
+  if (selectedBlocks.value.size === 0) return
+
+  copySelectedBlocks()
+  deleteSelectedBlocks()
+}
+
+function deleteSelectedBlocks() {
+  if (selectedBlocks.value.size === 0) return
+
+  const selectedSet = new Set(selectedBlocks.value)
+  let newBlocks = props.modelValue.filter((_, i) => !selectedSet.has(i))
+
+  // 确保至少保留一个块
+  if (newBlocks.length === 0) {
+    newBlocks = [{
+      id: generateId(),
+      type: 'paragraph',
+      content: '',
+      props: {}
+    }]
+  }
+
+  emit('update:modelValue', newBlocks)
+  saveHistory()
+  clearBlockSelection()
+  ElMessage.success('已删除选中的块')
+}
+
+function pasteBlocks(afterIndex: number): boolean {
+  if (copiedBlocks.value.length === 0) return false
+
+  const newBlocks = [...props.modelValue]
+  const blocksToInsert = copiedBlocks.value.map(b => ({ ...b, id: generateId() }))
+
+  newBlocks.splice(afterIndex + 1, 0, ...blocksToInsert)
+  emit('update:modelValue', newBlocks)
+  saveHistory()
+
+  nextTick(() => {
+    const focusIndex = afterIndex + blocksToInsert.length
+    const el = blockRefs.value.get(focusIndex)
+    if (el) {
+      el.focus({ preventScroll: true })
+    }
+  })
+
+  ElMessage.success(`已粘贴 ${blocksToInsert.length} 个块`)
+  return true
 }
 
 function emitPolish(index: number) {
@@ -809,7 +1345,8 @@ function handleCommand(command: string, index: number) {
     nextTick(() => {
       const el = blockRefs.value.get(index)
       if (el) {
-        el.focus()
+        el.focus({ preventScroll: true })
+        scrollElementIntoView(el)
       }
     })
   }
@@ -820,6 +1357,18 @@ function handleEditorClick(event: Event) {
   const target = event.target as HTMLElement
   if (target.classList.contains('block-editor') && !props.modelValue.length) {
     addBlock(-1)
+  }
+  // 点击编辑器空白区域时清除选择
+  if (target.classList.contains('block-editor')) {
+    clearBlockSelection()
+  }
+}
+
+function handleBlockMouseDown(index: number, event: MouseEvent) {
+  // 如果正在多选模式或按住修饰键
+  if (isMultiSelectMode.value || event.ctrlKey || event.metaKey || event.shiftKey) {
+    event.preventDefault()
+    toggleBlockSelection(index, event)
   }
 }
 
@@ -849,6 +1398,44 @@ function setCursorToEnd(element: HTMLElement) {
   range.collapse(false)
   selection?.removeAllRanges()
   selection?.addRange(range)
+}
+
+function setCursorToPosition(element: HTMLElement, position: number) {
+  const selection = window.getSelection()
+  if (!selection) return
+
+  const range = document.createRange()
+  const textNodes = getTextNodes(element)
+  let currentPos = 0
+
+  for (const node of textNodes) {
+    const nodeLength = node.textContent?.length || 0
+    if (currentPos + nodeLength >= position) {
+      const offset = position - currentPos
+      range.setStart(node, offset)
+      range.setEnd(node, offset)
+      break
+    }
+    currentPos += nodeLength
+  }
+
+  if (textNodes.length === 0) {
+    range.selectNodeContents(element)
+    range.collapse(true)
+  }
+
+  selection.removeAllRanges()
+  selection.addRange(range)
+}
+
+function getTextNodes(element: Node): Text[] {
+  const textNodes: Text[] = []
+  const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT, null)
+  let node: Node | null
+  while ((node = walker.nextNode()) !== null) {
+    textNodes.push(node as Text)
+  }
+  return textNodes
 }
 </script>
 
@@ -1109,6 +1696,105 @@ function setCursorToEnd(element: HTMLElement) {
   transform: translateY(-4px);
 }
 
+/* 多选块的视觉反馈 */
+.block-wrapper.is-selected {
+  background: rgba(var(--coffee-primary-rgb), 0.08) !important;
+  border-left: 3px solid var(--coffee-primary);
+}
+
+.block-editor.multi-select .block-wrapper {
+  cursor: pointer;
+}
+
+.block-editor.multi-select .block-wrapper:hover {
+  background: rgba(var(--coffee-primary-rgb), 0.04);
+}
+
+/* 斜杠命令菜单 */
+.slash-menu {
+  position: fixed;
+  z-index: 10000;
+  min-width: 240px;
+  max-width: 320px;
+  max-height: 400px;
+  overflow-y: auto;
+  background: var(--coffee-bg-card);
+  border: 1px solid var(--coffee-border);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px var(--coffee-shadow);
+  padding: 8px 0;
+}
+
+.slash-menu-header {
+  padding: 8px 16px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--coffee-text-light);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.slash-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  margin: 0 6px;
+  border-radius: 6px;
+}
+
+.slash-menu-item:hover,
+.slash-menu-item.active {
+  background: var(--coffee-shadow);
+}
+
+.slash-menu-item.active {
+  background: rgba(var(--coffee-primary-rgb), 0.12);
+}
+
+.slash-icon {
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--coffee-bg-warm);
+  border-radius: 8px;
+  color: var(--coffee-primary);
+  font-size: 18px;
+}
+
+.slash-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+}
+
+.slash-label {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--coffee-text);
+}
+
+.slash-shortcut {
+  font-size: 12px;
+  color: var(--coffee-text-light);
+}
+
+.slash-menu-enter-active,
+.slash-menu-leave-active {
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+
+.slash-menu-enter-from,
+.slash-menu-leave-to {
+  opacity: 0;
+  transform: scale(0.96) translateY(-8px);
+}
+
 .block-actions {
   opacity: 0;
   display: flex;
@@ -1202,6 +1888,9 @@ function setCursorToEnd(element: HTMLElement) {
   z-index: 10000;
   min-width: 200px;
   max-width: 280px;
+  max-height: 70vh;
+  overflow-y: auto;
+  overflow-x: hidden;
   padding: 6px 0;
   background: var(--coffee-bg-card);
   border: 1px solid var(--coffee-border);
@@ -1283,5 +1972,170 @@ function setCursorToEnd(element: HTMLElement) {
 .context-menu-leave-to {
   opacity: 0;
   transform: scale(0.96);
+}
+
+/* 多选块的视觉反馈 */
+.block-wrapper.is-selected {
+  background: rgba(var(--coffee-primary-rgb), 0.08) !important;
+  border-left: 3px solid var(--coffee-primary);
+}
+
+.block-editor.multi-select .block-wrapper {
+  cursor: pointer;
+}
+
+.block-editor.multi-select .block-wrapper:hover {
+  background: rgba(var(--coffee-primary-rgb), 0.04);
+}
+
+/* 斜杠命令菜单 */
+.slash-menu {
+  position: fixed;
+  z-index: 10000;
+  min-width: 240px;
+  max-width: 320px;
+  max-height: 400px;
+  overflow-y: auto;
+  background: var(--coffee-bg-card);
+  border: 1px solid var(--coffee-border);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px var(--coffee-shadow);
+  padding: 8px 0;
+}
+
+.slash-menu-header {
+  padding: 8px 16px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--coffee-text-light);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.slash-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  margin: 0 6px;
+  border-radius: 6px;
+}
+
+.slash-menu-item:hover,
+.slash-menu-item.active {
+  background: var(--coffee-shadow);
+}
+
+.slash-menu-item.active {
+  background: rgba(var(--coffee-primary-rgb), 0.12);
+}
+
+.slash-icon {
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--coffee-bg-warm);
+  border-radius: 8px;
+  color: var(--coffee-primary);
+  font-size: 18px;
+}
+
+.slash-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+}
+
+.slash-label {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--coffee-text);
+}
+
+.slash-shortcut {
+  font-size: 12px;
+  color: var(--coffee-text-light);
+}
+
+.slash-menu-enter-active,
+.slash-menu-leave-active {
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+
+.slash-menu-enter-from,
+.slash-menu-leave-to {
+  opacity: 0;
+  transform: scale(0.96) translateY(-8px);
+}
+
+/* 多选块工具栏 */
+.multi-select-toolbar {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  background: var(--coffee-bg-card);
+  border: 1px solid var(--coffee-border);
+  border-radius: 12px;
+  box-shadow: 0 8px 24px var(--coffee-shadow);
+  z-index: 10001;
+}
+
+.selected-count {
+  font-size: 13px;
+  color: var(--coffee-text-secondary);
+  margin-right: 8px;
+  padding-right: 12px;
+  border-right: 1px solid var(--coffee-border);
+  white-space: nowrap;
+}
+
+.multi-select-toolbar .toolbar-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 14px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--coffee-text-secondary);
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+
+.multi-select-toolbar .toolbar-btn:hover {
+  background: var(--coffee-shadow);
+  color: var(--coffee-primary);
+}
+
+.multi-select-toolbar .toolbar-btn.delete:hover {
+  background: rgba(245, 108, 108, 0.12);
+  color: #f56c6c;
+}
+
+.multi-select-toolbar .toolbar-btn .el-icon {
+  font-size: 16px;
+}
+
+.multi-select-toolbar-enter-active,
+.multi-select-toolbar-leave-active {
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.multi-select-toolbar-enter-from,
+.multi-select-toolbar-leave-to {
+  opacity: 0;
+  transform: translateX(-50%) translateY(20px);
 }
 </style>

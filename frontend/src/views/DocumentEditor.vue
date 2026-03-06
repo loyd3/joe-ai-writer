@@ -201,22 +201,6 @@ const headerExpanded = ref(false)
 
 let autoSaveInterval: number | null = null
 
-onMounted(() => {
-  loadDocument()
-  // 启动自动保存
-  autoSaveInterval = window.setInterval(() => {
-    if (hasChanges.value && documentId.value) {
-      saveDocument()
-    }
-  }, 30000)
-})
-
-onUnmounted(() => {
-  if (autoSaveInterval) {
-    clearInterval(autoSaveInterval)
-  }
-})
-
 watch(documentId, () => {
   loadDocument()
 })
@@ -377,6 +361,39 @@ onBeforeUnmount(() => {
   if (hasChanges.value) {
     saveDocument()
   }
+})
+
+// 阻止页面级别的 Ctrl+A 选择，让编辑器自己处理
+function handleDocumentKeydown(event: KeyboardEvent) {
+  const isMod = event.ctrlKey || event.metaKey
+  if (isMod && event.key.toLowerCase() === 'a') {
+    // 检查焦点是否在编辑器内
+    const activeElement = document.activeElement
+    const isInEditor = activeElement?.closest('.block-editor') !== null
+    if (!isInEditor) {
+      // 如果不在编辑器内，阻止默认全选行为
+      event.preventDefault()
+    }
+  }
+}
+
+onMounted(() => {
+  loadDocument()
+  // 启动自动保存
+  autoSaveInterval = window.setInterval(() => {
+    if (hasChanges.value && documentId.value) {
+      saveDocument()
+    }
+  }, 30000)
+  // 添加键盘事件监听
+  window.document.addEventListener('keydown', handleDocumentKeydown)
+})
+
+onUnmounted(() => {
+  if (autoSaveInterval) {
+    clearInterval(autoSaveInterval)
+  }
+  window.document.removeEventListener('keydown', handleDocumentKeydown)
 })
 </script>
 
