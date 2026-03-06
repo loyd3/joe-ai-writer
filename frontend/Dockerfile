@@ -1,3 +1,5 @@
+# 使用国内镜像源（如果官方源慢）
+# FROM docker.mirrors.ustc.edu.cn/library/node:20-alpine
 FROM node:20-alpine
 
 WORKDIR /app

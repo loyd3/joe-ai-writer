@@ -56,6 +56,10 @@
               <el-icon><EditPen /></el-icon>
               <span>AI 自动写作</span>
             </el-button>
+            <el-button class="analyzer-btn" type="success" plain @click="showLiteratureAnalyzer = true">
+              <el-icon><Reading /></el-icon>
+              <span>作品分析</span>
+            </el-button>
           </template>
           <ExportMenu
             ref="exportMenuRef"
@@ -225,6 +229,21 @@
       </div>
     </el-drawer>
 
+    <!-- 文学作品分析抽屉 -->
+    <el-drawer
+      v-model="showLiteratureAnalyzer"
+      title="文学作品分析"
+      size="700px"
+      direction="rtl"
+      class="literature-analyzer-drawer"
+      destroy-on-close
+    >
+      <LiteratureAnalyzer
+        @project-created="onProjectFromLiteratureCreated"
+        @close="showLiteratureAnalyzer = false"
+      />
+    </el-drawer>
+
     <!-- 编辑项目对话框 -->
     <el-dialog
       v-model="showEditProjectDialog"
@@ -270,7 +289,8 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import draggable from 'vuedraggable'
 import ProjectSettingsManager from '@/components/ProjectSettingsManager.vue'
 import AIAutoWrite from '@/components/AIAutoWrite.vue'
-import { ArrowLeft, ArrowDown, ArrowUp, Collection, Plus, Document as DocumentIcon, MoreFilled, Edit, Delete, Calendar, Upload, Rank, InfoFilled, EditPen, Folder } from '@element-plus/icons-vue'
+import LiteratureAnalyzer from '@/components/LiteratureAnalyzer.vue'
+import { ArrowLeft, ArrowDown, ArrowUp, Collection, Plus, Document as DocumentIcon, MoreFilled, Edit, Delete, Calendar, Upload, Rank, InfoFilled, EditPen, Folder, Reading } from '@element-plus/icons-vue'
 import ExportMenu from '@/components/ExportMenu.vue'
 import TemplateLibrary from '@/components/TemplateLibrary.vue'
 
@@ -284,6 +304,7 @@ const documents = computed(() => store.currentProject?.documents || [])
 
 const showMemoryDrawer = ref(false)
 const showAutoWriteDrawer = ref(false)
+const showLiteratureAnalyzer = ref(false)
 const showTemplateLibrary = ref(false)
 const showCreateDocDialog = ref(false)
 const showEditProjectDialog = ref(false)
@@ -483,6 +504,14 @@ async function onDocumentCreated(docId: number) {
   await loadProject()
   // 可选：自动打开新创建的文档
   // router.push(`/document/${docId}`)
+}
+
+async function onProjectFromLiteratureCreated(projectId: number) {
+  ElMessage.success('项目创建成功！正在跳转...')
+  showLiteratureAnalyzer.value = false
+  await loadProject()
+  // 可选：跳转到新项目
+  // router.push(`/project/${projectId}`)
 }
 </script>
 
@@ -870,6 +899,16 @@ async function onDocumentCreated(docId: number) {
   }
 }
 
+.analyzer-btn {
+  height: 44px;
+  padding: 0 20px;
+  border-radius: 10px;
+
+  .el-icon {
+    margin-right: 6px;
+  }
+}
+
 .no-outline-tip {
   padding: 40px 20px;
   text-align: center;
@@ -882,6 +921,13 @@ async function onDocumentCreated(docId: number) {
 }
 
 :deep(.auto-write-drawer) {
+  .el-drawer__body {
+    padding: 0;
+    overflow-y: auto;
+  }
+}
+
+:deep(.literature-analyzer-drawer) {
   .el-drawer__body {
     padding: 0;
     overflow-y: auto;

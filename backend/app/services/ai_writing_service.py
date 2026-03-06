@@ -1,10 +1,11 @@
 from typing import Optional, AsyncGenerator
 from sqlalchemy.orm import Session
 import json
+import asyncio
 from app.core.ai_client import ai_client
 from app.services.ai_memory_service import AIMemoryService
 from app.services.rag_service import rag_service
-from app.schemas.schemas import AIRequest, ChatMessage, AIGenerateProgress, AIGenerateChunk
+from app.schemas.schemas import AIRequest, ChatMessage, AIGenerateProgress, AIGenerateChunk, LiteraryAnalysisResult, Character
 from app.models.models import AIInteraction
 
 class AIWritingService:
@@ -449,3 +450,126 @@ class AIWritingService:
             total_chars=len(accumulated_content)
         )
         yield json.dumps(done_chunk.dict(), ensure_ascii=False)
+
+    @staticmethod
+    async def analyze_literature(
+        content: str,
+        title: Optional[str] = None,
+        author: Optional[str] = None,
+        category: str = "novel"
+    ) -> LiteraryAnalysisResult:
+        """分析文学作品，提取结构化信息
+        
+        Args:
+            content: 文学作品文本内容
+            title: 作品标题（可选）
+            author: 作者（可选）
+            category: 作品类型
+            
+        Returns:
+            LiteraryAnalysisResult: 分析结果
+        """
+        # 截取前 15000 字符作为分析样本（避免 token 超限）
+        sample_text = content[:15000] if len(content) > 15000 else content
+        
+        system_prompt = """你是一位专业的文学分析专家。请对提供的文学作品进行深入分析，提取以下结构化信息：
+
+1. 作品标题和简介
+2. 故事大纲/章节结构
+3. 主要角色设定（姓名、描述、性格、背景、目标）
+4. 世界观设定（时代背景、地点、规则等）
+5. 写作风格特点
+6. 关键情节点
+7. 核心主题/思想
+
+请严格按 JSON 格式返回，不要添加任何解释性文字。"""
+
+        user_prompt = f"""请分析以下文学作品：
+
+作品类型: {category}
+{title and f"标题: {title}" or ""}
+{author and f"作者: {author}" or ""}
+
+文本内容（前 {len(sample_text)} 字符）：
+{sample_text}
+
+请返回以下 JSON 格式：
+{{
+    "title": "作品标题",
+    "description": "作品简介，200字左右",
+    "category": "{category}",
+    "outline": [
+        {{"title": "第一章标题", "description": "章节内容概要"}},
+        {{"title": "第二章标题", "description": "章节内容概要"}}
+    ],
+    "storyline": "故事主线概述，300字左右",
+    "characters": [
+        {{
+            "name": "角色名",
+            "description": "角色描述",
+            "personality": "性格特点",
+            "background": "背景故事",
+            "goals": "目标动机"
+        }}
+    ],
+    "world_building": {{
+        "era": "时代背景",
+        "location": "主要地点",
+        "rules": "世界规则/设定"
+    }},
+    "writing_style": "写作风格分析，100字左右",
+    "key_points": ["关键情节点1", "关键情节点2"],
+    "themes": ["主题1", "主题2"]
+}}"""
+
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt}
+        ]
+        
+        try:
+            # 增加超时时间到 120 秒，文学作品分析需要更多时间
+            response = await ai_client.chat_completion(
+                messages,
+                temperature=0.7,
+                max_tokens=4000,
+                timeout=120.0
+            )
+            
+            # 提取 JSON
+            json_str = response
+            if "```json" in response:
+                json_str = response.split("```json")[1].split("```")[0].strip()
+            elif "```" in response:
+                json_str = response.split("```")[1].split("```")[0].strip()
+            
+            data = json.loads(json_str)
+            
+            # 构建结果
+            characters = [Character(**c) for c in data.get("characters", [])]
+            
+            return LiteraryAnalysisResult(
+                title=data.get("title", title or "未命名作品"),
+                description=data.get("description", ""),
+                category=data.get("category", category),
+                outline=data.get("outline", []),
+                storyline=data.get("storyline"),
+                characters=characters,
+                world_building=data.get("world_building", {}),
+                writing_style=data.get("writing_style"),
+                key_points=data.get("key_points", []),
+                themes=data.get("themes", [])
+            )
+            
+        except Exception as e:
+            # 解析失败返回基础结果
+            return LiteraryAnalysisResult(
+                title=title or "未命名作品",
+                description=f"分析出错: {str(e)}",
+                category=category,
+                outline=[],
+                characters=[],
+                world_building={},
+                key_points=[],
+                themes=[]
+            )

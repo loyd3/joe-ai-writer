@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from app.database import get_db
-from app.schemas.schemas import AIRequest, AIChatRequest, AIGenerateFromMemoryRequest, AIBatchGenerateRequest
+from app.schemas.schemas import AIRequest, AIChatRequest, AIGenerateFromMemoryRequest, AIBatchGenerateRequest, LiteraryAnalysisRequest, CreateProjectFromLiteratureRequest, CreateProjectFromLiteratureResponse
 from app.services.ai_writing_service import AIWritingService
 from app.models.models import Document, Project
 from app.api.auth import get_current_user
@@ -125,3 +125,60 @@ async def ai_batch_generate_stream(
         yield "data: [DONE]\n\n"
 
     return StreamingResponse(generate(), media_type="text/event-stream")
+
+
+@router.post("/analyze-literature")
+async def analyze_literature(
+    request: LiteraryAnalysisRequest,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """分析文学作品，提取结构化信息"""
+    analysis = await AIWritingService.analyze_literature(
+        content=request.content,
+        title=request.title,
+        author=request.author,
+        category=request.category
+    )
+    return analysis
+
+
+@router.post("/create-project-from-literature", response_model=CreateProjectFromLiteratureResponse)
+async def create_project_from_literature(
+    request: CreateProjectFromLiteratureRequest,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """根据解析后的作品设定创建项目（不再传原文档，不重复调用分析）"""
+    from app.models.models import Project, AIMemory
+
+    analysis = request.analysis
+
+    project = Project(
+        title=analysis.title or "基于作品分析的项目",
+        description=analysis.description,
+        owner_id=current_user["id"]
+    )
+    db.add(project)
+    db.commit()
+    db.refresh(project)
+
+    memory = AIMemory(
+        project_id=project.id,
+        outline=analysis.outline,
+        storyline=analysis.storyline,
+        characters=[c.model_dump() for c in analysis.characters],
+        world_building=analysis.world_building,
+        writing_style=analysis.writing_style,
+        key_points=analysis.key_points,
+        notes=f"主题: {', '.join(analysis.themes)}"
+    )
+    db.add(memory)
+    db.commit()
+
+    return CreateProjectFromLiteratureResponse(
+        project_id=project.id,
+        project_title=project.title,
+        analysis=analysis,
+        message=f"成功创建项目 '{project.title}'，已提取 {len(analysis.characters)} 个角色，{len(analysis.outline)} 个章节"
+    )

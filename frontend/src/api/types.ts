@@ -184,6 +184,39 @@ export interface AIGenerateChunk {
   error_message?: string
 }
 
+// 文学作品分析
+export interface LiteraryAnalysisRequest {
+  content: string
+  title?: string
+  author?: string
+  category?: string
+}
+
+export interface LiteraryAnalysisResult {
+  title: string
+  description: string
+  category: string
+  outline: OutlineNode[]
+  storyline?: string
+  characters: Character[]
+  world_building: Record<string, any>
+  writing_style?: string
+  key_points: string[]
+  themes: string[]
+}
+
+/** 创建项目请求：只传解析后的设定，不传原文档 */
+export interface CreateProjectFromLiteratureRequest {
+  analysis: LiteraryAnalysisResult
+}
+
+export interface CreateProjectFromLiteratureResponse {
+  project_id: number
+  project_title: string
+  analysis: LiteraryAnalysisResult
+  message: string
+}
+
 // 模板
 export interface Template {
   id: number

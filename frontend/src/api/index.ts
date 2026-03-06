@@ -5,11 +5,14 @@ import type {
   Document, DocumentCreate, DocumentUpdate,
   AIMemory, AIMemoryUpdate,
   AIRequest, AIChatRequest, AIGenerateRequest, AIBatchGenerateRequest,
+  LiteraryAnalysisRequest, LiteraryAnalysisResult, CreateProjectFromLiteratureRequest,
   Template, TemplateCreate,
   AIConfig, Theme
 } from './types'
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+// Docker 环境使用 localhost:9000，本地开发使用 localhost:8000
+const API_BASE_URL = import.meta.env.VITE_API_URL || 
+  (window.location.port === '8080' ? 'http://localhost:9000' : 'http://localhost:8000')
 
 // 请求配置常量
 const REQUEST_TIMEOUT = 10000 // 10秒超时
@@ -328,7 +331,13 @@ export const aiApi = {
       },
       body: JSON.stringify(data)
     })
-  }
+  },
+  /** 分析文学作品 - 设置 3 分钟超时 */
+  analyzeLiterature: (data: LiteraryAnalysisRequest) =>
+    api.post<LiteraryAnalysisResult>('/ai/analyze-literature', data, { timeout: 180000 }),
+  /** 从文学作品创建项目 */
+  createProjectFromLiterature: (data: CreateProjectFromLiteratureRequest) =>
+    api.post<CreateProjectFromLiteratureResponse>('/ai/create-project-from-literature', data)
 }
 
 // ========== 系统 / AI 配置 API ==========

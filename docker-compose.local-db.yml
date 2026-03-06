@@ -48,7 +48,7 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     ports:
-      - "8000:8000"
+      - "9000:8000"  # Docker 使用 9000，避免与本地开发 8000 冲突
     networks:
       - joe-writer-network
     command: >
@@ -63,9 +63,9 @@ services:
     container_name: joe-writer-frontend
     restart: unless-stopped
     environment:
-      - VITE_API_URL=http://localhost:8000
+      - VITE_API_URL=http://localhost:9000  # Docker 后端端口
     ports:
-      - "5173:5173"
+      - "8080:5173"  # Docker 使用 8080，避免与本地开发 5173 冲突
     depends_on:
       - backend
     networks:

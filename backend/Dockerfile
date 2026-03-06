@@ -1,3 +1,5 @@
+# 使用国内镜像源（如果官方源慢）
+# FROM docker.mirrors.ustc.edu.cn/library/python:3.11-slim
 FROM python:3.11-slim
 
 WORKDIR /app

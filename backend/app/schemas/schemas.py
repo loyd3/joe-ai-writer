@@ -216,6 +216,39 @@ class AIGenerateChunk(BaseModel):
     total_chars: Optional[int] = None
     error_message: Optional[str] = None
 
+# ========== Literary Analysis Schemas ==========
+class LiteraryAnalysisRequest(BaseModel):
+    """文学作品分析请求"""
+    content: str = Field(..., min_length=100, max_length=500000, description="文学作品文本内容")
+    title: Optional[str] = Field(None, max_length=200, description="作品标题（可选）")
+    author: Optional[str] = Field(None, max_length=100, description="作者（可选）")
+    category: str = Field(default="novel", description="作品类型: novel, short_story, essay 等")
+
+class LiteraryAnalysisResult(BaseModel):
+    """文学作品分析结果"""
+    title: str = Field(..., description="作品标题")
+    description: str = Field(..., description="作品简介")
+    category: str = Field(..., description="作品类型")
+    outline: List[Dict[str, Any]] = Field(default=[], description="故事大纲/章节结构")
+    storyline: Optional[str] = Field(None, description="故事主线概述")
+    characters: List[Character] = Field(default=[], description="角色设定")
+    world_building: Dict[str, Any] = Field(default={}, description="世界观设定")
+    writing_style: Optional[str] = Field(None, description="写作风格分析")
+    key_points: List[str] = Field(default=[], description="关键情节点")
+    themes: List[str] = Field(default=[], description="主题/核心思想")
+
+class CreateProjectFromLiteratureRequest(BaseModel):
+    """从文学作品创建项目请求：传入解析后的设定（analysis），不传原文档"""
+    analysis: LiteraryAnalysisResult = Field(..., description="作品分析结果（大纲、角色、世界观等）")
+    content: Optional[str] = Field(None, description="已废弃，仅保留以兼容旧校验，请只传 analysis")
+
+class CreateProjectFromLiteratureResponse(BaseModel):
+    """从文学作品创建项目响应"""
+    project_id: int
+    project_title: str
+    analysis: LiteraryAnalysisResult
+    message: str
+
 # ========== Template Schemas ==========
 class TemplateCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=100)

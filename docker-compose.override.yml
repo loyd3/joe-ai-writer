@@ -21,6 +21,8 @@ services:
       - ./frontend:/app
       - /app/node_modules
     environment:
-      - VITE_API_URL=http://localhost:8000
+      - VITE_API_URL=http://localhost:9000
       - NODE_ENV=development
-    command: npm run dev -- --host 0.0.0.0
+    command: >
+      sh -c "echo 'VITE_API_URL=http://localhost:9000' > /app/.env.local &&
+             npm run dev -- --host 0.0.0.0"
