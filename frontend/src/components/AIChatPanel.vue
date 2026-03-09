@@ -11,7 +11,7 @@
         </div>
       </div>
     </div>
-    
+
     <div class="quick-actions">
       <div class="actions-title">快捷操作</div>
       <div class="action-buttons">
@@ -44,6 +44,12 @@
         <div class="message-content">
           <div class="message-text markdown-body" v-html="formatMessage(msg.content)" />
           <div v-if="msg.role === 'assistant' && index > 0" class="message-actions">
+            <!-- 如果是改写类操作，显示预览修改按钮 -->
+            <template v-if="msg.actionType && ['polish', 'revise', 'expand'].includes(msg.actionType)">
+              <el-button link size="small" type="primary" @click="showDiffForMessage(msg)">
+                <el-icon><View /></el-icon> 预览修改
+              </el-button>
+            </template>
             <el-button link size="small" @click="insertToDoc(msg.content)">
               <el-icon><DocumentAdd /></el-icon> 插入文档
             </el-button>
@@ -53,7 +59,7 @@
           </div>
         </div>
       </div>
-      
+
       <div v-if="streaming" class="message assistant streaming">
         <div class="message-avatar">
           <el-icon><Star /></el-icon>
@@ -85,6 +91,15 @@
         </el-button>
       </div>
     </div>
+
+    <!-- AI Diff 查看器 -->
+    <AIDiffViewer
+      v-model:visible="diffVisible"
+      :original-text="diffOriginalText"
+      :rewritten-text="diffRewrittenText"
+      @accept="onDiffAccept"
+      @reject="onDiffReject"
+    />
   </div>
 </template>
 
@@ -93,7 +108,8 @@ import { ref, nextTick } from 'vue'
 import { marked } from 'marked'
 import { aiApi } from '@/api'
 import { ElMessage } from 'element-plus'
-import { Star, Compass, Edit, Brush, Right, User, DocumentAdd, CopyDocument, Promotion, InfoFilled } from '@element-plus/icons-vue'
+import { Star, Compass, Edit, Brush, Right, User, DocumentAdd, CopyDocument, Promotion, InfoFilled, View } from '@element-plus/icons-vue'
+import AIDiffViewer from './AIDiffViewer.vue'
 
 marked.setOptions({ gfm: true, breaks: true })
 
@@ -104,10 +120,10 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'insert', text: string): void
-  (e: 'replace', oldText: string, newText: string): void
+  (e: 'replace', oldText: string, newText: string, blockIndex?: number): void
 }>()
 
-const messages = ref<{ role: string; content: string }[]>([
+const messages = ref<{ role: string; content: string; actionType?: string; originalText?: string; blockIndex?: number }[]>([
   { role: 'assistant', content: '你好！我是你的 AI 写作助手。我可以帮你指导写作、修改润色、续写文章等。有什么可以帮你的吗？' }
 ])
 
@@ -116,6 +132,34 @@ const loading = ref(false)
 const streaming = ref(false)
 const streamingContent = ref('')
 const messagesContainer = ref<HTMLElement>()
+
+// Diff 查看器状态（类似 Cursor：改写后展示对照，用户选择接受/拒绝）
+const diffVisible = ref(false)
+const diffOriginalText = ref('')
+const diffRewrittenText = ref('')
+const lastSelectedText = ref('')
+/** 当前 diff 对应的块索引，用于接受时精确替换到该块 */
+const pendingReplaceBlockIndex = ref<number | undefined>(undefined)
+
+function showDiffForMessage(msg: typeof messages.value[0]) {
+  diffOriginalText.value = msg.originalText || ''
+  diffRewrittenText.value = msg.content
+  pendingReplaceBlockIndex.value = msg.blockIndex
+  diffVisible.value = true
+}
+
+function onDiffAccept(text: string) {
+  const original = diffOriginalText.value
+  const blockIndex = pendingReplaceBlockIndex.value
+  emit('replace', original, text, blockIndex)
+  pendingReplaceBlockIndex.value = undefined
+  ElMessage.success('已应用到文档')
+}
+
+function onDiffReject() {
+  pendingReplaceBlockIndex.value = undefined
+  ElMessage.info('已拒绝修改')
+}
 
 function formatMessage(text: string): string {
   if (!text || typeof text !== 'string') return ''
@@ -185,8 +229,8 @@ async function quickAction(action: string) {
 }
 
 /** 由父组件调用：对指定文本执行润色（如从编辑器快捷栏「AI 润色」触发） */
-async function polishWithText(text: string) {
-  await runAssistAction('polish', text)
+async function polishWithText(text: string, blockIndex?: number) {
+  await runAssistAction('polish', text, blockIndex)
 }
 
 /** 根据操作类型和选中文本生成展示用的用户消息 */
@@ -204,10 +248,14 @@ function getActionUserMessage(action: string, selectedText?: string): string {
   return actionLabels[action] || (t ? `请求：\n\n${t}` : `执行操作：${action}`)
 }
 
-async function runAssistAction(action: string, selectedText?: string) {
+async function runAssistAction(action: string, selectedText?: string, blockIndex?: number) {
   loading.value = true
   streaming.value = true
   streamingContent.value = ''
+
+  const originalText = selectedText || ''
+  lastSelectedText.value = originalText
+
   messages.value.push({ role: 'user', content: getActionUserMessage(action, selectedText) })
   scrollToBottom()
   try {
@@ -229,9 +277,21 @@ async function runAssistAction(action: string, selectedText?: string) {
         if (line.startsWith('data: ')) {
           const data = line.slice(6)
           if (data === '[DONE]') {
-            messages.value.push({ role: 'assistant', content: streamingContent.value })
+            const rewritten = streamingContent.value
+            const assistantMsg = {
+              role: 'assistant',
+              content: rewritten,
+              actionType: action,
+              originalText: originalText,
+              blockIndex
+            }
+            messages.value.push(assistantMsg)
             streamingContent.value = ''
             streaming.value = false
+            // 改写类操作：自动弹出 diff 面板，方便用户对照并选择接受/拒绝（类似 Cursor）
+            if (originalText && rewritten && ['polish', 'revise', 'expand'].includes(action)) {
+              nextTick(() => showDiffForMessage(assistantMsg))
+            }
           } else {
             streamingContent.value += data
             scrollToBottom()
@@ -247,7 +307,7 @@ async function runAssistAction(action: string, selectedText?: string) {
   }
 }
 
-defineExpose({ polishWithText })
+defineExpose({ polishWithText: (text: string, blockIndex?: number) => polishWithText(text, blockIndex) })
 
 function insertToDoc(text: string) {
   emit('insert', text)

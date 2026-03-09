@@ -21,8 +21,8 @@ class AIWritingService:
 在回复时，请注意：
 - 保持与已有内容的风格一致性
 - 尊重已有的角色设定和世界观
-- 如果建议修改，说明理由
-- 可以提出建设性的问题帮助用户思考"""
+- 当用户请求「修改」「润色」「扩展」「续写」时：只输出生成好的正文内容，不要输出任何说明、理由、前缀（如「改写如下：」「修改建议：」等），直接给出结果即可
+- 当用户请求「指导」「总结」「头脑风暴」等建议类问题时，可以正常给出说明和建议"""
 
     @staticmethod
     def _build_messages(
@@ -50,14 +50,14 @@ class AIWritingService:
             "content": f"当前文档内容：\n{content}"
         })
         
-        # 根据操作类型构建用户请求
+        # 根据操作类型构建用户请求（改写类只返回正文，不要说明或前缀）
         action_prompts = {
             'guide': "请阅读以上内容，给出具体的写作指导建议。",
-            'revise': f"请修改以下文本：\n{selected_text}\n\n修改要求：{instruction or '提升表达质量，保持原意'}",
-            'polish': f"请润色以下文本，使其更加流畅自然：\n{selected_text}",
-            'continue': "请根据已有内容，合理地续写下一段。",
+            'revise': f"请直接修改以下文本，不要加任何说明或前缀，只输出修改后的正文：\n{selected_text}\n\n修改要求：{instruction or '提升表达质量，保持原意'}",
+            'polish': f"请直接润色以下文本，不要加任何说明或前缀，只输出润色后的正文：\n{selected_text}",
+            'continue': "请根据已有内容，直接续写下一段正文，不要加任何说明或前缀。",
             'brainstorm': f"请围绕以下内容进行头脑风暴：\n{instruction or '提供创意建议'}",
-            'expand': f"请扩展以下内容的细节：\n{selected_text}",
+            'expand': f"请直接扩展以下内容的细节，不要加任何说明或前缀，只输出扩展后的正文：\n{selected_text}",
             'summarize': "请总结以上内容的主要观点。",
         }
         

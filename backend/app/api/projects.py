@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session, joinedload
 from typing import List
 from app.database import get_db
-from app.models.models import Project, Document, AIMemory
+from app.models.models import Project, Document, AIMemory, AIInteraction
 from app.schemas.schemas import (
     ProjectCreate, ProjectUpdate, ProjectResponse,
     DocumentCreate, DocumentUpdate, DocumentResponse,
@@ -99,14 +99,24 @@ def delete_project(
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
 ):
-    """删除项目（检查所有权）"""
+    """删除项目（检查所有权）- 先删除关联数据再删除项目"""
     project = db.query(Project).filter(
         Project.id == project_id,
         Project.owner_id == current_user["id"]
     ).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
-    
+
+    # 获取项目下的所有文档ID
+    document_ids = [doc.id for doc in project.documents]
+
+    # 先删除 AI 交互记录（避免外键约束错误）
+    if document_ids:
+        db.query(AIInteraction).filter(
+            AIInteraction.document_id.in_(document_ids)
+        ).delete(synchronize_session=False)
+
+    # 删除项目（会级联删除 documents, ai_memories, events）
     db.delete(project)
     db.commit()
     return {"message": "Project deleted"}

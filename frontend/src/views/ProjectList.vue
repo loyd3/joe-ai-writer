@@ -189,7 +189,7 @@ function handleCommand(cmd: string, project: Project) {
     showCreateDialog.value = true
   } else if (cmd === 'delete') {
     ElMessageBox.confirm(
-      `确定要删除项目 "${project.title}" 吗？此操作不可恢复。`,
+      `确定要删除项目 "${project.title}" 吗？项目下的所有文档将被删除，此操作不可恢复。`,
       '删除项目',
       {
         confirmButtonText: '删除',
@@ -198,9 +198,13 @@ function handleCommand(cmd: string, project: Project) {
         confirmButtonClass: 'el-button--danger'
       }
     ).then(async () => {
-      await store.deleteProject(project.id)
-      ElMessage.success('项目已删除')
-    })
+      try {
+        await store.deleteProject(project.id)
+        ElMessage.success('项目已删除')
+      } catch (error: any) {
+        ElMessage.error(error?.response?.data?.detail || '删除项目失败，请稍后重试')
+      }
+    }).catch(() => {})
   }
 }
 

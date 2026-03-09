@@ -126,7 +126,7 @@
         :document-id="Number(documentId)"
         :content="content"
         @insert="insertText"
-        @replace="replaceText"
+        @replace="(oldText, newText, blockIndex) => replaceText(oldText, newText, blockIndex)"
       />
     </div>
 
@@ -195,7 +195,7 @@ const showExtractDrawer = ref(false)
 const showGenerateDrawer = ref(false)
 const hasChanges = ref(false)
 const lastSaved = ref<Date | null>(null)
-const aiChatRef = ref<{ polishWithText: (text: string) => Promise<void> } | null>(null)
+const aiChatRef = ref<{ polishWithText: (text: string, blockIndex?: number) => Promise<void> } | null>(null)
 const exportMenuRef = ref<{ triggerExport: (command: string) => void } | null>(null)
 const headerExpanded = ref(false)
 
@@ -223,7 +223,7 @@ function onContentChange() {
 function onPolish(payload: { index: number; text: string }) {
   showChatPanel.value = true
   nextTick(() => {
-    aiChatRef.value?.polishWithText(payload.text)
+    aiChatRef.value?.polishWithText(payload.text, payload.index)
   })
 }
 
@@ -338,10 +338,15 @@ function insertText(text: string) {
   hasChanges.value = true
 }
 
-function replaceText(oldText: string, newText: string) {
-  for (const block of content.value) {
-    if (block.content.includes(oldText)) {
-      block.content = block.content.replace(oldText, newText)
+function replaceText(oldText: string, newText: string, blockIndex?: number) {
+  if (blockIndex != null && blockIndex >= 0 && content.value[blockIndex]?.content.includes(oldText)) {
+    content.value[blockIndex].content = content.value[blockIndex].content.replace(oldText, newText)
+    hasChanges.value = true
+    return
+  }
+  for (let i = 0; i < content.value.length; i++) {
+    if (content.value[i].content.includes(oldText)) {
+      content.value[i].content = content.value[i].content.replace(oldText, newText)
       hasChanges.value = true
       return
     }

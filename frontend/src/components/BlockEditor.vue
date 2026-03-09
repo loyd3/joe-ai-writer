@@ -332,6 +332,7 @@ const emit = defineEmits<{
   (e: 'update:modelValue', value: Block[]): void
   (e: 'polish', payload: { index: number; text: string }): void
   (e: 'toggleFocusMode'): void
+  (e: 'replace', payload: { index: number; oldText: string; newText: string }): void
 }>()
 
 const focusedIndex = ref(-1)

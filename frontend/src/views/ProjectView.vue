@@ -448,9 +448,13 @@ function handleProjectCommand(cmd: string) {
       }
     ).then(async () => {
       if (projectId.value) {
-        await store.deleteProject(Number(projectId.value))
-        ElMessage.success('项目已删除')
-        router.push('/')
+        try {
+          await store.deleteProject(Number(projectId.value))
+          ElMessage.success('项目已删除')
+          router.push('/')
+        } catch (error: any) {
+          ElMessage.error(error?.response?.data?.detail || '删除项目失败，请稍后重试')
+        }
       }
     }).catch(() => {})
   }
