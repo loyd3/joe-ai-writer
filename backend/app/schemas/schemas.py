@@ -294,3 +294,28 @@ class DocumentVersionResponse(BaseModel):
     
     class Config:
         from_attributes = True
+
+
+# ========== Hot Topics Writing Schemas ==========
+class HotTopicsOutlineRequest(BaseModel):
+    """生成大纲请求"""
+    topic_title: str = Field(..., min_length=1, description="热点话题标题")
+    topic_source: str = Field(default="", description="话题来源平台")
+    article_type: str = Field(default="深度分析", description="文章类型: 深度分析/快讯/评论/故事")
+    word_count: int = Field(default=1500, ge=500, le=5000, description="目标字数")
+    style: str = Field(default="专业", description="写作风格")
+    project_id: Optional[int] = Field(default=None, description="目标项目ID（一键写作时需要）")
+
+class HotTopicsArticleRequest(BaseModel):
+    """生成文章请求"""
+    outline: Dict[str, Any] = Field(..., description="大纲数据")
+    selected_title: Optional[str] = Field(default=None, description="选定的标题")
+    additional_requirements: Optional[str] = Field(default=None, description="额外要求")
+    project_id: Optional[int] = Field(default=None, description="目标项目ID")
+
+class HotTopicsRequest(BaseModel):
+    """保存热点文章为文档请求"""
+    project_id: int = Field(..., description="目标项目ID")
+    title: str = Field(..., min_length=1, description="文章标题")
+    content: str = Field(..., min_length=1, description="文章内容")
+    outline_data: Optional[Dict[str, Any]] = Field(default=None, description="大纲数据（用于记录）")

@@ -34,6 +34,12 @@ const router = createRouter({
           path: 'dashboard',
           name: 'dashboard',
           component: () => import('@/views/DashboardView.vue')
+        },
+        {
+          path: 'hot-topics',
+          name: 'hot-topics',
+          component: () => import('@/views/HotTopicsWriter.vue'),
+          meta: { title: '热点写作' }
         }
       ]
     }

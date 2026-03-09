@@ -19,14 +19,16 @@
     "@tiptap/extension-placeholder": "^2.2.2",
     "@tiptap/starter-kit": "^2.2.2",
     "@tiptap/vue-3": "^2.2.2",
+    "@types/dompurify": "^3.0.5",
     "axios": "^1.6.7",
+    "dompurify": "^3.3.2",
     "element-plus": "^2.5.3",
     "marked": "^15.0.12",
     "pinia": "^2.1.7",
     "sortablejs": "^1.15.2",
-    "vuedraggable": "^4.1.0",
     "vue": "^3.4.15",
-    "vue-router": "^4.2.5"
+    "vue-router": "^4.2.5",
+    "vuedraggable": "^4.1.0"
   },
   "devDependencies": {
     "@types/node": "^20.11.16",

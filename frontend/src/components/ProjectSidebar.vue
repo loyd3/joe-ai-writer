@@ -11,6 +11,26 @@
       </el-button>
     </div> -->
     
+    <!-- AI工具菜单 -->
+    <div class="menu-section">
+      <div class="section-title">
+        <el-icon><MagicStick /></el-icon>
+        <span>AI 工具</span>
+      </div>
+      
+      <div class="tool-list">
+        <div
+          class="tool-item"
+          :class="{ active: route.path === '/hot-topics' }"
+          @click="router.push('/hot-topics')"
+        >
+          <el-icon class="tool-icon"><TrendCharts /></el-icon>
+          <span class="tool-title">热点写作</span>
+          <el-tag size="small" type="danger" effect="dark" class="hot-tag">HOT</el-tag>
+        </div>
+      </div>
+    </div>
+    
     <div class="menu-section">
       <div class="section-title">
         <el-icon><Collection /></el-icon>
@@ -92,7 +112,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useProjectStore, type Project } from '@/stores/project'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, FolderOpened, Folder, More, Edit, Delete, Collection } from '@element-plus/icons-vue'
+import { Plus, FolderOpened, Folder, More, Edit, Delete, Collection, MagicStick, TrendCharts } from '@element-plus/icons-vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -357,5 +377,65 @@ async function saveProject() {
 
 :deep(.delete-item) {
   color: #f56c6c;
+}
+
+/* AI工具列表样式 */
+.tool-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 16px;
+}
+
+.tool-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  position: relative;
+
+  &:hover {
+    background: var(--coffee-bg-hover);
+  }
+
+  &.active {
+    background: var(--coffee-selection);
+
+    .tool-title {
+      color: var(--coffee-text);
+      font-weight: 600;
+    }
+
+    .tool-icon {
+      color: var(--coffee-primary);
+    }
+  }
+
+  .tool-icon {
+    font-size: 18px;
+    color: var(--coffee-text-light);
+    flex-shrink: 0;
+  }
+
+  .tool-title {
+    flex: 1;
+    font-size: 14px;
+    color: var(--coffee-text-secondary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .hot-tag {
+    font-size: 10px;
+    padding: 0 6px;
+    height: 18px;
+    line-height: 16px;
+    transform: scale(0.85);
+    transform-origin: right center;
+  }
 }
 </style>

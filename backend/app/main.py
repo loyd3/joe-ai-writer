@@ -6,7 +6,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 import os
 from app.database import engine, Base
-from app.api import projects, ai, auth, search, export, templates, versions, extract, system, rag, dashboard
+from app.api import projects, ai, auth, search, export, templates, versions, extract, system, rag, dashboard, hot_topics
 from sqlalchemy import text
 
 # 创建数据库表
@@ -102,6 +102,7 @@ app.include_router(extract.router)
 app.include_router(system.router)
 app.include_router(rag.router)
 app.include_router(dashboard.router)
+app.include_router(hot_topics.router)
 
 app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
