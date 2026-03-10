@@ -7,6 +7,7 @@ import json
 from app.database import get_db
 from app.api.auth import get_current_user
 from app.services.hot_topics_writing_service import HotTopicsWritingService
+from app.services.trendradar_adapter import trendradar_adapter
 from app.schemas.schemas import HotTopicsRequest, HotTopicsOutlineRequest, HotTopicsArticleRequest
 
 router = APIRouter(prefix="/api/hot-topics", tags=["hot-topics"])
@@ -16,12 +17,47 @@ router = APIRouter(prefix="/api/hot-topics", tags=["hot-topics"])
 async def get_hot_topics(
     current_user: dict = Depends(get_current_user)
 ):
-    """获取网络热点列表"""
+    """获取网络热点列表（使用 TrendRadar 增强）"""
     try:
         result = await HotTopicsWritingService.get_hot_topics()
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"获取热点失败: {str(e)}")
+
+
+@router.get("/platforms")
+async def get_trendradar_platforms(
+    current_user: dict = Depends(get_current_user)
+):
+    """获取 TrendRadar 支持的平台列表"""
+    try:
+        platforms = trendradar_adapter.get_available_platforms()
+        return {
+            "success": True,
+            "platforms": platforms,
+            "total": len(platforms)
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"获取平台列表失败: {str(e)}")
+
+
+@router.get("/search")
+async def search_hot_topics(
+    keyword: str = Query(..., description="搜索关键词"),
+    limit: int = Query(10, ge=1, le=50, description="返回数量限制"),
+    current_user: dict = Depends(get_current_user)
+):
+    """搜索热点话题"""
+    try:
+        results = await trendradar_adapter.search_topics(keyword, limit)
+        return {
+            "success": True,
+            "keyword": keyword,
+            "results": results,
+            "total": len(results)
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"搜索失败: {str(e)}")
 
 
 @router.post("/generate-outline")
