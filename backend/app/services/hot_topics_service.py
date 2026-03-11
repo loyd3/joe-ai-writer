@@ -1,6 +1,5 @@
 """
 网络热点服务 - 抓取各大平台的热门话题和新闻
-集成 TrendRadar 增强热点获取能力
 """
 import aiohttp
 import asyncio
@@ -9,9 +8,6 @@ from typing import List, Dict, Any, Optional
 from datetime import datetime
 import json
 import re
-
-# 导入 TrendRadar 适配器
-from app.services.trendradar_adapter import trendradar_adapter
 
 # 创建 SSL 上下文（用于解决证书问题）
 def _get_ssl_context():
@@ -151,26 +147,7 @@ class HotTopicsService:
     
     @staticmethod
     async def fetch_all_hot_topics() -> Dict[str, Any]:
-        """
-        抓取所有平台的热点
-        优先使用 TrendRadar，失败时回退到传统抓取方式
-        """
-        # 首先尝试使用 TrendRadar 获取热点
-        try:
-            print("[HotTopicsService] 使用 TrendRadar 获取热点...")
-            trendradar_result = await trendradar_adapter.fetch_all_hot_topics()
-            
-            if trendradar_result.get("total", 0) > 0:
-                print(f"[HotTopicsService] TrendRadar 成功获取 {trendar_result['total']} 条热点")
-                # 添加数据来源标记
-                trendradar_result["data_source"] = "trendradar"
-                return trendradar_result
-            else:
-                print("[HotTopicsService] TrendRadar 未返回数据，回退到传统抓取")
-        except Exception as e:
-            print(f"[HotTopicsService] TrendRadar 失败: {e}，回退到传统抓取")
-        
-        # 回退到传统抓取方式
+        """抓取所有平台的热点（微博、知乎、百度、头条）"""
         tasks = [
             HotTopicsService.fetch_weibo_hot(),
             HotTopicsService.fetch_zhihu_hot(),

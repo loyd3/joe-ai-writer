@@ -7,8 +7,16 @@ import json
 from app.database import get_db
 from app.api.auth import get_current_user
 from app.services.hot_topics_writing_service import HotTopicsWritingService
-from app.services.trendradar_adapter import trendradar_adapter
+from app.services.hot_topics_service import HotTopicsService
 from app.schemas.schemas import HotTopicsRequest, HotTopicsOutlineRequest, HotTopicsArticleRequest
+
+# 热点来源平台（传统抓取）
+LEGACY_PLATFORMS = [
+    {"id": "weibo", "name": "微博热搜"},
+    {"id": "zhihu", "name": "知乎热榜"},
+    {"id": "baidu", "name": "百度热搜"},
+    {"id": "toutiao", "name": "头条热榜"},
+]
 
 router = APIRouter(prefix="/api/hot-topics", tags=["hot-topics"])
 
@@ -17,7 +25,7 @@ router = APIRouter(prefix="/api/hot-topics", tags=["hot-topics"])
 async def get_hot_topics(
     current_user: dict = Depends(get_current_user)
 ):
-    """获取网络热点列表（使用 TrendRadar 增强）"""
+    """获取网络热点列表"""
     try:
         result = await HotTopicsWritingService.get_hot_topics()
         return result
@@ -26,19 +34,15 @@ async def get_hot_topics(
 
 
 @router.get("/platforms")
-async def get_trendradar_platforms(
+async def get_platforms(
     current_user: dict = Depends(get_current_user)
 ):
-    """获取 TrendRadar 支持的平台列表"""
-    try:
-        platforms = trendradar_adapter.get_available_platforms()
-        return {
-            "success": True,
-            "platforms": platforms,
-            "total": len(platforms)
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"获取平台列表失败: {str(e)}")
+    """获取热点来源平台列表"""
+    return {
+        "success": True,
+        "platforms": LEGACY_PLATFORMS,
+        "total": len(LEGACY_PLATFORMS)
+    }
 
 
 @router.get("/search")
@@ -47,14 +51,20 @@ async def search_hot_topics(
     limit: int = Query(10, ge=1, le=50, description="返回数量限制"),
     current_user: dict = Depends(get_current_user)
 ):
-    """搜索热点话题"""
+    """搜索热点话题（从当前热点列表中按关键词过滤）"""
     try:
-        results = await trendradar_adapter.search_topics(keyword, limit)
+        result = await HotTopicsService.fetch_all_hot_topics()
+        topics = result.get("topics", [])
+        keyword_lower = keyword.lower().strip()
+        filtered = [
+            t for t in topics
+            if keyword_lower in (t.get("title") or "").lower()
+        ][:limit]
         return {
             "success": True,
             "keyword": keyword,
-            "results": results,
-            "total": len(results)
+            "results": filtered,
+            "total": len(filtered)
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"搜索失败: {str(e)}")

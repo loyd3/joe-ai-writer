@@ -39,14 +39,21 @@ def check_backend_deps(backend_path):
     
     log("检查后端依赖...")
     try:
-        subprocess.run(
+        result = subprocess.run(
             [sys.executable, "-m", "pip", "install", "-r", str(req_file)],
-            check=True,
-            capture_output=True
+            capture_output=True,
+            text=True,
         )
+        if result.returncode != 0:
+            log("安装依赖失败:", Colors.RED)
+            if result.stdout:
+                print(result.stdout)
+            if result.stderr:
+                print(result.stderr)
+            return False
         log("后端依赖已就绪")
         return True
-    except subprocess.CalledProcessError as e:
+    except Exception as e:
         log(f"安装依赖失败: {e}", Colors.RED)
         return False
 
