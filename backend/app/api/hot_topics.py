@@ -7,7 +7,16 @@ import json
 from app.database import get_db
 from app.api.auth import get_current_user
 from app.services.hot_topics_writing_service import HotTopicsWritingService
+from app.services.hot_topics_service import HotTopicsService
 from app.schemas.schemas import HotTopicsRequest, HotTopicsOutlineRequest, HotTopicsArticleRequest
+
+# 热点来源平台（传统抓取）
+LEGACY_PLATFORMS = [
+    {"id": "weibo", "name": "微博热搜"},
+    {"id": "zhihu", "name": "知乎热榜"},
+    {"id": "baidu", "name": "百度热搜"},
+    {"id": "toutiao", "name": "头条热榜"},
+]
 
 router = APIRouter(prefix="/api/hot-topics", tags=["hot-topics"])
 
@@ -22,6 +31,43 @@ async def get_hot_topics(
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"获取热点失败: {str(e)}")
+
+
+@router.get("/platforms")
+async def get_platforms(
+    current_user: dict = Depends(get_current_user)
+):
+    """获取热点来源平台列表"""
+    return {
+        "success": True,
+        "platforms": LEGACY_PLATFORMS,
+        "total": len(LEGACY_PLATFORMS)
+    }
+
+
+@router.get("/search")
+async def search_hot_topics(
+    keyword: str = Query(..., description="搜索关键词"),
+    limit: int = Query(10, ge=1, le=50, description="返回数量限制"),
+    current_user: dict = Depends(get_current_user)
+):
+    """搜索热点话题（从当前热点列表中按关键词过滤）"""
+    try:
+        result = await HotTopicsService.fetch_all_hot_topics()
+        topics = result.get("topics", [])
+        keyword_lower = keyword.lower().strip()
+        filtered = [
+            t for t in topics
+            if keyword_lower in (t.get("title") or "").lower()
+        ][:limit]
+        return {
+            "success": True,
+            "keyword": keyword,
+            "results": filtered,
+            "total": len(filtered)
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"搜索失败: {str(e)}")
 
 
 @router.post("/generate-outline")

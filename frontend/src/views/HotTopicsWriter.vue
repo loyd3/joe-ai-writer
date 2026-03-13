@@ -53,7 +53,7 @@
           <h3 class="topic-title">{{ topic.title }}</h3>
           <div class="topic-meta">
             <span v-if="topic.heat" class="topic-heat">
-              <el-icon><Fire /></el-icon> {{ formatHeat(topic.heat) }}
+              <el-icon><TrendCharts /></el-icon> {{ formatHeat(topic.heat) }}
             </span>
             <el-button type="primary" size="small" @click.stop="selectTopic(topic)">
               选择这个话题
@@ -327,7 +327,7 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { Refresh, Fire, MagicStick, EditPen, DocumentChecked, Search, Promotion } from '@element-plus/icons-vue'
+import { Refresh, TrendCharts, MagicStick, EditPen, DocumentChecked, Search, Promotion } from '@element-plus/icons-vue'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 import { useProjectStore } from '@/stores/project'
