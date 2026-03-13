@@ -112,3 +112,13 @@ class DocumentVersion(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     
     document = relationship("Document")
+
+
+class SystemConfig(Base):
+    """系统配置表 - 键值对存储"""
+    __tablename__ = "system_configs"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    config_key = Column(String(255), unique=True, nullable=False, index=True)
+    config_value = Column(Text, nullable=True)  # JSON 字符串存储
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

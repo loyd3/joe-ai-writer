@@ -1,5 +1,4 @@
-# 使用国内镜像源（如果官方源慢）
-# FROM docker.mirrors.ustc.edu.cn/library/python:3.11-slim
+# 轻量版 Dockerfile - 移除 RAG 依赖，使用 Ollama
 FROM python:3.11-slim
 
 WORKDIR /app
@@ -11,9 +10,9 @@ RUN apt-get update && apt-get install -y \
     gcc \
     && rm -rf /var/lib/apt/lists/*
 
-# 安装 Python 依赖（使用国内镜像源加速）
-COPY requirements.txt .
-RUN pip install --no-cache-dir -i https://pypi.tuna.tsinghua.edu.cn/simple -r requirements.txt
+# 安装 Python 依赖（使用清华镜像源加速）
+COPY requirements-lite.txt .
+RUN pip install --no-cache-dir -i https://pypi.tuna.tsinghua.edu.cn/simple -r requirements-lite.txt
 
 # 复制代码
 COPY . .

@@ -86,7 +86,11 @@ async def generate_outline(
         )
         
         if "error" in outline:
-            raise HTTPException(status_code=500, detail=outline["error"])
+            error_msg = outline["error"]
+            # 检查是否是配置错误
+            if "配置" in error_msg or "API Key" in error_msg:
+                raise HTTPException(status_code=400, detail=error_msg)
+            raise HTTPException(status_code=500, detail=error_msg)
         
         return {
             "success": True,
@@ -131,11 +135,17 @@ async def generate_article(
             additional_requirements=request.additional_requirements
         )
         
+        # 检查文章是否返回错误信息
+        if article.startswith("[配置错误]") or article.startswith("[错误]"):
+            raise HTTPException(status_code=500, detail=article)
+        
         return {
             "success": True,
             "article": article,
             "title": request.selected_title or request.outline.get("title_options", ["热点文章"])[0]
         }
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"生成文章失败: {str(e)}")
 
@@ -239,6 +249,10 @@ async def quick_write_from_hot_topic(
             outline=outline,
             selected_title=selected_title
         )
+        
+        # 检查文章是否返回错误信息
+        if article.startswith("[配置错误]") or article.startswith("[错误]"):
+            raise HTTPException(status_code=500, detail=article)
         
         # 3. 保存为文档
         document = await HotTopicsWritingService.create_document_from_article(
