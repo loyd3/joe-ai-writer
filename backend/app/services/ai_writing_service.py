@@ -4,7 +4,7 @@ import json
 import asyncio
 from app.core.ai_client import ai_client
 from app.services.ai_memory_service import AIMemoryService
-from app.services.rag_service import rag_service
+# from app.services.rag_service import rag_service  # RAG 功能已移除
 from app.schemas.schemas import AIRequest, ChatMessage, AIGenerateProgress, AIGenerateChunk, LiteraryAnalysisResult, Character
 from app.models.models import AIInteraction
 
@@ -78,37 +78,48 @@ class AIWritingService:
         user_id: int
     ) -> str:
         """处理 AI 请求（非流式）"""
-        # 获取记忆上下文
-        memory_context = ""
-        if request.document_id:
-            # 这里需要根据 document_id 获取 project_id
-            from app.models.models import Document
-            doc = db.query(Document).filter(Document.id == request.document_id).first()
-            if doc:
-                memory_context = AIMemoryService.build_memory_context(db, doc.project_id)
-        
-        messages = AIWritingService._build_messages(
-            action=request.action,
-            content=document_content,
-            memory_context=memory_context,
-            selected_text=request.selected_text,
-            instruction=request.instruction
-        )
-        
-        response = await ai_client.chat_completion(messages)
-        
-        # 记录交互
-        interaction = AIInteraction(
-            document_id=request.document_id,
-            interaction_type=request.action,
-            user_input=request.instruction or request.selected_text or "",
-            ai_response=response,
-            context_used={"memory_used": bool(memory_context)}
-        )
-        db.add(interaction)
-        db.commit()
-        
-        return response
+        try:
+            # 获取记忆上下文
+            memory_context = ""
+            if request.document_id:
+                # 这里需要根据 document_id 获取 project_id
+                from app.models.models import Document
+                doc = db.query(Document).filter(Document.id == request.document_id).first()
+                if doc:
+                    memory_context = AIMemoryService.build_memory_context(db, doc.project_id)
+            
+            messages = AIWritingService._build_messages(
+                action=request.action,
+                content=document_content,
+                memory_context=memory_context,
+                selected_text=request.selected_text,
+                instruction=request.instruction
+            )
+            
+            response = await ai_client.chat_completion(messages)
+            
+            # 记录交互
+            interaction = AIInteraction(
+                document_id=request.document_id,
+                interaction_type=request.action,
+                user_input=request.instruction or request.selected_text or "",
+                ai_response=response,
+                context_used={"memory_used": bool(memory_context)}
+            )
+            db.add(interaction)
+            db.commit()
+            
+            return response
+        except ValueError as e:
+            return f"[配置错误] {str(e)}\n请前往系统设置中配置正确的 AI 模型和 API Key。"
+        except Exception as e:
+            error_msg = str(e)
+            if "API Key" in error_msg or "api_key" in error_msg:
+                return f"[错误] API Key 配置问题: {error_msg}\n请前往系统设置中配置正确的 AI 模型和 API Key。"
+            elif "连接" in error_msg or "Connection" in error_msg:
+                return f"[错误] 网络连接问题: {error_msg}\n请检查网络连接或 API 地址是否正确。"
+            else:
+                return f"[错误] AI 请求失败: {error_msg}"
     
     @staticmethod
     async def stream_request(
@@ -121,50 +132,46 @@ class AIWritingService:
         """处理 AI 请求（流式），支持 RAG 检索"""
         from app.models.models import Document
         
-        memory_context = ""
-        doc = db.query(Document).filter(Document.id == request.document_id).first()
-        if doc:
-            if use_rag:
-                # 使用 RAG 检索相关上下文
-                # 构建查询：结合当前操作、选中文本和指令
-                query_parts = [request.action]
-                if request.selected_text:
-                    query_parts.append(request.selected_text[:200])
-                if request.instruction:
-                    query_parts.append(request.instruction)
-                query = " ".join(query_parts)
-                
-                memory_context = rag_service.build_context_string(
-                    doc.project_id,
-                    query,
-                    max_length=1200
-                )
-            else:
+        try:
+            memory_context = ""
+            doc = db.query(Document).filter(Document.id == request.document_id).first()
+            if doc:
+                # RAG 功能已移除，直接使用 AIMemoryService
                 memory_context = AIMemoryService.build_memory_context(db, doc.project_id)
-        
-        messages = AIWritingService._build_messages(
-            action=request.action,
-            content=document_content,
-            memory_context=memory_context,
-            selected_text=request.selected_text,
-            instruction=request.instruction
-        )
-        
-        full_response = []
-        async for chunk in ai_client.stream_completion(messages):
-            full_response.append(chunk)
-            yield chunk
-        
-        # 记录交互
-        interaction = AIInteraction(
-            document_id=request.document_id,
-            interaction_type=request.action,
-            user_input=request.instruction or request.selected_text or "",
-            ai_response="".join(full_response),
-            context_used={"memory_used": bool(memory_context), "rag_used": use_rag}
-        )
-        db.add(interaction)
-        db.commit()
+            
+            messages = AIWritingService._build_messages(
+                action=request.action,
+                content=document_content,
+                memory_context=memory_context,
+                selected_text=request.selected_text,
+                instruction=request.instruction
+            )
+            
+            full_response = []
+            async for chunk in ai_client.stream_completion(messages):
+                full_response.append(chunk)
+                yield chunk
+            
+            # 记录交互
+            interaction = AIInteraction(
+                document_id=request.document_id,
+                interaction_type=request.action,
+                user_input=request.instruction or request.selected_text or "",
+                ai_response="".join(full_response),
+                context_used={"memory_used": bool(memory_context), "rag_used": use_rag}
+            )
+            db.add(interaction)
+            db.commit()
+        except ValueError as e:
+            yield f"\n\n[配置错误] {str(e)}\n请前往系统设置中配置正确的 AI 模型和 API Key。"
+        except Exception as e:
+            error_msg = str(e)
+            if "API Key" in error_msg or "api_key" in error_msg:
+                yield f"\n\n[错误] API Key 配置问题: {error_msg}\n请前往系统设置中配置正确的 AI 模型和 API Key。"
+            elif "连接" in error_msg or "Connection" in error_msg:
+                yield f"\n\n[错误] 网络连接问题: {error_msg}\n请检查网络连接或 API 地址是否正确。"
+            else:
+                yield f"\n\n[错误] AI 请求失败: {error_msg}"
     
     @staticmethod
     async def chat(
@@ -178,44 +185,55 @@ class AIWritingService:
         """自由对话模式，支持 RAG 检索"""
         from app.models.models import Document
         
-        formatted_messages = [{"role": "system", "content": AIWritingService.SYSTEM_PROMPT}]
-        
-        if include_memory:
-            doc = db.query(Document).filter(Document.id == document_id).first()
-            if doc:
-                # 获取用户最新的问题或上下文
-                user_query = ""
-                for msg in reversed(messages):
-                    if msg.role == "user":
-                        user_query = msg.content
-                        break
+        try:
+            formatted_messages = [{"role": "system", "content": AIWritingService.SYSTEM_PROMPT}]
+            
+            if include_memory:
+                doc = db.query(Document).filter(Document.id == document_id).first()
+                if doc:
+                    # 获取用户最新的问题或上下文
+                    user_query = ""
+                    for msg in reversed(messages):
+                        if msg.role == "user":
+                            user_query = msg.content
+                            break
+                    
+                    if use_rag and user_query:
+                        # 使用 RAG 检索相关上下文
+                        # RAG 功能已移除，直接使用 AIMemoryService
+                        memory_context = AIMemoryService.build_memory_context(db, doc.project_id)
+                        if memory_context:
+                            formatted_messages.append({
+                                "role": "system",
+                                "content": f"项目背景：\n{memory_context}"
+                            })
+                    else:
+                        # 回退到完整上下文
+                        memory_context = AIMemoryService.build_memory_context(db, doc.project_id)
+                        if memory_context:
+                            formatted_messages.append({
+                                "role": "system",
+                                "content": f"项目背景：\n{memory_context}"
+                            })
+            
+            for msg in messages:
+                formatted_messages.append({"role": msg.role, "content": msg.content})
+            
+            async for chunk in ai_client.stream_completion(formatted_messages):
+                yield chunk
                 
-                if use_rag and user_query:
-                    # 使用 RAG 检索相关上下文
-                    rag_context = rag_service.build_context_string(
-                        doc.project_id, 
-                        user_query,
-                        max_length=1500
-                    )
-                    if rag_context:
-                        formatted_messages.append({
-                            "role": "system",
-                            "content": f"以下是与当前问题相关的项目设定，请优先参考：\n{rag_context}"
-                        })
-                else:
-                    # 回退到完整上下文
-                    memory_context = AIMemoryService.build_memory_context(db, doc.project_id)
-                    if memory_context:
-                        formatted_messages.append({
-                            "role": "system",
-                            "content": f"项目背景：\n{memory_context}"
-                        })
-        
-        for msg in messages:
-            formatted_messages.append({"role": msg.role, "content": msg.content})
-        
-        async for chunk in ai_client.stream_completion(formatted_messages):
-            yield chunk
+        except ValueError as e:
+            # 配置错误
+            yield f"\n\n[配置错误] {str(e)}"
+        except Exception as e:
+            # 其他错误
+            error_msg = str(e)
+            if "API Key" in error_msg or "api_key" in error_msg:
+                yield f"\n\n[错误] API Key 配置问题: {error_msg}\n请前往系统设置中配置正确的 AI 模型和 API Key。"
+            elif "连接" in error_msg or "Connection" in error_msg:
+                yield f"\n\n[错误] 网络连接问题: {error_msg}\n请检查网络连接或 API 地址是否正确。"
+            else:
+                yield f"\n\n[错误] AI 请求失败: {error_msg}"
 
     # 根据项目设定生成的提示词模板
     GENERATE_PROMPTS = {
@@ -236,36 +254,47 @@ class AIWritingService:
         user_id: Optional[int] = None,
     ) -> AsyncGenerator[str, None]:
         """根据项目设定生成内容（流式）"""
-        memory_context = AIMemoryService.build_memory_context(db, project_id)
-        if not memory_context.strip():
-            yield "[错误] 该项目暂无设定内容，请先在「项目设定」中填写大纲、角色或世界观后再生成。"
-            return
+        try:
+            memory_context = AIMemoryService.build_memory_context(db, project_id)
+            if not memory_context.strip():
+                yield "[错误] 该项目暂无设定内容，请先在「项目设定」中填写大纲、角色或世界观后再生成。"
+                return
 
-        system_prompt = """你是一位专业的写作助手。用户将提供「项目设定」和具体生成要求。
+            system_prompt = """你是一位专业的写作助手。用户将提供「项目设定」和具体生成要求。
 请严格依据设定中的角色、世界观、写作风格和大纲来生成内容，保持风格统一、逻辑自洽。只输出生成的正文，不要输出解释或标题。"""
 
-        user_parts = [f"【项目设定】\n{memory_context}"]
-        if current_content:
-            user_parts.append(f"\n【当前文档末尾内容】\n{current_content}")
+            user_parts = [f"【项目设定】\n{memory_context}"]
+            if current_content:
+                user_parts.append(f"\n【当前文档末尾内容】\n{current_content}")
 
-        prompt_template = AIWritingService.GENERATE_PROMPTS.get(generate_type)
-        if generate_type == "custom" and custom_instruction:
-            instruction = custom_instruction
-        elif prompt_template:
-            instruction = prompt_template
-        else:
-            instruction = custom_instruction or "请根据项目设定生成一段正文。"
+            prompt_template = AIWritingService.GENERATE_PROMPTS.get(generate_type)
+            if generate_type == "custom" and custom_instruction:
+                instruction = custom_instruction
+            elif prompt_template:
+                instruction = prompt_template
+            else:
+                instruction = custom_instruction or "请根据项目设定生成一段正文。"
 
-        user_parts.append(f"\n【生成要求】\n{instruction}")
-        user_content = "\n".join(user_parts)
+            user_parts.append(f"\n【生成要求】\n{instruction}")
+            user_content = "\n".join(user_parts)
 
-        messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_content},
-        ]
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_content},
+            ]
 
-        async for chunk in ai_client.stream_completion(messages):
-            yield chunk
+            async for chunk in ai_client.stream_completion(messages):
+                yield chunk
+        except ValueError as e:
+            yield f"\n\n[配置错误] {str(e)}\n请前往系统设置中配置正确的 AI 模型和 API Key。"
+        except Exception as e:
+            error_msg = str(e)
+            if "API Key" in error_msg or "api_key" in error_msg:
+                yield f"\n\n[错误] API Key 配置问题: {error_msg}\n请前往系统设置中配置正确的 AI 模型和 API Key。"
+            elif "连接" in error_msg or "Connection" in error_msg:
+                yield f"\n\n[错误] 网络连接问题: {error_msg}\n请检查网络连接或 API 地址是否正确。"
+            else:
+                yield f"\n\n[错误] AI 生成失败: {error_msg}"
 
     @staticmethod
     def _estimate_chinese_chars(tokens: int) -> int:

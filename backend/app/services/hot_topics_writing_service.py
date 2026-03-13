@@ -124,6 +124,12 @@ class HotTopicsWritingService:
                 "parse_error": str(e),
                 "topic": topic_title
             }
+        except ValueError as e:
+            # API Key 或配置错误
+            return {
+                "error": f"AI配置错误: {str(e)}",
+                "topic": topic_title
+            }
         except Exception as e:
             return {
                 "error": f"大纲生成失败: {str(e)}",
@@ -152,8 +158,19 @@ class HotTopicsWritingService:
 请确保输出是合法的JSON格式。"""}
         ]
         
-        async for chunk in ai_client.stream_completion(messages):
-            yield chunk
+        try:
+            async for chunk in ai_client.stream_completion(messages):
+                yield chunk
+        except ValueError as e:
+            yield f"\n\n[配置错误] {str(e)}\n请前往系统设置中配置正确的 AI 模型和 API Key。"
+        except Exception as e:
+            error_msg = str(e)
+            if "API Key" in error_msg or "api_key" in error_msg:
+                yield f"\n\n[错误] API Key 配置问题: {error_msg}\n请前往系统设置中配置正确的 AI 模型和 API Key。"
+            elif "连接" in error_msg or "Connection" in error_msg:
+                yield f"\n\n[错误] 网络连接问题: {error_msg}\n请检查网络连接或 API 地址是否正确。"
+            else:
+                yield f"\n\n[错误] AI 生成失败: {error_msg}"
     
     @staticmethod
     async def generate_article(
@@ -197,7 +214,18 @@ class HotTopicsWritingService:
             {"role": "user", "content": user_prompt}
         ]
         
-        return await ai_client.chat_completion(messages)
+        try:
+            return await ai_client.chat_completion(messages)
+        except ValueError as e:
+            return f"[配置错误] {str(e)}\n请前往系统设置中配置正确的 AI 模型和 API Key。"
+        except Exception as e:
+            error_msg = str(e)
+            if "API Key" in error_msg or "api_key" in error_msg:
+                return f"[错误] API Key 配置问题: {error_msg}\n请前往系统设置中配置正确的 AI 模型和 API Key。"
+            elif "连接" in error_msg or "Connection" in error_msg:
+                return f"[错误] 网络连接问题: {error_msg}\n请检查网络连接或 API 地址是否正确。"
+            else:
+                return f"[错误] 文章生成失败: {error_msg}"
     
     @staticmethod
     async def generate_article_stream(
@@ -237,8 +265,21 @@ class HotTopicsWritingService:
             {"role": "user", "content": user_prompt}
         ]
         
-        async for chunk in ai_client.stream_completion(messages):
-            yield chunk
+        try:
+            async for chunk in ai_client.stream_completion(messages):
+                yield chunk
+        except ValueError as e:
+            # 配置错误
+            yield f"\n\n[配置错误] {str(e)}\n请前往系统设置中配置正确的 AI 模型和 API Key。"
+        except Exception as e:
+            # 其他错误
+            error_msg = str(e)
+            if "API Key" in error_msg or "api_key" in error_msg:
+                yield f"\n\n[错误] API Key 配置问题: {error_msg}\n请前往系统设置中配置正确的 AI 模型和 API Key。"
+            elif "连接" in error_msg or "Connection" in error_msg:
+                yield f"\n\n[错误] 网络连接问题: {error_msg}\n请检查网络连接或 API 地址是否正确。"
+            else:
+                yield f"\n\n[错误] AI 生成失败: {error_msg}"
     
     @staticmethod
     async def create_document_from_article(

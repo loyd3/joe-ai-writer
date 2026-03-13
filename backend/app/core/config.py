@@ -79,6 +79,8 @@ class Settings(BaseSettings):
             if (_PROJECT_ROOT / ".env").exists()
             else ".env"
         )
+        # 允许 .env 中有未定义的额外字段（如 MySQL Docker 配置）
+        extra = "ignore"
 
 
 @lru_cache()

@@ -39,10 +39,15 @@ def check_backend_deps(backend_path):
     
     log("检查后端依赖...")
     try:
+        # 设置 UTF-8 编码环境变量，解决 Windows 编码问题
+        env = os.environ.copy()
+        env["PYTHONUTF8"] = "1"
+        
         result = subprocess.run(
             [sys.executable, "-m", "pip", "install", "-r", str(req_file)],
             capture_output=True,
             text=True,
+            env=env,
         )
         if result.returncode != 0:
             log("安装依赖失败:", Colors.RED)

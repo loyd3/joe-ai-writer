@@ -33,6 +33,22 @@
             <el-icon><DataLine /></el-icon>
             <span>数据看板</span>
           </div>
+          <div 
+            class="nav-item" 
+            :class="{ active: $route.path === '/hot-topics' }"
+            @click="$router.push('/hot-topics')"
+          >
+            <el-icon><TrendCharts /></el-icon>
+            <span>热点写作</span>
+          </div>
+          <div 
+            class="nav-item" 
+            :class="{ active: $route.path === '/ai-story-generator' }"
+            @click="$router.push('/ai-story-generator')"
+          >
+            <el-icon><MagicStick /></el-icon>
+            <span>AI故事生成</span>
+          </div>
         </div>
 
         <div class="sidebar-content" v-if="$route.path !== '/dashboard'">
@@ -122,7 +138,7 @@ import GlobalSearch from '@/components/GlobalSearch.vue'
 import AIConfigPanel from '@/components/AIConfigPanel.vue'
 import ProfileCenter from '@/components/ProfileCenter.vue'
 import { API_BASE_URL } from '@/api'
-import { EditPen, UserFilled, ArrowDown, User, Setting, SwitchButton, Cpu, HomeFilled, DataLine } from '@element-plus/icons-vue'
+import { EditPen, UserFilled, ArrowDown, User, Setting, SwitchButton, Cpu, HomeFilled, DataLine, TrendCharts, MagicStick } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
 const router = useRouter()

@@ -40,6 +40,12 @@ const router = createRouter({
           name: 'hot-topics',
           component: () => import('@/views/HotTopicsWriter.vue'),
           meta: { title: '热点写作' }
+        },
+        {
+          path: 'ai-story-generator',
+          name: 'ai-story-generator',
+          component: () => import('@/views/AIStoryGenerator.vue'),
+          meta: { title: 'AI故事生成器' }
         }
       ]
     }

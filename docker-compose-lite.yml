@@ -1,0 +1,101 @@
+# ============================================
+# Joe AI Writer - Docker Compose 轻量版配置
+# 移除 RAG 功能，使用 Ollama 本地模型
+# ============================================
+
+version: '3.8'
+
+services:
+  # MySQL 数据库
+  mysql:
+    image: mysql:8.0
+    container_name: joe-writer-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-rootpassword}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-joe_writer}
+      MYSQL_USER: ${MYSQL_USER:-joewriter}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-joewriter123}
+      TZ: Asia/Shanghai
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./backend/database/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      timeout: 20s
+      retries: 10
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    networks:
+      - joe-writer-network
+
+  # 后端服务 - 轻量版（使用 Ollama）
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.lite
+    container_name: joe-writer-backend
+    restart: unless-stopped
+    environment:
+      # 数据库配置
+      DATABASE_URL: mysql+pymysql://${MYSQL_USER:-joewriter}:${MYSQL_PASSWORD:-joewriter123}@mysql:3306/${MYSQL_DATABASE:-joe_writer}?charset=utf8mb4
+      DB_POOL_SIZE: 5
+      DB_MAX_OVERFLOW: 10
+      DB_POOL_RECYCLE: 3600
+      # AI 配置 - 使用 Ollama
+      AI_PROVIDER: custom
+      AI_TEMPERATURE: ${AI_TEMPERATURE:-0.7}
+      AI_MAX_TOKENS: ${AI_MAX_TOKENS:-4096}
+      # Ollama 配置（通过 host.docker.internal 访问宿主机 Ollama）
+      CUSTOM_API_KEY: ollama
+      CUSTOM_BASE_URL: http://host.docker.internal:11434/v1
+      CUSTOM_MODEL: qwen3:30b
+      # 应用配置
+      SECRET_KEY: ${SECRET_KEY:-your-secret-key-change-in-production}
+      DEBUG: "false"
+      TZ: Asia/Shanghai
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./backend:/app
+      - /app/__pycache__
+    ports:
+      - "9000:8000"
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks:
+      - joe-writer-network
+    command: >
+      sh -c "python init_db.py --auto &&
+             uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
+
+  # 前端开发服务器
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: joe-writer-frontend
+    restart: unless-stopped
+    environment:
+      - VITE_API_URL=http://localhost:9000
+      - NODE_ENV=development
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    ports:
+      - "8080:5173"
+    depends_on:
+      - backend
+    networks:
+      - joe-writer-network
+    command: >
+      sh -c "echo 'VITE_API_URL=http://localhost:9000' > /app/.env.local &&
+             npm run dev -- --host 0.0.0.0"
+
+volumes:
+  mysql_data:
+    driver: local
+
+networks:
+  joe-writer-network:
+    driver: bridge

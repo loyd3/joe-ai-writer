@@ -1,32 +1,33 @@
 from datetime import datetime, timedelta
 from typing import Optional
 from jose import JWTError, jwt
-from passlib.context import CryptContext
 from sqlalchemy.orm import Session
 from app.models.models import User
 from app.schemas.schemas import TokenData
 import os
-
-# 密码加密上下文
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+import bcrypt
 
 # JWT 配置
 SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key-here-change-in-production")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # 7 天
 
-def _truncate_password_72_bytes(password: str) -> str:
+def _truncate_password_72_bytes(password: str) -> bytes:
     """bcrypt 限制为 72 字节；按 UTF-8 截断避免多字节字符超长。"""
-    raw = password.encode("utf-8")[:72]
-    return raw.decode("utf-8", errors="ignore") or password[:1]
+    return password.encode("utf-8")[:72]
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """验证密码"""
-    return pwd_context.verify(_truncate_password_72_bytes(plain_password), hashed_password)
+    try:
+        return bcrypt.checkpw(_truncate_password_72_bytes(plain_password), hashed_password.encode("utf-8"))
+    except Exception:
+        return False
 
 def get_password_hash(password: str) -> str:
     """生成密码哈希"""
-    return pwd_context.hash(_truncate_password_72_bytes(password))
+    salt = bcrypt.gensalt()
+    hashed = bcrypt.hashpw(_truncate_password_72_bytes(password), salt)
+    return hashed.decode("utf-8")
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     """创建 JWT 访问令牌"""
