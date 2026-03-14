@@ -70,7 +70,7 @@
       </div>
 
       <!-- 实时生成预览 -->
-      <div v-if="generating" class="preview-container">
+      <div class="preview-container" :class="{ 'hidden': !generating }">
         <div class="preview-header">
           <el-icon><Document /></el-icon>
           <span>实时生成预览</span>
@@ -287,7 +287,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { MagicStick, Refresh, Delete, FolderChecked, Plus, Check } from '@element-plus/icons-vue'
+import { MagicStick, Refresh, Delete, FolderChecked, Plus, Check, Document } from '@element-plus/icons-vue'
 import { useProjectStore } from '@/stores/project'
 
 const router = useRouter()
@@ -334,6 +334,7 @@ const generateStory = async () => {
   generating.value = true
   progress.value = 0
   statusText.value = '正在构思故事框架...'
+  previewContent.value = ''
 
   // 模拟进度
   const progressInterval = setInterval(() => {
@@ -369,75 +370,73 @@ const generateStory = async () => {
       throw new Error(error.detail || '生成失败')
     }
 
-    // 处理流式响应 (SSE 格式)
+    // 处理流式响应 (SSE 格式)：按事件缓冲解析，避免多行/分包导致解析失败
     const reader = response.body?.getReader()
     const decoder = new TextDecoder()
-    let fullResponse = ''
+    let sseBuffer = ''
     let chunksReceived = 0
     let isDone = false
+
+    const processEventData = (data: string) => {
+      if (data === '[DONE]') {
+        isDone = true
+        return
+      }
+      try {
+        const parsed = JSON.parse(data)
+        // 最终结果：生成完成
+        if (parsed.success !== undefined) {
+          if (parsed.success) {
+            generatedStory.value = parsed.data
+            selectedTitle.value = parsed.data?.title_options?.[0] || ''
+            progress.value = 100
+            statusText.value = '生成完成！'
+            ElMessage.success('故事设定生成成功！')
+            isDone = true
+          } else {
+            throw new Error(parsed.error || '生成失败')
+          }
+          return
+        }
+        // 流式内容块：更新实时预览
+        if (parsed.chunk != null) {
+          const content = String(parsed.chunk)
+          chunksReceived++
+          previewContent.value += content.replace(/\n/g, '<br>').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+          const estimatedProgress = Math.min(95, 10 + chunksReceived * 5)
+          progress.value = estimatedProgress
+          if (chunksReceived < 3) statusText.value = '正在构思故事框架...'
+          else if (chunksReceived < 6) statusText.value = '正在设计角色...'
+          else if (chunksReceived < 9) statusText.value = '正在构建情节...'
+          else statusText.value = '正在完善世界观...'
+        }
+      } catch (e) {
+        // 非 JSON 时当作纯文本追加到预览
+        chunksReceived++
+        const safe = (data || '').replace(/\n/g, '<br>').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        previewContent.value += safe
+        progress.value = Math.min(95, 10 + chunksReceived * 5)
+      }
+    }
 
     if (reader) {
       while (true) {
         const { done, value } = await reader.read()
         if (done || isDone) break
 
-        const chunk = decoder.decode(value, { stream: true })
-        const lines = chunk.split('\n')
+        sseBuffer += decoder.decode(value, { stream: true })
+        const events = sseBuffer.split('\n\n')
+        sseBuffer = events.pop() ?? ''
 
-        for (const line of lines) {
-          if (isDone) break
-          
+        for (const event of events) {
+          const line = event.trim()
           if (line.startsWith('data: ')) {
-            const data = line.slice(6).trim()
-            if (data === '[DONE]') {
-              isDone = true
-              break
-            }
-            try {
-              const parsed = JSON.parse(data)
-              
-              // 如果是完整数据，直接使用
-              if (parsed.success !== undefined) {
-                if (parsed.success) {
-                  generatedStory.value = parsed.data
-                  selectedTitle.value = parsed.data.title_options?.[0] || ''
-                  progress.value = 100
-                  statusText.value = '生成完成！'
-                  ElMessage.success('故事设定生成成功！')
-                } else {
-                  throw new Error(parsed.error || '生成失败')
-                }
-                isDone = true
-                break
-              }
-              
-              // 否则是内容块，实时显示
-              const content = parsed || ''
-              fullResponse += content
-              chunksReceived++
-              
-              // 更新预览内容
-              previewContent.value += content.replace(/\n/g, '<br>')
-              
-              // 根据接收到的块数更新进度
-              const estimatedProgress = Math.min(95, 10 + (chunksReceived * 5))
-              progress.value = estimatedProgress
-              
-              // 更新状态文本
-              if (chunksReceived < 3) {
-                statusText.value = '正在构思故事框架...'
-              } else if (chunksReceived < 6) {
-                statusText.value = '正在设计角色...'
-              } else if (chunksReceived < 9) {
-                statusText.value = '正在构建情节...'
-              } else {
-                statusText.value = '正在完善世界观...'
-              }
-            } catch (e) {
-              // 忽略非 JSON 数据
-            }
+            const payload = line.slice(6).trim()
+            processEventData(payload)
+            if (isDone) break
           }
         }
+        if (isDone) break
       }
     }
 
@@ -509,19 +508,21 @@ const confirmAndCreateProject = async () => {
 
     // 创建新项目
     quickCreating.value = true
-    
+    const payload: Record<string, any> = {
+      theme: form.value.theme,
+      project_name: applyForm.value.newProjectName || selectedTitle.value,
+      genre: form.value.genre,
+      word_count: form.value.wordCount
+    }
+    if (generatedStory.value) payload.story_data = generatedStory.value
+
     const response = await fetch('/api/ai-story-generator/quick-create-project', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${localStorage.getItem('token')}`
       },
-      body: JSON.stringify({
-        theme: form.value.theme,
-        project_name: applyForm.value.newProjectName || selectedTitle.value,
-        genre: form.value.genre,
-        word_count: form.value.wordCount
-      })
+      body: JSON.stringify(payload)
     })
 
     if (!response.ok) {
@@ -587,18 +588,23 @@ const applyToProject = async () => {
 const quickCreateProject = async () => {
   quickCreating.value = true
   try {
+    const payload: Record<string, any> = {
+      theme: form.value.theme,
+      project_name: applyForm.value.newProjectName || selectedTitle.value,
+      genre: form.value.genre,
+      word_count: form.value.wordCount
+    }
+    // 若已有生成结果则带上，后端不再调 AI，避免长时间等待
+    if (generatedStory.value) {
+      payload.story_data = generatedStory.value
+    }
     const response = await fetch('/api/ai-story-generator/quick-create-project', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${localStorage.getItem('token')}`
       },
-      body: JSON.stringify({
-        theme: form.value.theme,
-        project_name: applyForm.value.newProjectName || selectedTitle.value,
-        genre: form.value.genre,
-        word_count: form.value.wordCount
-      })
+      body: JSON.stringify(payload)
     })
 
     if (!response.ok) {
@@ -677,6 +683,10 @@ onMounted(() => {
     color: #666;
     font-size: 14px;
   }
+}
+
+.preview-container.hidden {
+  display: none;
 }
 
 .preview-container {

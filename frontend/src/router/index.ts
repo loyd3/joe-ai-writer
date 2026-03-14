@@ -46,6 +46,12 @@ const router = createRouter({
           name: 'ai-story-generator',
           component: () => import('@/views/AIStoryGenerator.vue'),
           meta: { title: 'AI故事生成器' }
+        },
+        {
+          path: 'long-article',
+          name: 'long-article',
+          component: () => import('@/views/LongArticleGenerator.vue'),
+          meta: { title: '长篇文章生成器' }
         }
       ]
     }
