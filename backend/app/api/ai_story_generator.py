@@ -191,37 +191,48 @@ async def quick_create_project(
     current_user: dict = Depends(get_current_user)
 ):
     """
-    一键创建项目：主题 → 生成设定 → 保存到项目记忆
+    一键创建项目：主题 → 生成设定 → 保存到项目记忆。
+    若请求体带 story_data（前端已生成好的设定），则跳过 AI 生成，直接创建项目，避免长时间等待。
     
     Request body:
     {
         "theme": "主题",
-        "project_name": "项目名称（可选，默认使用生成的标题）",
+        "project_name": "项目名称（可选）",
         "genre": "类型",
-        "word_count": 5000
+        "word_count": 5000,
+        "story_data": { ... }  // 可选，已有设定时传入则不再调用 AI
     }
     """
     theme = request.get("theme")
-    if not theme:
-        raise HTTPException(status_code=400, detail="请提供主题")
+    story_data = request.get("story_data")
+    
+    if not theme and not story_data:
+        raise HTTPException(status_code=400, detail="请提供主题或 story_data")
     
     try:
-        # 1. 生成故事设定
-        story_data = await AIStoryGeneratorService.generate_full_story(
-            theme=theme,
-            genre=request.get("genre"),
-            word_count=request.get("word_count", 5000)
-        )
-        
-        if "error" in story_data:
-            raise HTTPException(status_code=500, detail=f"生成失败: {story_data['error']}")
+        # 1. 故事设定：优先使用前端已生成的，否则再调 AI（耗时长）
+        if story_data and isinstance(story_data, dict) and "error" not in story_data:
+            if not theme:
+                theme = (
+                    (story_data.get("title_options") or [None])[0]
+                    or story_data.get("core_theme")
+                    or "未命名"
+                )
+        else:
+            story_data = await AIStoryGeneratorService.generate_full_story(
+                theme=theme or "未命名",
+                genre=request.get("genre"),
+                word_count=request.get("word_count", 5000)
+            )
+            if "error" in story_data:
+                raise HTTPException(status_code=500, detail=f"生成失败: {story_data['error']}")
         
         # 2. 创建项目
         title_options = story_data.get("title_options", [])
         project_name = request.get("project_name") or (title_options[0] if title_options else theme)
         
         project = Project(
-            name=project_name,
+            title=project_name,
             description=f"基于主题「{theme}」生成的{story_data.get('genre', '故事')}",
             owner_id=current_user["id"]
         )
@@ -239,7 +250,7 @@ async def quick_create_project(
             "success": True,
             "project": {
                 "id": project.id,
-                "name": project.name,
+                "name": project.title,
                 "description": project.description,
                 "created_at": project.created_at.isoformat()
             },

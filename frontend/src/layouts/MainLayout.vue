@@ -49,6 +49,14 @@
             <el-icon><MagicStick /></el-icon>
             <span>AI故事生成</span>
           </div>
+          <div 
+            class="nav-item" 
+            :class="{ active: $route.path === '/long-article' }"
+            @click="$router.push('/long-article')"
+          >
+            <el-icon><Document /></el-icon>
+            <span>长篇生成</span>
+          </div>
         </div>
 
         <div class="sidebar-content" v-if="$route.path !== '/dashboard'">
@@ -138,7 +146,7 @@ import GlobalSearch from '@/components/GlobalSearch.vue'
 import AIConfigPanel from '@/components/AIConfigPanel.vue'
 import ProfileCenter from '@/components/ProfileCenter.vue'
 import { API_BASE_URL } from '@/api'
-import { EditPen, UserFilled, ArrowDown, User, Setting, SwitchButton, Cpu, HomeFilled, DataLine, TrendCharts, MagicStick } from '@element-plus/icons-vue'
+import { EditPen, UserFilled, ArrowDown, User, Setting, SwitchButton, Cpu, HomeFilled, DataLine, TrendCharts, MagicStick, Document } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
 const router = useRouter()

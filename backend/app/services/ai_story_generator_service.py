@@ -4,6 +4,12 @@ AI 故事生成服务 - 根据主题自动生成大纲、角色、情节等
 from typing import List, Dict, Any, Optional, AsyncGenerator
 from app.core.ai_client import ai_client
 import json
+import re
+
+try:
+    import json_repair
+except ImportError:
+    json_repair = None
 
 
 class AIStoryGeneratorService:
@@ -305,35 +311,135 @@ class AIStoryGeneratorService:
             {"role": "user", "content": user_prompt}
         ]
 
-        # 收集完整的响应
+        # 流式接收时边收边过滤：用状态机在字符串内转义换行/控制字符，得到可供解析的 cleaned_response
         full_response = ""
-        chunk_count = 0
-        
+        cleaned_parts: List[str] = []
+        stream_state = {"in_string": False, "escape_next": False}
+
+        def _stream_filter_char(c: str) -> str:
+            """在流上逐字符过滤：仅在双引号字符串内把 \\n/\\r 等转为转义形式，便于最后解析"""
+            nonlocal stream_state
+            in_str = stream_state["in_string"]
+            escape = stream_state["escape_next"]
+            if escape:
+                stream_state["escape_next"] = False
+                return c
+            if c == "\\" and in_str:
+                stream_state["escape_next"] = True
+                return c
+            if c == '"':
+                stream_state["in_string"] = not in_str
+                return c
+            if in_str and c in "\n\r":
+                return "\\n" if c == "\n" else "\\r"
+            if in_str and ord(c) in range(0x00, 0x20) and c not in "\t":
+                return " "  # 字符串内其它控制字符替换为空格
+            return c
+
         async for chunk in ai_client.stream_completion(messages):
             full_response += chunk
-            chunk_count += 1
-            
-            # 只发送内容块，不包装 JSON
-            yield f"data: {chunk}\n\n"
+            # 用于下发的预览：只去掉 Markdown 代码块标记
+            cleaned_chunk = chunk
+            if "```json" in cleaned_chunk:
+                cleaned_chunk = cleaned_chunk.replace("```json", "")
+            if "```" in cleaned_chunk:
+                cleaned_chunk = cleaned_chunk.replace("```", "")
+            # 流式过滤：每字符过状态机，得到可用于最终解析的片段
+            for char in chunk:
+                cleaned_parts.append(_stream_filter_char(char))
+            if cleaned_chunk.strip():
+                yield json.dumps({"chunk": cleaned_chunk}, ensure_ascii=False)
 
-        # 解析最终的 JSON 数据
+        cleaned_response = "".join(cleaned_parts)
+
+        # 解析最终 JSON（优先用流式过滤后的 cleaned_response，再配合 json_repair 等容错）
+        def _fix_newlines_in_strings(s: str) -> str:
+            """把双引号字符串内的真实换行改为 \\n，否则 json.loads 会报 Expecting value"""
+            out = []
+            i = 0
+            in_str = False
+            escape = False
+            while i < len(s):
+                c = s[i]
+                if escape:
+                    out.append(c)
+                    escape = False
+                    i += 1
+                    continue
+                if c == "\\" and in_str:
+                    out.append(c)
+                    escape = True
+                    i += 1
+                    continue
+                if c == '"':
+                    in_str = not in_str
+                    out.append(c)
+                    i += 1
+                    continue
+                if in_str and c in "\n\r":
+                    out.append("\\n" if c == "\n" else "\\r")
+                    i += 1
+                    continue
+                out.append(c)
+                i += 1
+            return "".join(out)
+
+        def _parse_story_json(s: str) -> dict:
+            s = s.strip()
+            if "```json" in s:
+                s = s.split("```json")[1].split("```")[0]
+            elif "```" in s:
+                s = s.split("```")[1].split("```")[0]
+            s = s.strip()
+            first_error = None
+            # 1) 先试 json_repair（能修尾随逗号、截断、未转义换行、注释等）
+            if json_repair is not None:
+                try:
+                    return json_repair.loads(s)
+                except Exception as e:
+                    first_error = e
+            # 2) 再试标准解析 + 简单容错
+            s_fixed = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f]", "", s)
+            s_fixed = _fix_newlines_in_strings(s_fixed)
+            s_fixed = re.sub(r",\s*]", "]", s_fixed)
+            s_fixed = re.sub(r",\s*}", "}", s_fixed)
+            s_fixed = re.sub(r":\s*,", ": null,", s_fixed)
+            s_fixed = re.sub(r":\s*}", ": null}", s_fixed)
+            s_fixed = re.sub(r":\s*]", ": null]", s_fixed)
+            try:
+                return json.loads(s_fixed)
+            except json.JSONDecodeError as e:
+                if first_error is None:
+                    first_error = e
+            try:
+                open_br = s_fixed.count("[") - s_fixed.count("]")
+                open_cur = s_fixed.count("{") - s_fixed.count("}")
+                s_fixed = s_fixed.rstrip()
+                if s_fixed.endswith(","):
+                    s_fixed = s_fixed[:-1]
+                s_fixed += "]" * max(0, open_br) + "}" * max(0, open_cur)
+                return json.loads(s_fixed)
+            except json.JSONDecodeError as e:
+                if first_error is None:
+                    first_error = e
+            if first_error is not None:
+                raise first_error
+            raise ValueError("无法解析故事 JSON")
+
         try:
-            json_str = full_response
-            if "```json" in json_str:
-                json_str = json_str.split("```json")[1].split("```")[0]
-            elif "```" in json_str:
-                json_str = json_str.split("```")[1].split("```")[0]
-
-            story_data = json.loads(json_str.strip())
+            story_data = _parse_story_json(cleaned_response)
             story_data["input_theme"] = theme
             story_data["target_word_count"] = word_count
-            
-            # 最后发送完整的数据
-            yield f"data: {json.dumps({'success': True, 'data': story_data}, ensure_ascii=False)}\n\n"
+
+            # 最后发送完整的数据（仅 payload，API 层加 data: 前缀）
+            yield json.dumps({"success": True, "data": story_data}, ensure_ascii=False)
         except json.JSONDecodeError as e:
-            yield f"data: {json.dumps({'success': False, 'error': f'故事生成失败，AI返回格式不正确: {str(e)}', 'raw_response': full_response[:500]}, ensure_ascii=False)}\n\n"
+            yield json.dumps(
+                {"success": False, "error": f"故事生成失败，AI返回格式不正确: {str(e)}", "raw_response": full_response[:500]},
+                ensure_ascii=False,
+            )
         except Exception as e:
-            yield f"data: {json.dumps({'success': False, 'error': f'故事生成失败: {str(e)}'}, ensure_ascii=False)}\n\n"
+            yield json.dumps({"success": False, "error": f"故事生成失败: {str(e)}"}, ensure_ascii=False)
 
     @staticmethod
     def convert_to_project_memory(story_data: Dict[str, Any]) -> Dict[str, Any]:

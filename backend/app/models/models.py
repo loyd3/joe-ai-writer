@@ -122,3 +122,54 @@ class SystemConfig(Base):
     config_key = Column(String(255), unique=True, nullable=False, index=True)
     config_value = Column(Text, nullable=True)  # JSON 字符串存储
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class Article(Base):
+    """长篇文章主表"""
+    __tablename__ = "articles"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    project_id = Column(Integer, ForeignKey("projects.id"), nullable=False)
+    title = Column(String(500), nullable=True)
+    topic = Column(Text, nullable=False)
+    target_words = Column(Integer, nullable=False)
+    style = Column(String(100), default="专业")
+    requirements = Column(Text, nullable=True)
+    outline = Column(JSON, nullable=True)  # 文章大纲
+    status = Column(String(50), default="pending")  # pending, outlined, generating, completed, failed
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    completed_at = Column(DateTime, nullable=True)
+    
+    project = relationship("Project")
+    chapters = relationship("ArticleChapter", back_populates="article", cascade="all, delete-orphan")
+
+
+class ArticleChapter(Base):
+    """文章章节表"""
+    __tablename__ = "article_chapters"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    article_id = Column(Integer, ForeignKey("articles.id"), nullable=False)
+    chapter_index = Column(Integer, nullable=False)  # 章节序号
+    title = Column(String(500), nullable=False)
+    content = Column(Text, nullable=False)
+    word_count = Column(Integer, default=0)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    article = relationship("Article", back_populates="chapters")
+
+
+class ArticleOutline(Base):
+    """文章大纲表（独立存储，支持多版本）"""
+    __tablename__ = "article_outlines"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    article_id = Column(Integer, ForeignKey("articles.id"), nullable=False)
+    version = Column(Integer, default=1)
+    outline_data = Column(JSON, nullable=False)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    
+    article = relationship("Article")
