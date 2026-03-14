@@ -12,6 +12,7 @@ from typing import Optional, AsyncGenerator, Dict, List
 from sqlalchemy.orm import Session
 from app.models.models import Article, ArticleChapter, ArticleOutline
 from app.core.ai_client import get_ai_client
+from app.config.long_article_config import LongArticleConfig
 import json
 from datetime import datetime
 import asyncio
@@ -33,7 +34,7 @@ class LongArticleService:
         requirements: Optional[str] = None,
     ) -> Dict:
         """
-        生成文章大纲
+        生成文章大纲（智能分配章节字数）
         :param article_id: 文章ID
         :param topic: 文章主题
         :param target_words: 目标字数
@@ -41,9 +42,8 @@ class LongArticleService:
         :param requirements: 额外要求
         :return: 大纲结构
         """
-        # 计算章节数量（每章约5000-10000字）
-        avg_chapter_words = 8000
-        chapter_count = max(10, target_words // avg_chapter_words)
+        # 根据目标字数智能计算章节数
+        chapter_count = LongArticleConfig.get_chapter_count(target_words)
 
         # 构建大纲生成提示词
         prompt = self._build_outline_prompt(
@@ -53,11 +53,16 @@ class LongArticleService:
         # 调用AI生成大纲
         messages = [{"role": "user", "content": prompt}]
         response = await self.ai_client.chat_completion(
-            messages=messages, temperature=0.7, max_tokens=4000
+            messages=messages, 
+            temperature=LongArticleConfig.OUTLINE_TEMPERATURE, 
+            max_tokens=LongArticleConfig.OUTLINE_MAX_TOKENS
         )
 
         # 解析大纲
         outline_data = self._parse_outline(response)
+        
+        # 智能调整章节字数分配，确保总和接近目标
+        self._adjust_chapter_word_distribution(outline_data, target_words)
 
         # 保存大纲到数据库
         article = self.db.query(Article).filter(Article.id == article_id).first()
@@ -68,44 +73,158 @@ class LongArticleService:
 
         return outline_data
 
+    def _adjust_chapter_word_distribution(self, outline: Dict, target_words: int):
+        """智能调整章节字数分配"""
+        chapters = outline.get("chapters", [])
+        if not chapters:
+            return
+        
+        # 计算当前总字数
+        current_total = sum(ch.get("target_words", 8000) for ch in chapters)
+        
+        if current_total == 0:
+            # 如果没有设置字数，平均分配
+            avg_words = target_words // len(chapters)
+            for ch in chapters:
+                ch["target_words"] = avg_words
+        else:
+            # 按比例调整
+            ratio = target_words / current_total
+            for ch in chapters:
+                ch["target_words"] = int(ch.get("target_words", 8000) * ratio)
+        
+        # 确保每章字数在合理范围内
+        for ch in chapters:
+            ch["target_words"] = max(
+                LongArticleConfig.MIN_CHAPTER_WORDS, 
+                min(LongArticleConfig.MAX_CHAPTER_WORDS, ch["target_words"])
+            )
+
     async def generate_chapter(
         self,
         article_id: int,
         chapter_index: int,
         outline: Dict,
         previous_content: Optional[str] = None,
+        retry_count: int = 0,
     ) -> AsyncGenerator[str, None]:
         """
-        生成单个章节内容（流式）
+        生成单个章节内容（流式，支持段落级拆分，带重试机制）
         :param article_id: 文章ID
         :param chapter_index: 章节索引
         :param outline: 完整大纲
         :param previous_content: 前一章节的内容摘要（用于保持连贯性）
+        :param retry_count: 当前重试次数
         """
-        chapter_info = outline["chapters"][chapter_index]
+        try:
+            chapter_info = outline["chapters"][chapter_index]
+            target_words = chapter_info.get("target_words", 8000)
+            
+            # 如果章节目标字数超过阈值，拆分为多个段落生成
+            if LongArticleConfig.should_split_to_sections(target_words):
+                full_content = ""
+                async for chunk in self._generate_chapter_by_sections(
+                    article_id, chapter_index, outline, chapter_info, previous_content
+                ):
+                    full_content += chunk
+                    yield chunk
+                
+                # 保存章节到数据库
+                self._save_chapter(article_id, chapter_index, chapter_info, full_content)
+            else:
+                # 小章节直接生成
+                prompt = self._build_chapter_prompt(
+                    outline["topic"],
+                    outline["style"],
+                    chapter_info,
+                    chapter_index,
+                    len(outline["chapters"]),
+                    previous_content,
+                )
+
+                messages = [{"role": "user", "content": prompt}]
+
+                full_content = ""
+                async for chunk in self.ai_client.stream_completion(
+                    messages=messages, 
+                    temperature=LongArticleConfig.CHAPTER_TEMPERATURE, 
+                    max_tokens=LongArticleConfig.CHAPTER_MAX_TOKENS
+                ):
+                    full_content += chunk
+                    yield chunk
+
+                self._save_chapter(article_id, chapter_index, chapter_info, full_content)
         
-        # 构建章节生成提示词
-        prompt = self._build_chapter_prompt(
-            outline["topic"],
-            outline["style"],
-            chapter_info,
-            chapter_index,
-            len(outline["chapters"]),
-            previous_content,
-        )
+        except Exception as e:
+            # 错误重试机制
+            if retry_count < LongArticleConfig.MAX_RETRIES:
+                await asyncio.sleep(LongArticleConfig.RETRY_DELAY)
+                async for chunk in self.generate_chapter(
+                    article_id, chapter_index, outline, previous_content, retry_count + 1
+                ):
+                    yield chunk
+            else:
+                # 超过最大重试次数，抛出异常
+                raise Exception(f"章节 {chapter_index + 1} 生成失败，已重试 {retry_count} 次: {str(e)}")
 
-        messages = [{"role": "user", "content": prompt}]
-
-        # 流式生成章节内容
-        full_content = ""
-        async for chunk in self.ai_client.stream_completion(
-            messages=messages, temperature=0.8, max_tokens=8000
-        ):
-            full_content += chunk
-            yield chunk
-
-        # 保存章节到数据库
-        self._save_chapter(article_id, chapter_index, chapter_info, full_content)
+    async def _generate_chapter_by_sections(
+        self,
+        article_id: int,
+        chapter_index: int,
+        outline: Dict,
+        chapter_info: Dict,
+        previous_content: Optional[str] = None,
+    ) -> AsyncGenerator[str, None]:
+        """
+        按段落拆分生成章节（突破单次生成字数限制）
+        """
+        target_words = chapter_info.get("target_words", 8000)
+        key_points = chapter_info.get("key_points", [])
+        
+        # 计算段落数
+        section_count = LongArticleConfig.calculate_section_count(target_words)
+        section_target_words = target_words // section_count
+        
+        # 将关键点分配到各段落
+        points_per_section = max(1, len(key_points) // section_count)
+        
+        chapter_content = ""
+        
+        for section_idx in range(section_count):
+            # 确定本段落的关键点
+            start_point = section_idx * points_per_section
+            end_point = start_point + points_per_section if section_idx < section_count - 1 else len(key_points)
+            section_points = key_points[start_point:end_point] if key_points else []
+            
+            # 构建段落生成提示词
+            prompt = self._build_section_prompt(
+                outline["topic"],
+                outline["style"],
+                chapter_info["title"],
+                section_idx,
+                section_count,
+                section_points,
+                section_target_words,
+                previous_content if section_idx == 0 else chapter_content[-LongArticleConfig.SECTION_CONTEXT_LENGTH:],  # 使用配置的上下文长度
+            )
+            
+            messages = [{"role": "user", "content": prompt}]
+            
+            # 生成段落内容
+            section_content = ""
+            async for chunk in self.ai_client.stream_completion(
+                messages=messages, 
+                temperature=LongArticleConfig.CHAPTER_TEMPERATURE, 
+                max_tokens=LongArticleConfig.SECTION_MAX_TOKENS
+            ):
+                section_content += chunk
+                chapter_content += chunk
+                yield chunk
+            
+            # 段落间添加换行
+            if section_idx < section_count - 1:
+                yield "\n\n"
+                chapter_content += "\n\n"
 
     async def generate_full_article(
         self,
@@ -116,7 +235,7 @@ class LongArticleService:
         requirements: Optional[str] = None,
     ) -> AsyncGenerator[Dict, None]:
         """
-        生成完整长篇文章（带进度反馈）
+        生成完整长篇文章（带进度反馈，支持多章节上下文）
         :param article_id: 文章ID
         :param topic: 文章主题
         :param target_words: 目标字数
@@ -140,9 +259,10 @@ class LongArticleService:
                 "data": outline,
             }
 
-            # 2. 逐章节生成
+            # 2. 逐章节生成（支持多章节上下文）
             total_chapters = len(outline["chapters"])
-            previous_summary = None
+            chapter_summaries = []  # 存储所有章节摘要
+            context_window = 3  # 上下文窗口：使用最近3章的摘要
 
             for i, chapter_info in enumerate(outline["chapters"]):
                 # 发送章节开始信号
@@ -157,10 +277,15 @@ class LongArticleService:
                     },
                 }
 
+                # 构建多章节上下文
+                context = self._build_multi_chapter_context(
+                    chapter_summaries, context_window, i, total_chapters
+                )
+
                 # 生成章节内容
                 chapter_content = ""
                 async for chunk in self.generate_chapter(
-                    article_id, i, outline, previous_summary
+                    article_id, i, outline, context
                 ):
                     chapter_content += chunk
                     # 实时推送章节内容
@@ -172,8 +297,16 @@ class LongArticleService:
                         },
                     }
 
-                # 生成章节摘要（用于下一章的上下文）
-                previous_summary = await self._generate_summary(chapter_content)
+                # 生成章节摘要并存储
+                summary = await self._generate_summary(
+                    chapter_content, 
+                    max_length=LongArticleConfig.SUMMARY_MAX_LENGTH
+                )
+                chapter_summaries.append({
+                    "index": i,
+                    "title": chapter_info["title"],
+                    "summary": summary
+                })
 
                 # 章节完成
                 yield {
@@ -401,9 +534,83 @@ class LongArticleService:
 
         messages = [{"role": "user", "content": prompt}]
         summary = await self.ai_client.chat_completion(
-            messages=messages, temperature=0.3, max_tokens=1000
+            messages=messages, 
+            temperature=LongArticleConfig.SUMMARY_TEMPERATURE, 
+            max_tokens=LongArticleConfig.SUMMARY_MAX_TOKENS
         )
         return summary
+
+    def _build_section_prompt(
+        self,
+        topic: str,
+        style: str,
+        chapter_title: str,
+        section_index: int,
+        total_sections: int,
+        section_points: List[str],
+        target_words: int,
+        previous_context: Optional[str] = None,
+    ) -> str:
+        """构建段落生成提示词"""
+        prompt = f"""你是一位专业的{style}作家，正在创作一篇关于"{topic}"的长篇文章。
+
+当前任务：撰写《{chapter_title}》章节的第 {section_index + 1}/{total_sections} 段
+
+目标字数：约 {target_words} 字
+
+"""
+        if section_points:
+            prompt += f"本段要点：\n"
+            for point in section_points:
+                prompt += f"- {point}\n"
+            prompt += "\n"
+
+        if previous_context:
+            prompt += f"前文内容（用于保持连贯）：\n...{previous_context}\n\n"
+
+        prompt += """写作要求：
+1. 内容充实，达到目标字数
+2. 与前文自然衔接，保持连贯性
+3. 覆盖本段的关键要点
+4. 语言流畅，符合指定风格
+5. 如果是首段，可以有引入性内容；如果是末段，可以有总结性内容
+
+请直接输出段落正文内容："""
+
+        return prompt
+
+    def _build_multi_chapter_context(
+        self,
+        chapter_summaries: List[Dict],
+        context_window: int,
+        current_index: int,
+        total_chapters: int,
+    ) -> Optional[str]:
+        """
+        构建多章节上下文（使用最近N章的摘要）
+        :param chapter_summaries: 所有章节摘要列表
+        :param context_window: 上下文窗口大小
+        :param current_index: 当前章节索引
+        :param total_chapters: 总章节数
+        :return: 上下文字符串
+        """
+        if not chapter_summaries:
+            return None
+        
+        # 获取最近N章的摘要
+        start_idx = max(0, len(chapter_summaries) - context_window)
+        recent_summaries = chapter_summaries[start_idx:]
+        
+        if not recent_summaries:
+            return None
+        
+        context = f"前文回顾（第 {current_index + 1}/{total_chapters} 章）：\n\n"
+        
+        for summary_info in recent_summaries:
+            context += f"【第 {summary_info['index'] + 1} 章：{summary_info['title']}】\n"
+            context += f"{summary_info['summary']}\n\n"
+        
+        return context
 
     def get_article_progress(self, article_id: int) -> Dict:
         """获取文章生成进度"""
