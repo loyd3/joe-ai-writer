@@ -37,6 +37,15 @@
             </div>
           </div>
         </el-col>
+        <el-col :xs="24" :sm="12" :md="8" :lg="6">
+          <div class="project-card create-card import-card-entry" @click="triggerImportProject">
+            <div class="create-content">
+              <el-icon class="create-icon import-icon"><Upload /></el-icon>
+              <span>导入项目</span>
+              <small>从项目包 JSON 新建</small>
+            </div>
+          </div>
+        </el-col>
         <el-col :xs="24" :sm="12" :md="8" :lg="6" v-for="project in projects" :key="project.id">
           <div class="project-card" @click="openProject(project.id)">
             <div class="card-header">
@@ -89,8 +98,19 @@
         <el-button size="large" @click="showCreateDialog = true">
           <el-icon><Plus /></el-icon> 创建空白项目
         </el-button>
+        <el-button size="large" @click="triggerImportProject" :loading="importing">
+          <el-icon><Upload /></el-icon> 导入项目
+        </el-button>
       </div>
     </div>
+
+    <input
+      ref="importFileInputRef"
+      type="file"
+      accept=".json,application/json"
+      class="hidden-file-input"
+      @change="onImportFileChange"
+    />
 
     <!-- 模板库对话框 -->
     <el-dialog
@@ -145,11 +165,14 @@ import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useProjectStore, type Project } from '@/stores/project'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, Document, MoreFilled, Edit, Delete, Calendar, EditPen, Collection } from '@element-plus/icons-vue'
+import { Plus, Document, MoreFilled, Edit, Delete, Calendar, EditPen, Collection, Upload } from '@element-plus/icons-vue'
 import TemplateLibrary from '@/components/TemplateLibrary.vue'
+import { importApi } from '@/api/search-export'
 
 const router = useRouter()
 const store = useProjectStore()
+const importFileInputRef = ref<HTMLInputElement | null>(null)
+const importing = ref(false)
 
 const projects = computed(() => store.projectList)
 const showCreateDialog = ref(false)
@@ -164,6 +187,46 @@ const form = ref({
 function onTemplateSelect() {
   showTemplateLibrary.value = false
   store.fetchProjects() // 刷新项目列表
+}
+
+function triggerImportProject() {
+  importFileInputRef.value?.click()
+}
+
+async function onImportFileChange(e: Event) {
+  const input = e.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file) return
+  input.value = ''
+  importing.value = true
+  try {
+    const text = await file.text()
+    const data = JSON.parse(text) as { version?: number; project?: Record<string, unknown>; documents?: unknown[]; memory?: Record<string, unknown> }
+    if (!data || typeof data.project !== 'object') {
+      ElMessage.error('无效的项目包格式，请选择由「导出为项目包(JSON)」导出的文件')
+      return
+    }
+    const payload = {
+      version: data.version ?? 1,
+      project: data.project,
+      documents: Array.isArray(data.documents) ? data.documents : [],
+      memory: data.memory ?? null
+    }
+    const res = await importApi.importProject(payload)
+    ElMessage.success(res.data?.message || '项目导入成功')
+    await store.fetchProjects()
+    if (res.data?.project_id) {
+      router.push(`/project/${res.data.project_id}`)
+    }
+  } catch (err: unknown) {
+    const msg = err && typeof err === 'object' && 'response' in err
+      ? (err as { response?: { data?: { detail?: string } } }).response?.data?.detail
+      : err instanceof Error ? err.message : '导入失败'
+    ElMessage.error(String(msg))
+    console.error('Import project error:', err)
+  } finally {
+    importing.value = false
+  }
 }
 
 onMounted(() => {
@@ -339,6 +402,19 @@ async function saveProject() {
         color: var(--coffee-primary);
       }
       
+      small {
+        display: block;
+        margin-top: 4px;
+        font-size: 12px;
+        color: var(--coffee-text-muted);
+      }
+    }
+
+    &.import-card-entry {
+      background: var(--coffee-bg);
+      .import-icon {
+        color: var(--coffee-primary);
+      }
       small {
         display: block;
         margin-top: 4px;
@@ -541,6 +617,14 @@ async function saveProject() {
 
 :deep(.delete-item) {
   color: #f56c6c;
+}
+
+.hidden-file-input {
+  position: absolute;
+  width: 0;
+  height: 0;
+  opacity: 0;
+  pointer-events: none;
 }
 
 @media (max-width: 768px) {

@@ -43,7 +43,11 @@
           </el-button>
           <template #dropdown>
             <el-dropdown-menu>
-              <el-dropdown-item command="extract">
+              <el-dropdown-item command="format-doc">
+                <el-icon><Document /></el-icon> 整理排版
+                <span class="shortcut-hint">Ctrl+Shift+F</span>
+              </el-dropdown-item>
+              <el-dropdown-item divided command="extract">
                 <el-icon><Aim /></el-icon> AI 智能提取
               </el-dropdown-item>
               <el-dropdown-item command="generate">
@@ -176,6 +180,7 @@ import AIChatPanel from '@/components/AIChatPanel.vue'
 import AIExtract from '@/components/AIExtract.vue'
 import AIGenerateFromMemory from '@/components/AIGenerateFromMemory.vue'
 import ExportMenu from '@/components/ExportMenu.vue'
+import { parseFormattedTextToBlocks } from '@/utils/formatToBlocks'
 import { ElMessageBox } from 'element-plus'
 import { ArrowLeft, ArrowRight, ArrowDown, ArrowUp, ChatDotRound, Check, Loading, CircleCheck, MoreFilled, Edit, Delete, Aim, MagicStick, Document, Collection, Files } from '@element-plus/icons-vue'
 
@@ -268,6 +273,10 @@ function goBack() {
 }
 
 function handleMoreCommand(command: string) {
+  if (command === 'format-doc') {
+    doFormatDocument()
+    return
+  }
   if (command === 'extract') {
     showExtractDrawer.value = true
   } else if (command === 'generate') {
@@ -329,12 +338,17 @@ async function handleDocCommand(command: string) {
 }
 
 function insertText(text: string) {
-  content.value.push({
-    id: Date.now().toString(),
-    type: 'paragraph',
-    content: text,
-    props: {}
-  })
+  const blocks = parseFormattedTextToBlocks(text, 'doc')
+  if (blocks.length) {
+    content.value.push(...blocks)
+  } else {
+    content.value.push({
+      id: Date.now().toString(),
+      type: 'paragraph',
+      content: text,
+      props: {}
+    })
+  }
   hasChanges.value = true
 }
 
@@ -368,15 +382,52 @@ onBeforeUnmount(() => {
   }
 })
 
-// 阻止页面级别的 Ctrl+A 选择，让编辑器自己处理
+/** 一键整理排版：去除每块首尾空白、删除空块、段落内多余换行合并 */
+function formatDocumentContent(blocks: Block[]): Block[] {
+  if (!blocks?.length) return blocks
+  const result: Block[] = []
+  for (const b of blocks) {
+    const trimmed = typeof b.content === 'string' ? b.content.trim() : ''
+    if (b.type === 'divider') {
+      result.push({ ...b, content: '' })
+      continue
+    }
+    if (!trimmed) continue
+    const normalized = trimmed.replace(/\n{3,}/g, '\n\n')
+    result.push({ ...b, content: normalized })
+  }
+  if (result.length === 0) {
+    return [{ id: String(Date.now()), type: 'paragraph', content: '', props: {} }]
+  }
+  return result
+}
+
+function doFormatDocument() {
+  const next = formatDocumentContent(content.value)
+  if (JSON.stringify(next) === JSON.stringify(content.value)) {
+    ElMessage.info('当前文档已整洁，无需整理')
+    return
+  }
+  content.value = next
+  hasChanges.value = true
+  ElMessage.success('已整理排版')
+}
+
+// 阻止页面级别的 Ctrl+A 选择，让编辑器自己处理；Ctrl+Shift+F 一键整理排版
 function handleDocumentKeydown(event: KeyboardEvent) {
   const isMod = event.ctrlKey || event.metaKey
-  if (isMod && event.key.toLowerCase() === 'a') {
-    // 检查焦点是否在编辑器内
+  const key = event.key.toLowerCase()
+
+  if (isMod && event.shiftKey && key === 'f') {
+    event.preventDefault()
+    doFormatDocument()
+    return
+  }
+
+  if (isMod && key === 'a') {
     const activeElement = document.activeElement
     const isInEditor = activeElement?.closest('.block-editor') !== null
     if (!isInEditor) {
-      // 如果不在编辑器内，阻止默认全选行为
       event.preventDefault()
     }
   }
@@ -518,6 +569,12 @@ onUnmounted(() => {
 
   :deep(.delete-item) {
     color: var(--el-color-danger);
+  }
+
+  :deep(.shortcut-hint) {
+    margin-left: auto;
+    font-size: 12px;
+    color: var(--coffee-text-light);
   }
 }
 

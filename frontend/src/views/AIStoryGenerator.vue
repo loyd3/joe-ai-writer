@@ -39,8 +39,8 @@
             </el-form-item>
           </el-col>
           <el-col :span="12">
-            <el-form-item label="目标字数">
-              <el-slider v-model="form.wordCount" :min="3000" :max="50000" :step="1000" show-stops />
+            <el-form-item label="目标字数（设定参考）">
+              <el-slider v-model="form.wordCount" :min="3000" :max="200000" :step="1000" show-stops />
               <span class="word-count-display">{{ formatWordCount(form.wordCount) }}</span>
             </el-form-item>
           </el-col>
@@ -277,6 +277,44 @@
               一键创建项目
             </el-button>
           </div>
+
+          <!-- 生成长文：基于当前故事设定，支持 10 万～200 万字 -->
+          <el-divider />
+          <h3>📖 生成长篇正文</h3>
+          <p class="hint">基于当前故事设定，生成 10 万～200 万字的长篇正文（分章节生成，可断点续写）</p>
+          <el-form label-position="top" class="long-form-form">
+            <el-row :gutter="20">
+              <el-col :span="12">
+                <el-form-item label="选择项目（长文将归属到该项目）">
+                  <el-select v-model="longFormProjectId" style="width: 100%" placeholder="必选">
+                    <el-option
+                      v-for="project in projects"
+                      :key="project.id"
+                      :label="project.name ?? project.title"
+                      :value="project.id"
+                    />
+                  </el-select>
+                </el-form-item>
+              </el-col>
+              <el-col :span="12">
+                <el-form-item label="目标字数">
+                  <el-select v-model="longFormTargetWords" style="width: 100%">
+                    <el-option label="10万字" :value="100000" />
+                    <el-option label="20万字" :value="200000" />
+                    <el-option label="50万字" :value="500000" />
+                    <el-option label="100万字" :value="1000000" />
+                    <el-option label="200万字" :value="2000000" />
+                  </el-select>
+                </el-form-item>
+              </el-col>
+            </el-row>
+            <div class="action-buttons">
+              <el-button type="primary" size="large" @click="createLongArticle" :loading="longFormCreating">
+                <el-icon><Document /></el-icon>
+                创建并生成长文
+              </el-button>
+            </div>
+          </el-form>
         </div>
       </el-card>
     </div>
@@ -315,6 +353,11 @@ const applyForm = ref({
   projectId: null as number | null,
   newProjectName: ''
 })
+
+// 生成长文
+const longFormProjectId = ref<number | null>(null)
+const longFormTargetWords = ref(100000)
+const longFormCreating = ref(false)
 
 // 计算属性
 const projects = computed(() => projectStore.projects)
@@ -582,6 +625,44 @@ const applyToProject = async () => {
     console.error(error)
   } finally {
     applying.value = false
+  }
+}
+
+const createLongArticle = async () => {
+  if (!longFormProjectId.value) {
+    ElMessage.warning('请先选择项目')
+    return
+  }
+  if (!generatedStory.value) {
+    ElMessage.warning('请先生成故事设定')
+    return
+  }
+  longFormCreating.value = true
+  try {
+    const res = await fetch(`${import.meta.env.VITE_API_BASE_URL || ''}/api/long-article/create`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${localStorage.getItem('token')}`
+      },
+      body: JSON.stringify({
+        project_id: longFormProjectId.value,
+        topic: generatedStory.value.input_theme || generatedStory.value.core_theme || selectedTitle.value,
+        target_words: longFormTargetWords.value,
+        style: generatedStory.value.genre || '文学叙事',
+        requirements: form.value.additional || undefined,
+        story_data: generatedStory.value
+      })
+    })
+    const data = await res.json()
+    if (!res.ok) throw new Error(data.detail || '创建失败')
+    ElMessage.success(data.message || '长文任务已创建')
+    router.push({ path: '/long-article', query: { articleId: String(data.article_id) } })
+  } catch (e: any) {
+    ElMessage.error(e.message || '创建长文失败')
+    console.error(e)
+  } finally {
+    longFormCreating.value = false
   }
 }
 
@@ -910,5 +991,10 @@ onMounted(() => {
     color: #909399;
     margin-bottom: 16px;
   }
+}
+
+.long-form-form {
+  margin-top: 8px;
+  .el-form-item { margin-bottom: 16px; }
 }
 </style>

@@ -312,7 +312,7 @@
         <el-icon><EditPen /></el-icon>
       </div>
       <span>点击开始写作，记录您的灵感...</span>
-      <span class="shortcut-hint">Ctrl+1~6 切换块 · Ctrl+B/I/U 格式 · Ctrl+Z/Y 撤销 · Ctrl+↑↓ 导航 · / 斜杠命令 · Ctrl+点击多选 · Ctrl+C/X/V 复制剪切粘贴</span>
+      <span class="shortcut-hint">Ctrl+1~6 切换块 · Ctrl+B/I/U 格式 · Ctrl+Z/Y 撤销 · Ctrl+Shift+F 整理排版 · Ctrl+↑↓ 导航 · / 斜杠命令 · Ctrl+点击多选 · Ctrl+C/X/V 复制剪切粘贴</span>
     </div>
   </div>
 </template>

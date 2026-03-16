@@ -6,7 +6,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 import os
 from app.database import engine, Base
-from app.api import projects, ai, auth, search, export, templates, versions, extract, system, dashboard, hot_topics, publish, ai_story_generator, long_article
+from app.api import projects, ai, auth, search, export, templates, versions, extract, system, dashboard, hot_topics, publish, ai_story_generator, long_article, import_project
 from sqlalchemy import text
 
 # 创建数据库表
@@ -96,6 +96,7 @@ app.include_router(projects.router)
 app.include_router(ai.router)
 app.include_router(search.router)
 app.include_router(export.router)
+app.include_router(import_project.router)
 app.include_router(templates.router)
 app.include_router(versions.router)
 app.include_router(extract.router)

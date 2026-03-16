@@ -115,6 +115,80 @@ async def export_project_markdown(
     )
 
 
+def build_project_export_payload(db: Session, project: Project, include_memory: bool = True) -> dict:
+    """构建可导入的项目数据包（JSON 结构）。"""
+    documents = (
+        db.query(Document)
+        .filter(Document.project_id == project.id)
+        .order_by(Document.order_index, Document.id)
+        .all()
+    )
+    id_to_index = {d.id: i for i, d in enumerate(documents)}
+    doc_list = []
+    for d in documents:
+        doc_list.append({
+            "title": d.title or "",
+            "content": d.content if d.content is not None else [],
+            "order_index": d.order_index or 0,
+            "parent_index": id_to_index.get(d.parent_id) if d.parent_id else None,
+        })
+    payload = {
+        "version": 1,
+        "exported_at": datetime.utcnow().isoformat() + "Z",
+        "project": {
+            "title": project.title or "未命名项目",
+            "description": project.description or "",
+        },
+        "documents": doc_list,
+    }
+    if include_memory:
+        memory = db.query(AIMemory).filter(AIMemory.project_id == project.id).first()
+        if memory:
+            payload["memory"] = {
+                "outline": memory.outline if memory.outline is not None else [],
+                "storyline": memory.storyline or "",
+                "characters": memory.characters if memory.characters is not None else [],
+                "world_building": memory.world_building if memory.world_building is not None else {},
+                "writing_style": memory.writing_style or "",
+                "key_points": memory.key_points if memory.key_points is not None else [],
+                "notes": memory.notes or "",
+            }
+        else:
+            payload["memory"] = {
+                "outline": [], "storyline": "", "characters": [], "world_building": {},
+                "writing_style": "", "key_points": [], "notes": "",
+            }
+    else:
+        payload["memory"] = {
+            "outline": [], "storyline": "", "characters": [], "world_building": {},
+            "writing_style": "", "key_points": [], "notes": "",
+        }
+    return payload
+
+
+@router.get("/project/{project_id}/json")
+async def export_project_json(
+    project_id: int,
+    include_memory: bool = True,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    """导出整个项目为 JSON 项目包，便于导入为新项目。"""
+    project = db.query(Project).filter(
+        Project.id == project_id,
+        Project.owner_id == current_user["id"]
+    ).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    payload = build_project_export_payload(db, project, include_memory)
+    filename = f"{project.title or 'project'}_{datetime.now().strftime('%Y%m%d')}.json"
+    return StreamingResponse(
+        io.BytesIO(json.dumps(payload, ensure_ascii=False).encode("utf-8")),
+        media_type="application/json",
+        headers={"Content-Disposition": content_disposition_attachment(filename)},
+    )
+
+
 def generate_markdown(db: Session, document: Document, project: Project, include_memory: bool) -> str:
     """生成 Markdown 格式内容"""
     lines = []

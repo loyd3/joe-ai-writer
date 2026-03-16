@@ -21,10 +21,10 @@ class LongArticleConfig:
     SUMMARY_MAX_LENGTH = 300      # 章节摘要最大长度
     SECTION_CONTEXT_LENGTH = 1000 # 段落生成时使用的前文长度
     
-    # AI 调用配置
-    OUTLINE_MAX_TOKENS = 4000     # 大纲生成最大 tokens
-    CHAPTER_MAX_TOKENS = 8000     # 章节生成最大 tokens
-    SECTION_MAX_TOKENS = 3000     # 段落生成最大 tokens
+    # AI 调用配置（提高以支持更长单章/单段）
+    OUTLINE_MAX_TOKENS = 6000     # 大纲生成最大 tokens
+    CHAPTER_MAX_TOKENS = 12000    # 章节生成最大 tokens
+    SECTION_MAX_TOKENS = 6000     # 段落生成最大 tokens
     SUMMARY_MAX_TOKENS = 1000     # 摘要生成最大 tokens
     
     # 温度参数

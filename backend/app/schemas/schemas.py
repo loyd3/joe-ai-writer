@@ -182,7 +182,7 @@ class AIGenerateChapterRequest(BaseModel):
     """生成单个章节的请求"""
     outline_node: Dict[str, Any]  # 大纲节点信息
     previous_context: str = ""  # 前文内容
-    max_tokens: int = 2000  # 字数/token限制
+    max_tokens: int = 4000  # 字数/token限制
     instruction: Optional[str] = None  # 额外要求
 
 class AIBatchGenerateRequest(BaseModel):
@@ -190,7 +190,7 @@ class AIBatchGenerateRequest(BaseModel):
     project_id: int
     document_id: int  # 目标文档ID
     outline_nodes: List[Dict[str, Any]]  # 要生成的大纲节点列表
-    max_tokens_per_chapter: int = Field(default=2000, ge=500, le=8000)  # 每章字数限制
+    max_tokens_per_chapter: int = Field(default=4000, ge=500, le=16000)  # 每章字数限制
     continue_on_complete: bool = True  # 完成后是否继续下一章
     custom_instruction: Optional[str] = None  # 全局额外要求
 

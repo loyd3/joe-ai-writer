@@ -54,6 +54,7 @@ class AIStoryGeneratorService:
             "conflict": "内心冲突"
         }
     ],
+注意：characters 字段必须是一个 JSON 数组（array），不能是对象/字典。每个角色作为数组中的一个元素。
     "plot_points": [
         {
             "point": "情节点描述",
@@ -449,6 +450,15 @@ class AIStoryGeneratorService:
         """
         # 转换角色数据格式，确保符合 Character schema
         raw_characters = story_data.get("characters", [])
+        # AI 有时返回 dict（如 {protagonist: {...}, supporting: [...]}），统一转为列表
+        if isinstance(raw_characters, dict):
+            flat = []
+            for v in raw_characters.values():
+                if isinstance(v, list):
+                    flat.extend(v)
+                elif isinstance(v, dict):
+                    flat.append(v)
+            raw_characters = flat
         converted_characters = []
         
         for char in raw_characters:

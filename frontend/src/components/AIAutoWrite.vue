@@ -286,6 +286,7 @@ import { ref, computed } from 'vue'
 import { ElMessage } from 'element-plus'
 import { aiApi, documentApi } from '@/api'
 import type { OutlineNode, AIGenerateChunk } from '@/api/types'
+import { parseFormattedTextToBlocks } from '@/utils/formatToBlocks'
 import {
   ArrowRight, ArrowLeft, VideoPlay, EditPen,
   CircleCheck, DocumentAdd, Document, Plus, Right,
@@ -599,22 +600,12 @@ async function autoCreateOrUpdateDocument() {
       // 更新现有文档
       const existingContent = existingDoc.content || []
 
-      // 添加章节标题和内容
+      // 添加章节标题和内容（自动解析 ##、>、- 等格式为块）
+      const contentBlocks = parseFormattedTextToBlocks(content, 'upd')
       const newBlocks = [
-        {
-          id: Date.now().toString() + '-h',
-          type: 'heading',
-          content: title,
-          props: { level: 2 }
-        },
-        {
-          id: Date.now().toString(),
-          type: 'paragraph',
-          content: content,
-          props: {}
-        }
+        { id: Date.now().toString() + '-h', type: 'heading', content: title, props: { level: 2 } },
+        ...contentBlocks
       ]
-
       await documentApi.update(existingDoc.id, {
         content: [...existingContent, ...newBlocks]
       })
@@ -637,15 +628,11 @@ async function autoCreateOrUpdateDocument() {
 
       ElMessage.success(`已更新文档：${existingDoc.title}`)
     } else {
-      // 创建新文档
+      // 创建新文档（自动解析格式为块）
+      const contentBlocks = parseFormattedTextToBlocks(content, 'new')
       const doc = await documentApi.create(props.projectId, {
         title: title,
-        content: [{
-          id: Date.now().toString(),
-          type: 'paragraph',
-          content: content,
-          props: {}
-        }]
+        content: contentBlocks.length ? contentBlocks : [{ id: Date.now().toString(), type: 'paragraph', content: content, props: {} }]
       })
 
       const completed: CompletedChapter = {
@@ -682,15 +669,10 @@ async function autoCreateDocument() {
   try {
     const title = currentChapterTitle.value
     const content = currentChapterContent.value
-
+    const contentBlocks = parseFormattedTextToBlocks(content, 'auto')
     const doc = await documentApi.create(props.projectId, {
       title: title,
-      content: [{
-        id: Date.now().toString(),
-        type: 'paragraph',
-        content: content,
-        props: {}
-      }]
+      content: contentBlocks.length ? contentBlocks : [{ id: Date.now().toString(), type: 'paragraph', content: content, props: {} }]
     })
 
     const completed: CompletedChapter = {
@@ -726,22 +708,11 @@ async function autoAppendToCurrent() {
 
     const currentDoc = await documentApi.get(props.documentId)
     const existingContent = currentDoc.data.content || []
-
+    const contentBlocks = parseFormattedTextToBlocks(content, 'cur')
     const newBlocks = [
-      {
-        id: Date.now().toString() + '-h',
-        type: 'heading',
-        content: currentChapterTitle.value,
-        props: { level: 2 }
-      },
-      {
-        id: Date.now().toString(),
-        type: 'paragraph',
-        content: content,
-        props: {}
-      }
+      { id: Date.now().toString() + '-h', type: 'heading', content: currentChapterTitle.value, props: { level: 2 } },
+      ...contentBlocks
     ]
-
     await documentApi.update(props.documentId, {
       content: [...existingContent, ...newBlocks]
     })
@@ -778,16 +749,10 @@ async function createNewDocument() {
   try {
     const title = currentChapterTitle.value
     const content = currentChapterContent.value
-
-    // 创建新文档
+    const contentBlocks = parseFormattedTextToBlocks(content, 'doc')
     const doc = await documentApi.create(props.projectId, {
       title: title,
-      content: [{
-        id: Date.now().toString(),
-        type: 'paragraph',
-        content: content,
-        props: {}
-      }]
+      content: contentBlocks.length ? contentBlocks : [{ id: Date.now().toString(), type: 'paragraph', content: content, props: {} }]
     })
 
     // 记录
@@ -826,22 +791,12 @@ async function insertToCurrentDoc() {
     const currentDoc = await documentApi.get(props.documentId)
     const existingContent = currentDoc.data.content || []
 
-    // 添加章节标题和内容
+    // 添加章节标题和内容（自动解析格式）
+    const contentBlocks = parseFormattedTextToBlocks(content, 'ins')
     const newBlocks = [
-      {
-        id: Date.now().toString() + '-h',
-        type: 'heading',
-        content: currentChapterTitle.value,
-        props: { level: 2 }
-      },
-      {
-        id: Date.now().toString(),
-        type: 'paragraph',
-        content: content,
-        props: {}
-      }
+      { id: Date.now().toString() + '-h', type: 'heading', content: currentChapterTitle.value, props: { level: 2 } },
+      ...contentBlocks
     ]
-
     await documentApi.update(props.documentId, {
       content: [...existingContent, ...newBlocks]
     })

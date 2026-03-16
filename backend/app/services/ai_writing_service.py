@@ -261,7 +261,8 @@ class AIWritingService:
                 return
 
             system_prompt = """你是一位专业的写作助手。用户将提供「项目设定」和具体生成要求。
-请严格依据设定中的角色、世界观、写作风格和大纲来生成内容，保持风格统一、逻辑自洽。只输出生成的正文，不要输出解释或标题。"""
+请严格依据设定中的角色、世界观、写作风格和大纲来生成内容，保持风格统一、逻辑自洽。只输出生成的正文，不要输出解释或标题。
+格式约定：小节标题单独一行以 ## 开头；对话/引用以 > 开头；列表以 - 开头；段落之间空一行。不要使用 ``` 代码块。"""
 
             user_parts = [f"【项目设定】\n{memory_context}"]
             if current_content:
@@ -321,7 +322,14 @@ class AIWritingService:
 3. 保持与前文的连贯性（如有前文）
 4. 字数控制在 {max_chars} 字符以内
 5. 只输出生成的正文，不要输出章节标题或解释
-6. 使用自然流畅的中文写作"""
+6. 使用自然流畅的中文写作
+
+【格式约定】为便于自动排版，请适当使用以下标记（每行单独使用）：
+- 小节标题：单独一行，以 ## 开头，如 ## 场景一
+- 子标题：单独一行，以 ### 开头
+- 对话/引用：以 > 开头的行，如 > “你好。”
+- 列表：以 - 开头的行
+- 段落之间空一行。不要使用 ``` 等代码块标记。"""
 
         user_parts = [f"【项目设定】\n{memory_context}"]
         
@@ -334,7 +342,7 @@ class AIWritingService:
             truncated_prev = previous_context[-3000:] if len(previous_context) > 3000 else previous_context
             user_parts.append(f"\n【前文回顾（最后部分）】\n{truncated_prev}")
         
-        user_parts.append(f"\n【写作要求】\n请生成本章正文，字数约 {max_chars} 字符。")
+        user_parts.append(f"\n【写作要求】\n请生成本章正文，字数约 {max_chars} 字符。可适当用 ## 小节标题、> 对话/引用、- 列表 等格式增强可读性，段落间空一行。")
         if custom_instruction:
             user_parts.append(f"额外要求：{custom_instruction}")
         
