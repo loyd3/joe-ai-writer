@@ -51,6 +51,21 @@ export const exportApi = {
     return api.get(`/export/project/${projectId}/markdown?include_memory=${includeMemory}`, {
       responseType: 'blob'
     })
+  },
+
+  // 导出整个项目为 JSON 项目包（可再导入为新项目）
+  exportProjectJson: (projectId: number, includeMemory: boolean = true) => {
+    return api.get(`/export/project/${projectId}/json?include_memory=${includeMemory}`, {
+      responseType: 'blob'
+    })
+  }
+}
+
+// 导入 API
+export const importApi = {
+  // 导入项目包（JSON 对象，与导出格式一致）
+  importProject: (data: { version?: number; project: Record<string, unknown>; documents: Record<string, unknown>[]; memory?: Record<string, unknown> | null }) => {
+    return api.post<{ success: boolean; message: string; project_id: number; project_title: string; documents_count: number }>('/import/project', data)
   }
 }
 

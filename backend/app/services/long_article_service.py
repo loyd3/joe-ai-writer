@@ -8,12 +8,13 @@
 5. 断点续写（支持暂停/恢复）
 """
 
-from typing import Optional, AsyncGenerator, Dict, List
+from typing import Optional, AsyncGenerator, Dict, List, Any
 from sqlalchemy.orm import Session
 from app.models.models import Article, ArticleChapter, ArticleOutline
 from app.core.ai_client import get_ai_client
 from app.config.long_article_config import LongArticleConfig
 import json
+import re
 from datetime import datetime
 import asyncio
 
@@ -72,6 +73,92 @@ class LongArticleService:
             self.db.commit()
 
         return outline_data
+
+    @staticmethod
+    def outline_from_story(story_data: Dict[str, Any], target_words: int) -> Dict:
+        """
+        将 AI 故事生成器的大纲转为长篇文章大纲格式，并嵌入 story_context 供章节生成使用。
+        """
+        acts = story_data.get("outline") or []
+        theme = story_data.get("input_theme") or story_data.get("core_theme") or "故事"
+        title = (story_data.get("title_options") or [None])[0] or theme
+        genre = story_data.get("genre") or "文学叙事"
+        style = story_data.get("writing_style") or {}
+        style_str = style.get("tone") or genre
+
+        def parse_words(w: Any) -> int:
+            if w is None:
+                return 0
+            if isinstance(w, int):
+                return max(0, w)
+            s = re.sub(r"[^\d]", "", str(w))
+            return int(s) if s else 0
+
+        chapters = []
+        for i, act in enumerate(acts):
+            if isinstance(act, dict):
+                act_title = act.get("title") or act.get("act") or f"第{i+1}幕"
+                content = act.get("content") or ""
+                key_points = [p.strip() for p in content.split("。") if p.strip()][:5]
+                if not key_points and content:
+                    key_points = [content[:200]]
+                est = parse_words(act.get("word_count_estimate"))
+                chapters.append({
+                    "title": act_title,
+                    "key_points": key_points or [act_title],
+                    "target_words": est or max(LongArticleConfig.MIN_CHAPTER_WORDS, target_words // max(1, len(acts))),
+                })
+            else:
+                chapters.append({
+                    "title": f"第{i+1}幕",
+                    "key_points": [],
+                    "target_words": target_words // max(1, len(acts)),
+                })
+
+        if not chapters:
+            chapter_count = LongArticleConfig.get_chapter_count(target_words)
+            avg = target_words // chapter_count
+            chapters = [
+                {"title": f"第{i+1}章", "key_points": [], "target_words": avg}
+                for i in range(chapter_count)
+            ]
+        else:
+            LongArticleService._adjust_chapter_word_distribution_static(
+                chapters, target_words
+            )
+
+        intro = story_data.get("core_theme") or theme
+        if isinstance(intro, str) and len(intro) > 300:
+            intro = intro[:300] + "..."
+
+        return {
+            "title": title,
+            "introduction": intro,
+            "topic": theme,
+            "style": style_str,
+            "chapters": chapters,
+            "story_context": story_data,
+        }
+
+    @staticmethod
+    def _adjust_chapter_word_distribution_static(chapters: List[Dict], target_words: int):
+        """静态方法：调整章节字数分配"""
+        if not chapters:
+            return
+        current_total = sum(ch.get("target_words", 8000) for ch in chapters)
+        if current_total == 0:
+            avg = target_words // len(chapters)
+            for ch in chapters:
+                ch["target_words"] = avg
+        else:
+            ratio = target_words / current_total
+            for ch in chapters:
+                ch["target_words"] = int(ch.get("target_words", 8000) * ratio)
+        for ch in chapters:
+            ch["target_words"] = max(
+                LongArticleConfig.MIN_CHAPTER_WORDS,
+                min(LongArticleConfig.MAX_CHAPTER_WORDS, ch["target_words"]),
+            )
 
     def _adjust_chapter_word_distribution(self, outline: Dict, target_words: int):
         """智能调整章节字数分配"""
@@ -134,12 +221,13 @@ class LongArticleService:
             else:
                 # 小章节直接生成
                 prompt = self._build_chapter_prompt(
-                    outline["topic"],
-                    outline["style"],
+                    outline.get("topic", ""),
+                    outline.get("style", "专业"),
                     chapter_info,
                     chapter_index,
                     len(outline["chapters"]),
                     previous_content,
+                    story_context=outline.get("story_context"),
                 )
 
                 messages = [{"role": "user", "content": prompt}]
@@ -198,14 +286,15 @@ class LongArticleService:
             
             # 构建段落生成提示词
             prompt = self._build_section_prompt(
-                outline["topic"],
-                outline["style"],
+                outline.get("topic", ""),
+                outline.get("style", "专业"),
                 chapter_info["title"],
                 section_idx,
                 section_count,
                 section_points,
                 section_target_words,
-                previous_content if section_idx == 0 else chapter_content[-LongArticleConfig.SECTION_CONTEXT_LENGTH:],  # 使用配置的上下文长度
+                previous_content if section_idx == 0 else chapter_content[-LongArticleConfig.SECTION_CONTEXT_LENGTH:],
+                story_context=outline.get("story_context"),
             )
             
             messages = [{"role": "user", "content": prompt}]
@@ -244,22 +333,26 @@ class LongArticleService:
         :yield: 进度信息 {"type": "outline|chapter|progress|complete", "data": ...}
         """
         try:
-            # 1. 生成大纲
+            article = self.db.query(Article).filter(Article.id == article_id).first()
+            # 1. 大纲：若已有（如从故事生成器导入）则直接使用，否则调用 AI 生成
             yield {
                 "type": "progress",
-                "data": {"stage": "outline", "progress": 0, "message": "正在生成文章大纲..."},
+                "data": {"stage": "outline", "progress": 0, "message": "正在准备大纲..."},
             }
 
-            outline = await self.generate_outline(
-                article_id, topic, target_words, style, requirements
-            )
+            if article and article.outline and isinstance(article.outline, dict) and article.outline.get("chapters"):
+                outline = article.outline
+            else:
+                outline = await self.generate_outline(
+                    article_id, topic, target_words, style, requirements
+                )
 
             yield {
                 "type": "outline",
                 "data": outline,
             }
 
-            # 2. 逐章节生成（支持多章节上下文）
+            # 2. 逐章节生成（支持多章节上下文；若 outline 含 story_context 则注入到章节提示）
             total_chapters = len(outline["chapters"])
             chapter_summaries = []  # 存储所有章节摘要
             context_window = 3  # 上下文窗口：使用最近3章的摘要
@@ -349,7 +442,7 @@ class LongArticleService:
         if not article or not article.outline:
             raise ValueError("文章不存在或未生成大纲")
 
-        outline = json.loads(article.outline)
+        outline = article.outline if isinstance(article.outline, dict) else json.loads(article.outline or "{}")
         
         # 查找已完成的章节
         completed_chapters = (
@@ -463,19 +556,45 @@ class LongArticleService:
         chapter_index: int,
         total_chapters: int,
         previous_summary: Optional[str] = None,
+        story_context: Optional[Dict] = None,
     ) -> str:
-        """构建章节生成提示词"""
-        prompt = f"""你是一位专业的内容创作者，正在撰写一篇关于"{topic}"的长篇文章。
+        """构建章节生成提示词；若提供 story_context 则按故事设定写长文"""
+        if story_context:
+            prompt = """你是一位擅长长篇叙事的作家，正在根据已有故事设定撰写长篇小说章节。
+
+【故事设定】
+"""
+            prompt += f"核心主题：{story_context.get('core_theme') or topic}\n"
+            if story_context.get("characters"):
+                prompt += "主要角色：\n"
+                for c in (story_context["characters"] or [])[:8]:
+                    if isinstance(c, dict):
+                        prompt += f"- {c.get('name', '')}：{c.get('role', '')}；{c.get('personality') or c.get('description', '')}\n"
+            if story_context.get("world_building") and isinstance(story_context["world_building"], dict):
+                w = story_context["world_building"]
+                prompt += f"世界观：{w.get('time_period', '')} {w.get('location', '')}；{w.get('atmosphere', '')}\n"
+            if story_context.get("writing_style") and isinstance(story_context["writing_style"], dict):
+                prompt += f"写作风格建议：{story_context['writing_style'].get('tone', '')}；{story_context['writing_style'].get('pov', '')}\n"
+            prompt += f"""
+
+当前任务：撰写第 {chapter_index + 1}/{total_chapters} 章
+
+章节标题：{chapter_info['title']}
+章节要点：
+"""
+        else:
+            prompt = f"""你是一位专业的内容创作者，正在撰写一篇关于"{topic}"的长篇文章。
 
 当前任务: 撰写第 {chapter_index + 1}/{total_chapters} 章
 
 章节标题: {chapter_info['title']}
 章节要点:
 """
-        for i, point in enumerate(chapter_info['key_points'], 1):
+
+        for i, point in enumerate(chapter_info.get("key_points") or [], 1):
             prompt += f"{i}. {point}\n"
 
-        prompt += f"\n目标字数: {chapter_info['target_words']} 字\n"
+        prompt += f"\n目标字数: {chapter_info.get('target_words', 8000)} 字\n"
         prompt += f"写作风格: {style}\n"
 
         if previous_summary:
@@ -489,6 +608,8 @@ class LongArticleService:
 3. 语言流畅，符合指定风格
 4. 适当使用案例、数据支撑观点
 5. 达到目标字数要求
+
+【格式约定】为便于自动排版，请适当使用：小节标题单独一行以 ## 开头；对话/引用以 > 开头；列表以 - 开头；段落之间空一行。不要使用 ``` 等代码块标记。
 
 请直接输出章节正文内容，不要包含章节标题。
 """
@@ -550,9 +671,18 @@ class LongArticleService:
         section_points: List[str],
         target_words: int,
         previous_context: Optional[str] = None,
+        story_context: Optional[Dict] = None,
     ) -> str:
-        """构建段落生成提示词"""
-        prompt = f"""你是一位专业的{style}作家，正在创作一篇关于"{topic}"的长篇文章。
+        """构建段落生成提示词；若提供 story_context 则按故事设定写"""
+        if story_context:
+            prompt = """你是一位擅长长篇叙事的作家，正在根据已有故事设定撰写长篇小说。
+
+【故事设定】请严格遵循已有人物、世界观与风格。核心主题与角色设定见前文。
+
+"""
+        else:
+            prompt = ""
+        prompt += f"""你是一位专业的{style}作家，正在创作一篇关于"{topic}"的长篇文章。
 
 当前任务：撰写《{chapter_title}》章节的第 {section_index + 1}/{total_sections} 段
 
@@ -574,6 +704,7 @@ class LongArticleService:
 3. 覆盖本段的关键要点
 4. 语言流畅，符合指定风格
 5. 如果是首段，可以有引入性内容；如果是末段，可以有总结性内容
+6. 可适当用 ## 小节、> 对话/引用、- 列表，段落间空一行。不要使用 ``` 代码块。
 
 请直接输出段落正文内容："""
 

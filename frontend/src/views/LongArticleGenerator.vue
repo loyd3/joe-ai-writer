@@ -269,13 +269,16 @@
 </template>
 
 <script setup>
-import { ref, computed, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   DocumentAdd, VideoPlay, Loading, CircleCheck, Clock,
   Download, View
 } from '@element-plus/icons-vue'
 import { longArticleApi } from '@/api/longArticle'
+
+const route = useRoute()
 
 // 表单
 const formRef = ref(null)
@@ -383,16 +386,26 @@ const handleCreate = async () => {
 }
 
 const fetchOutline = async () => {
+  if (!articleId.value) return
   generatingOutline.value = true
   try {
     const result = await longArticleApi.generateOutline(articleId.value)
     outline.value = result.outline
   } catch (e) {
-    ElMessage.error('大纲生成失败：' + (e.response?.data?.detail || e.message))
+    ElMessage.error('大纲加载失败：' + (e.response?.data?.detail || e.message))
   } finally {
     generatingOutline.value = false
   }
 }
+
+onMounted(async () => {
+  const id = route.query.articleId
+  if (id) {
+    articleId.value = Number(id)
+    step.value = 'outline'
+    await fetchOutline()
+  }
+})
 
 const regenerateOutline = async () => {
   generatingOutline.value = true

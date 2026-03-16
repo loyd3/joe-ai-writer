@@ -19,6 +19,15 @@
                 </div>
               </div>
             </el-dropdown-item>
+            <el-dropdown-item command="project-json">
+              <div class="export-option">
+                <el-icon><Folder /></el-icon>
+                <div class="option-info">
+                  <span class="option-title">导出为项目包 (JSON)</span>
+                  <span class="option-desc">可导入为新项目</span>
+                </div>
+              </div>
+            </el-dropdown-item>
           </template>
           <!-- 文档页：仅显示文档导出，不显示导出项目 -->
           <template v-else>
@@ -151,6 +160,10 @@ async function confirmExport() {
       response = await exportApi.exportProjectMarkdown(props.projectId, includeMemory.value)
       filename = `${props.projectTitle || 'project'}.md`
       mimeType = 'text/markdown'
+    } else if (command === 'project-json' && props.projectId) {
+      response = await exportApi.exportProjectJson(props.projectId, includeMemory.value)
+      filename = `${props.projectTitle || 'project'}.json`
+      mimeType = 'application/json'
     } else {
       ElMessage.error('导出参数错误')
       return

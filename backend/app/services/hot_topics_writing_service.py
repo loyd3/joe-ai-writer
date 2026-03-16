@@ -59,7 +59,9 @@ class HotTopicsWritingService:
 - 保持客观理性，避免过度情绪化表达
 - 确保事实准确，对敏感话题保持中立
 - 文章要有信息增量，不只是热点复述
-- 字数要达到大纲要求"""
+- 字数要达到大纲要求
+
+格式约定：小节标题单独一行以 ## 开头；引用以 > 开头；列表以 - 开头；段落之间空一行。不要使用 ``` 代码块。"""
 
     @staticmethod
     async def get_hot_topics() -> Dict[str, Any]:
@@ -207,7 +209,7 @@ class HotTopicsWritingService:
         if additional_requirements:
             user_prompt += f"\n额外要求：{additional_requirements}\n"
         
-        user_prompt += f"\n请直接输出文章正文，不需要包含'文章正文'等标记。字数要达到{target_words}字左右。"
+        user_prompt += f"\n请直接输出文章正文，不需要包含'文章正文'等标记。字数要达到{target_words}字左右。可适当用 ## 小节、> 引用、- 列表 等格式，段落间空一行。"
         
         messages = [
             {"role": "system", "content": HotTopicsWritingService.ARTICLE_SYSTEM_PROMPT},
@@ -290,38 +292,11 @@ class HotTopicsWritingService:
         outline_data: Optional[Dict[str, Any]] = None,
         user_id: int = None
     ) -> Document:
-        """将生成的文章保存为文档"""
-        from app.schemas.schemas import Block
-        
-        blocks = []
-        paragraphs = content.split('\n\n')
-        
-        for idx, para in enumerate(paragraphs):
-            para = para.strip()
-            if not para:
-                continue
-                
-            if para.startswith('#') or (len(para) < 30 and not any(c in para for c in '。，！？.,!?')):
-                block_type = "heading"
-                para = para.lstrip('#').strip()
-            else:
-                block_type = "paragraph"
-            
-            blocks.append({
-                "id": f"block-{idx}",
-                "type": block_type,
-                "content": para,
-                "props": {}
-            })
-        
-        if not blocks:
-            blocks = [{
-                "id": "block-0",
-                "type": "paragraph",
-                "content": content or "",
-                "props": {}
-            }]
-        
+        """将生成的文章保存为文档（自动解析 ##、>、- 等格式为块）"""
+        from app.utils.document_format import parse_formatted_text_to_blocks
+
+        blocks = parse_formatted_text_to_blocks(content, "hot")
+
         document = Document(
             title=title,
             project_id=project_id,
