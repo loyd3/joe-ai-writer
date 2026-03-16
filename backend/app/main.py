@@ -6,7 +6,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 import os
 from app.database import engine, Base
-from app.api import projects, ai, auth, search, export, templates, versions, extract, system, dashboard, hot_topics, publish, ai_story_generator, long_article, import_project
+from app.api import projects, ai, auth, search, export, templates, versions, extract, system, dashboard, hot_topics, publish, ai_story_generator, long_article, import_project, brainstorm
 from sqlalchemy import text
 
 # 创建数据库表
@@ -104,6 +104,7 @@ app.include_router(system.router)
 # app.include_router(rag.router)  # RAG 功能已移除
 app.include_router(dashboard.router)
 app.include_router(hot_topics.router)
+app.include_router(brainstorm.router)
 app.include_router(publish.router)
 app.include_router(ai_story_generator.router)
 app.include_router(long_article.router)

@@ -5,7 +5,7 @@ from typing import Optional
 import json
 
 from app.database import get_db
-from app.api.auth import get_current_user
+from app.api.auth import get_current_user, get_current_user_optional
 from app.services.hot_topics_writing_service import HotTopicsWritingService
 from app.services.hot_topics_service import HotTopicsService
 from app.schemas.schemas import HotTopicsRequest, HotTopicsOutlineRequest, HotTopicsArticleRequest
@@ -23,7 +23,7 @@ router = APIRouter(prefix="/api/hot-topics", tags=["hot-topics"])
 
 @router.get("/list")
 async def get_hot_topics(
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user_optional)
 ):
     """获取网络热点列表"""
     try:
