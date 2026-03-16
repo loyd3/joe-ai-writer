@@ -11,9 +11,9 @@ RUN apt-get update && apt-get install -y \
     gcc \
     && rm -rf /var/lib/apt/lists/*
 
-# 安装 Python 依赖（使用国内镜像源加速）
-COPY requirements.txt .
-RUN pip install --no-cache-dir -i https://pypi.tuna.tsinghua.edu.cn/simple -r requirements.txt
+# 安装 Python 依赖（使用国内镜像源加速，使用CPU版本torch减小体积）
+COPY requirements.docker.txt requirements.txt
+RUN pip install --no-cache-dir --default-timeout=300 -i https://pypi.tuna.tsinghua.edu.cn/simple -r requirements.txt
 
 # 复制代码
 COPY . .

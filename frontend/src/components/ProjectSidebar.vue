@@ -10,26 +10,7 @@
         <span>新建项目</span>
       </el-button>
     </div> -->
-    
-    <!-- AI工具菜单 -->
-    <div class="menu-section">
-      <div class="section-title">
-        <el-icon><MagicStick /></el-icon>
-        <span>AI 工具</span>
-      </div>
-      
-      <div class="tool-list">
-        <div
-          class="tool-item"
-          :class="{ active: route.path === '/hot-topics' }"
-          @click="router.push('/hot-topics')"
-        >
-          <el-icon class="tool-icon"><TrendCharts /></el-icon>
-          <span class="tool-title">热点写作</span>
-          <el-tag size="small" type="danger" effect="dark" class="hot-tag">HOT</el-tag>
-        </div>
-      </div>
-    </div>
+
     
     <div class="menu-section">
       <div class="section-title">

@@ -19,11 +19,12 @@ from app.core.auth import (
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
-# OAuth2 方案
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
+# OAuth2 方案（auto_error=False 允许可选认证）
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=False)
+oauth2_scheme_required = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
 
 async def get_current_user(
-    token: str = Depends(oauth2_scheme),
+    token: str = Depends(oauth2_scheme_required),
     db: Session = Depends(get_db)
 ) -> Optional[dict]:
     """获取当前登录用户"""
@@ -49,12 +50,20 @@ async def get_current_user_optional(
     token: Optional[str] = Depends(oauth2_scheme),
     db: Session = Depends(get_db)
 ) -> Optional[dict]:
-    """获取当前用户（可选）"""
+    """获取当前用户（可选）- 未登录返回 None 不报错"""
     if not token:
         return None
     try:
-        return await get_current_user(token, db)
-    except HTTPException:
+        token_data = decode_token(token)
+        if token_data is None or token_data.user_id is None:
+            return None
+        
+        user = get_user_by_id(db, token_data.user_id)
+        if user is None or not user.is_active:
+            return None
+        
+        return {"id": user.id, "username": user.username, "email": user.email}
+    except Exception:
         return None
 
 @router.post("/register", response_model=UserResponse)

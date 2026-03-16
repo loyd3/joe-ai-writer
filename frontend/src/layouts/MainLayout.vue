@@ -43,6 +43,14 @@
           </div>
           <div 
             class="nav-item" 
+            :class="{ active: $route.path === '/brainstorm-writing' }"
+            @click="$router.push('/brainstorm-writing')"
+          >
+            <el-icon><Lightning /></el-icon>
+            <span>脑洞写作</span>
+          </div>
+          <div 
+            class="nav-item" 
             :class="{ active: $route.path === '/ai-story-generator' }"
             @click="$router.push('/ai-story-generator')"
           >
@@ -146,7 +154,7 @@ import GlobalSearch from '@/components/GlobalSearch.vue'
 import AIConfigPanel from '@/components/AIConfigPanel.vue'
 import ProfileCenter from '@/components/ProfileCenter.vue'
 import { API_BASE_URL } from '@/api'
-import { EditPen, UserFilled, ArrowDown, User, Setting, SwitchButton, Cpu, HomeFilled, DataLine, TrendCharts, MagicStick, Document } from '@element-plus/icons-vue'
+import { EditPen, UserFilled, ArrowDown, User, Setting, SwitchButton, Cpu, HomeFilled, DataLine, TrendCharts, MagicStick, Document, Lightning } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
 const router = useRouter()

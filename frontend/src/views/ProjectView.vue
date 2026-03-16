@@ -538,7 +538,6 @@ async function onProjectFromLiteratureCreated(projectId: number) {
     display: flex;
     justify-content: space-between;
     align-items: flex-start;
-    flex-wrap: wrap;
   }
 }
 

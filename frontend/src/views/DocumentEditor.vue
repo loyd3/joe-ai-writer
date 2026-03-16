@@ -76,6 +76,10 @@
         </el-dropdown>
         <!-- 展开时显示的其余按钮 -->
         <template v-if="headerExpanded">
+          <el-button class="format-doc-btn" @click="doFormatDocument" title="整理排版 (Ctrl+Shift+F)">
+            <el-icon><Sort /></el-icon>
+            <span>整理排版</span>
+          </el-button>
           <el-button class="extract-btn" @click="showExtractDrawer = true">
             <el-icon><Aim /></el-icon>
             <span>AI 智能提取</span>
@@ -182,7 +186,7 @@ import AIGenerateFromMemory from '@/components/AIGenerateFromMemory.vue'
 import ExportMenu from '@/components/ExportMenu.vue'
 import { parseFormattedTextToBlocks } from '@/utils/formatToBlocks'
 import { ElMessageBox } from 'element-plus'
-import { ArrowLeft, ArrowRight, ArrowDown, ArrowUp, ChatDotRound, Check, Loading, CircleCheck, MoreFilled, Edit, Delete, Aim, MagicStick, Document, Collection, Files } from '@element-plus/icons-vue'
+import { ArrowLeft, ArrowRight, ArrowDown, ArrowUp, ChatDotRound, Check, Loading, CircleCheck, MoreFilled, Edit, Delete, Aim, MagicStick, Document, Collection, Files, Sort } from '@element-plus/icons-vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -202,7 +206,7 @@ const hasChanges = ref(false)
 const lastSaved = ref<Date | null>(null)
 const aiChatRef = ref<{ polishWithText: (text: string, blockIndex?: number) => Promise<void> } | null>(null)
 const exportMenuRef = ref<{ triggerExport: (command: string) => void } | null>(null)
-const headerExpanded = ref(false)
+const headerExpanded = ref(true)
 
 let autoSaveInterval: number | null = null
 
