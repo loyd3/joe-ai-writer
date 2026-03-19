@@ -1,208 +1,148 @@
 """
-脑洞写作 API 路由
+脑洞写作 API 路由 - 增强版
 """
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
-from typing import List, Dict, Any, Optional
-from pydantic import BaseModel
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sse_starlette.sse import EventSourceResponse
+from typing import Optional, List
+from pydantic import BaseModel, Field
+from app.services.enhanced_brainstorm_service import EnhancedBrainstormService
+from app.services.llm_service import LLMService
+from app.api.dependencies import get_llm_service
+import json
 
-from app.database import get_db
-from app.api.auth import get_current_user_optional
-from app.services.brainstorm_writing_service import BrainstormWritingService
-from app.services.hot_topics_service import HotTopicsService
-
-router = APIRouter(prefix="/api/brainstorm", tags=["brainstorm"])
-
-
-# ============ 请求/响应模型 ============
-
-class BrainstormCategoryResponse(BaseModel):
-    key: str
-    name: str
-    description: str
+router = APIRouter(prefix="/brainstorm", tags=["脑洞写作"])
 
 
-class BrainstormItem(BaseModel):
-    title: str
-    category: str
-    heat: int
-    concept: Optional[str] = None
-    description: Optional[str] = None
-    original_topic: Optional[str] = None
-    source: Optional[str] = None
+class GenerateIdeaRequest(BaseModel):
+    mode: str = Field(default="random", description="创意模式")
+    keywords: Optional[List[str]] = Field(default=None, description="关键词列表")
+    count: int = Field(default=3, ge=1, le=5, description="生成数量")
 
 
-class BrainstormOutlineRequest(BaseModel):
-    title: str
-    category: str
-    concept: Optional[str] = None
-    style: str = "幽默风趣"
-    word_count: str = "medium"
+class ExpandIdeaRequest(BaseModel):
+    idea: dict = Field(..., description="要扩展的创意")
+    expansion_type: str = Field(default="outline", description="扩展类型")
+    detail_level: str = Field(default="standard", description="详细程度")
 
 
-class BrainstormArticleRequest(BaseModel):
-    title: str
-    category: str
-    concept: Optional[str] = None
-    style: str = "幽默风趣"
-    word_count: str = "medium"
-    outline: Optional[Dict[str, Any]] = None
+class GenerateContentRequest(BaseModel):
+    idea: dict = Field(..., description="创意内容")
+    content_type: str = Field(default="opening", description="内容类型")
+    word_count: int = Field(default=1000, ge=500, le=5000)
+    style: str = Field(default="creative", description="写作风格")
 
 
-class ArticleResponse(BaseModel):
-    title: str
-    content: str
-    word_count: int
-    style: str
-    generated_at: str
+class RemixIdeasRequest(BaseModel):
+    ideas: List[dict] = Field(..., description="要混合的创意列表")
 
 
-# ============ API 端点 ============
-
-@router.get("/categories", response_model=List[BrainstormCategoryResponse])
-async def get_brainstorm_categories():
-    """获取所有脑洞分类"""
-    return BrainstormWritingService.get_categories()
+def get_brainstorm_service(
+    llm_service: LLMService = Depends(get_llm_service)
+) -> EnhancedBrainstormService:
+    return EnhancedBrainstormService(llm_service)
 
 
-@router.get("/trending", response_model=List[BrainstormItem])
-async def get_trending_brainstorms(limit: int = 20):
-    """获取热门脑洞话题"""
-    brainstorms = BrainstormWritingService.get_trending_brainstorms(limit)
-    return brainstorms
-
-
-@router.get("/random")
-async def get_random_brainstorm(category: Optional[str] = None):
-    """获取随机脑洞话题"""
-    brainstorm = BrainstormWritingService.generate_random_brainstorm(category)
-    return brainstorm
-
-
-@router.get("/from-hot-topics")
-async def get_brainstorms_from_hot_topics(limit: int = 5):
-    """基于当前热点生成脑洞话题"""
-    brainstorms = await BrainstormWritingService.generate_from_hot_topics(limit)
-    return {
-        "brainstorms": brainstorms,
-        "total": len(brainstorms)
-    }
-
-
-@router.post("/generate-outline")
-async def generate_brainstorm_outline(
-    request: BrainstormOutlineRequest,
-    current_user: Optional[Dict] = Depends(get_current_user_optional),
-    db: Session = Depends(get_db)
+@router.get("/modes")
+async def get_creative_modes(
+    service: EnhancedBrainstormService = Depends(get_brainstorm_service)
 ):
-    """为脑洞话题生成大纲"""
-    brainstorm = {
-        "title": request.title,
-        "category": request.category,
-        "concept": request.concept
-    }
-    
-    outline = await BrainstormWritingService.generate_outline(
-        brainstorm=brainstorm,
-        style=request.style,
-        word_count=request.word_count,
-        db=db
-    )
-    
+    """获取创意模式列表"""
     return {
-        "success": True,
-        "outline": outline,
-        "brainstorm": brainstorm
+        "modes": service.get_creative_modes()
     }
 
 
-@router.post("/generate-article")
-async def generate_brainstorm_article(
-    request: BrainstormArticleRequest,
-    current_user: Optional[Dict] = Depends(get_current_user_optional),
-    db: Session = Depends(get_db)
+@router.get("/elements")
+async def get_random_elements(
+    count: int = Query(4, ge=1, le=8),
+    service: EnhancedBrainstormService = Depends(get_brainstorm_service)
 ):
-    """根据脑洞话题生成完整文章"""
-    brainstorm = {
-        "title": request.title,
-        "category": request.category,
-        "concept": request.concept
-    }
-    
-    article = await BrainstormWritingService.generate_article(
-        brainstorm=brainstorm,
-        outline=request.outline,
-        style=request.style,
-        word_count=request.word_count,
-        db=db
-    )
-    
+    """获取随机创意元素"""
     return {
-        "success": True,
-        "article": article
+        "elements": service.get_random_elements(count)
     }
 
 
-@router.post("/quick-generate")
-async def quick_generate_brainstorm_article(
-    category: Optional[str] = None,
-    style: str = "幽默风趣",
-    word_count: str = "medium",
-    current_user: Optional[Dict] = Depends(get_current_user_optional),
-    db: Session = Depends(get_db)
+@router.post("/generate")
+async def generate_ideas(
+    request: GenerateIdeaRequest,
+    service: EnhancedBrainstormService = Depends(get_brainstorm_service)
 ):
-    """快速生成：随机选择脑洞话题并生成文章"""
-    # 生成随机脑洞
-    brainstorm = BrainstormWritingService.generate_random_brainstorm(category)
-    
-    # 生成文章
-    article = await BrainstormWritingService.generate_article(
-        brainstorm=brainstorm,
-        style=style,
-        word_count=word_count,
-        db=db
-    )
-    
-    return {
-        "success": True,
-        "brainstorm": brainstorm,
-        "article": article
-    }
-
-
-@router.post("/from-hot-topic/{index}")
-async def generate_from_hot_topic_index(
-    index: int = 0,
-    style: str = "幽默风趣",
-    word_count: str = "medium",
-    current_user: Optional[Dict] = Depends(get_current_user_optional),
-    db: Session = Depends(get_db)
-):
-    """基于指定索引的热点生成脑洞文章"""
-    # 获取热点
-    hot_topics_data = await HotTopicsService.fetch_all_hot_topics()
-    hot_topics = hot_topics_data.get("topics", [])
-    
-    if not hot_topics or index >= len(hot_topics):
-        raise HTTPException(
-            status_code=404,
-            detail="没有找到指定索引的热点"
+    """
+    生成创意脑洞
+    """
+    try:
+        result = await service.generate_idea(
+            mode=request.mode,
+            keywords=request.keywords,
+            count=request.count
         )
-    
-    # 生成脑洞
-    brainstorm = BrainstormWritingService.generate_brainstorm_from_hot_topic(hot_topics[index])
-    
-    # 生成文章
-    article = await BrainstormWritingService.generate_article(
-        brainstorm=brainstorm,
-        style=style,
-        word_count=word_count,
-        db=db
-    )
-    
-    return {
-        "success": True,
-        "hot_topic": hot_topics[index],
-        "brainstorm": brainstorm,
-        "article": article
-    }
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/expand")
+async def expand_idea(
+    request: ExpandIdeaRequest,
+    service: EnhancedBrainstormService = Depends(get_brainstorm_service)
+):
+    """
+    扩展创意为完整方案
+    """
+    try:
+        result = await service.expand_idea(
+            idea=request.idea,
+            expansion_type=request.expansion_type,
+            detail_level=request.detail_level
+        )
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/generate-stream")
+async def generate_content_stream(
+    request: GenerateContentRequest,
+    service: EnhancedBrainstormService = Depends(get_brainstorm_service)
+):
+    """
+    流式生成内容
+    """
+    async def event_generator():
+        try:
+            async for chunk in service.generate_content_stream(
+                idea=request.idea,
+                content_type=request.content_type,
+                word_count=request.word_count,
+                style=request.style
+            ):
+                yield {
+                    "event": "message",
+                    "data": json.dumps(chunk, ensure_ascii=False)
+                }
+        except Exception as e:
+            yield {
+                "event": "error",
+                "data": json.dumps({"error": str(e)}, ensure_ascii=False)
+            }
+
+    return EventSourceResponse(event_generator())
+
+
+@router.post("/remix")
+async def remix_ideas(
+    request: RemixIdeasRequest,
+    service: EnhancedBrainstormService = Depends(get_brainstorm_service)
+):
+    """
+    混合多个创意
+    """
+    try:
+        result = service.remix_ideas(request.ideas)
+        return {
+            "success": True,
+            "remixed_idea": result
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

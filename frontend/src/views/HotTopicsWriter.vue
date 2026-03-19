@@ -135,11 +135,11 @@
           </template>
 
           <!-- 标题选项 -->
-          <div class="section">
+          <div class="section" v-if="outlineTitles.length > 0">
             <h4>📝 标题选项（请选择一个）</h4>
             <el-radio-group v-model="selectedTitle" class="title-options">
               <el-radio
-                v-for="(title, idx) in generatedOutline.title_options"
+                v-for="(title, idx) in outlineTitles"
                 :key="idx"
                 :label="title"
                 class="title-radio"
@@ -150,32 +150,38 @@
           </div>
 
           <!-- 文章角度 -->
-          <div class="section">
+          <div class="section" v-if="generatedOutline?.angle">
             <h4>🎯 切入角度</h4>
             <p>{{ generatedOutline.angle }}</p>
           </div>
 
           <!-- 目标受众 -->
-          <div class="section">
+          <div class="section" v-if="generatedOutline?.target_audience">
             <h4>👥 目标受众</h4>
             <p>{{ generatedOutline.target_audience }}</p>
           </div>
 
+          <!-- 导语 -->
+          <div class="section" v-if="generatedOutline?.introduction">
+            <h4>📖 导语</h4>
+            <p>{{ generatedOutline.introduction }}</p>
+          </div>
+
           <!-- 文章结构 -->
-          <div class="section">
+          <div class="section" v-if="outlineSections.length > 0">
             <h4>📊 文章结构</h4>
             <div class="structure-list">
               <div
-                v-for="(section, idx) in generatedOutline.structure"
+                v-for="(section, idx) in outlineSections"
                 :key="idx"
                 class="structure-item"
               >
                 <div class="section-header">
                   <span class="section-num">{{ idx + 1 }}</span>
                   <span class="section-name">{{ section.section }}</span>
-                  <el-tag size="small">{{ section.word_count }}字</el-tag>
+                  <el-tag v-if="section.word_count" size="small">{{ section.word_count }}字</el-tag>
                 </div>
-                <ul class="key-points">
+                <ul class="key-points" v-if="section.key_points?.length > 0">
                   <li v-for="(point, pidx) in section.key_points" :key="pidx">{{ point }}</li>
                 </ul>
                 <p v-if="section.writing_tips" class="writing-tips">
@@ -185,12 +191,30 @@
             </div>
           </div>
 
+          <!-- 结尾建议 -->
+          <div class="section" v-if="generatedOutline?.conclusion">
+            <h4>🏁 结尾建议</h4>
+            <p>{{ generatedOutline.conclusion }}</p>
+          </div>
+
+          <!-- 写作风格 -->
+          <div class="section" v-if="generatedOutline?.style">
+            <h4>🎨 写作风格</h4>
+            <p>{{ generatedOutline.style }}</p>
+          </div>
+
           <!-- 关键词 -->
-          <div class="section">
+          <div class="section" v-if="outlineKeywords.length > 0">
             <h4>🔑 关键词</h4>
-            <el-tag v-for="keyword in generatedOutline.keywords" :key="keyword" class="keyword-tag">
+            <el-tag v-for="keyword in outlineKeywords" :key="keyword" class="keyword-tag">
               {{ keyword }}
             </el-tag>
+          </div>
+
+          <!-- 万能兜底：如果上面所有结构化字段都为空，直接渲染原始数据 -->
+          <div class="section" v-if="outlineTitles.length === 0 && outlineSections.length === 0 && generatedOutline?._raw">
+            <h4>📄 大纲详情</h4>
+            <pre class="raw-outline">{{ generatedOutline._raw }}</pre>
           </div>
 
           <div class="action-buttons">
@@ -226,7 +250,6 @@
           </div>
 
           <div v-else class="article-content">
-            <h1 class="article-title">{{ selectedTitle }}</h1>
             <div class="article-body" v-html="renderedArticle"></div>
           </div>
         </el-card>
@@ -245,6 +268,7 @@
                 style="width: 100%"
                 filterable
               >
+                <el-option :key="'__new__'" :label="'➕ 新建项目'" :value="-1" />
                 <el-option
                   v-for="project in projects"
                   :key="project.id"
@@ -252,6 +276,10 @@
                   :value="project.id"
                 />
               </el-select>
+            </el-form-item>
+
+            <el-form-item v-if="saveConfig.projectId === -1" label="新项目名称">
+              <el-input v-model="newProjectName" placeholder="请输入新项目名称" />
             </el-form-item>
 
             <el-form-item label="文档标题">
@@ -331,9 +359,18 @@ import { Refresh, TrendCharts, MagicStick, EditPen, DocumentChecked, Search, Pro
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 import { useProjectStore } from '@/stores/project'
+import { API_BASE_URL } from '@/api'
 
 const router = useRouter()
 const projectStore = useProjectStore()
+
+marked.setOptions({
+  breaks: false,
+  gfm: true,
+})
+
+// API 基础 URL
+const API_BASE = import.meta.env.VITE_API_URL || API_BASE_URL
 
 // 状态
 const currentStep = ref(0)
@@ -373,6 +410,7 @@ const saveConfig = ref({
   projectId: null as number | null,
   title: ''
 })
+const newProjectName = ref('')
 
 // 计算属性
 const projects = computed(() => projectStore.projects)
@@ -388,15 +426,39 @@ const filteredTopics = computed(() => {
 
 const renderedArticle = computed(() => {
   if (!generatedArticle.value) return ''
-  const html = marked(generatedArticle.value)
-  return DOMPurify.sanitize(html)
+  let md = generatedArticle.value.trim()
+  // 如果文章没有以标题开头，补上选中的标题
+  if (selectedTitle.value && !md.startsWith('#')) {
+    md = `# ${selectedTitle.value}\n\n${md}`
+  }
+  const html = marked(md)
+  return DOMPurify.sanitize(html as string)
+})
+
+const outlineTitles = computed(() => {
+  const o = generatedOutline.value
+  if (!o) return []
+  const arr = o.title_options || o.titles || []
+  return Array.isArray(arr) ? arr : []
+})
+
+const outlineSections = computed(() => {
+  const o = generatedOutline.value
+  if (!o) return []
+  return Array.isArray(o.structure) ? o.structure : []
+})
+
+const outlineKeywords = computed(() => {
+  const o = generatedOutline.value
+  if (!o) return []
+  return Array.isArray(o.keywords) ? o.keywords : []
 })
 
 // 方法
 const fetchHotTopics = async () => {
   loading.value = true
   try {
-    const response = await fetch('/api/hot-topics/list', {
+    const response = await fetch(`${API_BASE}/api/hot-topics/list`, {
       headers: {
         'Authorization': `Bearer ${localStorage.getItem('token')}`
       }
@@ -451,7 +513,7 @@ const generateOutline = async () => {
   }, 500)
   
   try {
-    const response = await fetch('/api/hot-topics/generate-outline', {
+    const response = await fetch(`${API_BASE}/api/hot-topics/generate-outline`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -471,9 +533,10 @@ const generateOutline = async () => {
     
     if (!response.ok) throw new Error('生成大纲失败')
     const data = await response.json()
+    console.log('[热点写作] 大纲返回:', JSON.stringify(data.outline, null, 2))
     
-    generatedOutline.value = data.outline
-    selectedTitle.value = data.outline.title_options?.[0] || ''
+    generatedOutline.value = data.outline || {}
+    selectedTitle.value = (data.outline?.title_options || [])[0] || selectedTopic.value?.title || ''
     
     setTimeout(() => {
       currentStep.value = 2
@@ -500,7 +563,7 @@ const generateArticle = async () => {
   generatedArticle.value = ''
   
   try {
-    const response = await fetch('/api/hot-topics/generate-article/stream', {
+    const response = await fetch(`${API_BASE}/api/hot-topics/generate-article/stream`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -527,7 +590,7 @@ const generateArticle = async () => {
           const data = line.slice(6)
           if (data === '[DONE]') {
             articleProgress.value = 100
-          } else {
+          } else if (!data.startsWith('[ERROR]')) {
             generatedArticle.value += data
             articleProgress.value = Math.min(articleProgress.value + 2, 95)
           }
@@ -555,10 +618,27 @@ const saveDocument = async () => {
     ElMessage.warning('请选择项目并输入文档标题')
     return
   }
-  
+
+  if (saveConfig.value.projectId === -1) {
+    if (!newProjectName.value.trim()) {
+      ElMessage.warning('请输入新项目名称')
+      return
+    }
+    saving.value = true
+    try {
+      const project = await projectStore.createProject({ title: newProjectName.value.trim() } as any)
+      saveConfig.value.projectId = project.id
+      newProjectName.value = ''
+    } catch (e) {
+      ElMessage.error('创建项目失败')
+      saving.value = false
+      return
+    }
+  }
+
   saving.value = true
   try {
-    const response = await fetch('/api/hot-topics/create-document', {
+    const response = await fetch(`${API_BASE}/api/hot-topics/create-document`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -590,10 +670,27 @@ const quickWrite = async () => {
     ElMessage.warning('请选择要保存的项目')
     return
   }
-  
+
+  if (saveConfig.value.projectId === -1) {
+    if (!newProjectName.value.trim()) {
+      ElMessage.warning('请输入新项目名称')
+      return
+    }
+    quickWriting.value = true
+    try {
+      const project = await projectStore.createProject({ title: newProjectName.value.trim() } as any)
+      saveConfig.value.projectId = project.id
+      newProjectName.value = ''
+    } catch (e) {
+      ElMessage.error('创建项目失败')
+      quickWriting.value = false
+      return
+    }
+  }
+
   quickWriting.value = true
   try {
-    const response = await fetch('/api/hot-topics/quick-write', {
+    const response = await fetch(`${API_BASE}/api/hot-topics/quick-write`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -612,10 +709,10 @@ const quickWrite = async () => {
     if (!response.ok) throw new Error('一键写作失败')
     const data = await response.json()
     
-    generatedOutline.value = data.outline
-    generatedArticle.value = data.article
+    generatedOutline.value = data.outline || {}
+    generatedArticle.value = ((data.article || '').toString().trimEnd() + '\n')
     savedDoc.value = data.document
-    selectedTitle.value = data.outline.title_options?.[0] || ''
+    selectedTitle.value = (data.outline?.title_options || [])[0] || ''
     saveConfig.value.title = selectedTitle.value
     
     ElMessage.success('文章已生成并保存')
@@ -642,7 +739,7 @@ const publishToWechat = async () => {
   
   publishing.value = true
   try {
-    const response = await fetch('/api/publish/wechat/draft', {
+    const response = await fetch(`${API_BASE}/api/publish/wechat/draft`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -693,7 +790,7 @@ const publishToWechatMock = async () => {
   
   publishing.value = true
   try {
-    const response = await fetch('/api/publish/wechat/draft', {
+    const response = await fetch(`${API_BASE}/api/publish/wechat/draft`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -770,6 +867,42 @@ onMounted(() => {
 
 .step-content {
   min-height: 400px;
+}
+
+.empty-hint {
+  margin-top: 8px;
+  color: #888;
+  font-size: 13px;
+}
+
+.outline-fallback {
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px dashed #ddd;
+  border-radius: 8px;
+  background: #fafafa;
+}
+
+.fallback-block {
+  margin-bottom: 10px;
+}
+
+.fallback-block h5 {
+  margin: 0 0 6px 0;
+  font-size: 14px;
+}
+
+.raw-outline {
+  background: #f5f7fa;
+  border: 1px solid #e4e7ed;
+  border-radius: 8px;
+  padding: 16px;
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 500px;
+  overflow-y: auto;
 }
 
 .toolbar {
@@ -1027,16 +1160,88 @@ onMounted(() => {
   }
 }
 
-.streaming-content {
+.streaming-content,
+.article-body {
   text-align: left;
   padding: 20px;
-  background: #f5f7fa;
+  background: #fafafa;
   border-radius: 8px;
   min-height: 200px;
-  max-height: 400px;
+  max-height: 600px;
   overflow-y: auto;
   margin-top: 16px;
-  line-height: 1.8;
+  line-height: 1.9;
+  font-size: 15px;
+  color: #303133;
+
+  :deep(h1) {
+    font-size: 24px;
+    font-weight: 700;
+    text-align: center;
+    margin: 0 0 24px;
+    padding-bottom: 12px;
+    border-bottom: 2px solid #409eff;
+  }
+
+  :deep(h1 ~ h1) {
+    font-size: 20px;
+    text-align: left;
+    margin: 28px 0 14px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid #ebeef5;
+  }
+
+  :deep(h2) {
+    font-size: 19px;
+    font-weight: 600;
+    margin: 24px 0 12px;
+  }
+
+  :deep(h3) {
+    font-size: 17px;
+    font-weight: 600;
+    margin: 20px 0 10px;
+  }
+
+  :deep(p) {
+    margin-bottom: 14px;
+    text-indent: 2em;
+  }
+
+  :deep(blockquote) {
+    border-left: 4px solid #409eff;
+    padding: 10px 16px;
+    margin: 16px 0;
+    color: #606266;
+    background: #f0f5ff;
+    border-radius: 0 6px 6px 0;
+  }
+
+  :deep(ul), :deep(ol) {
+    padding-left: 2em;
+    margin-bottom: 14px;
+  }
+
+  :deep(li) {
+    margin-bottom: 6px;
+  }
+
+  :deep(strong) {
+    color: #303133;
+  }
+
+  :deep(hr) {
+    border: none;
+    border-top: 1px solid #ebeef5;
+    margin: 20px 0;
+  }
+
+  :deep(code) {
+    background: #f0f2f5;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 0.9em;
+  }
 }
 
 .article-content {
@@ -1046,28 +1251,6 @@ onMounted(() => {
     text-align: center;
     margin-bottom: 30px;
     color: #303133;
-  }
-
-  .article-body {
-    line-height: 2;
-    color: #303133;
-
-    :deep(h1), :deep(h2), :deep(h3) {
-      margin: 24px 0 16px;
-      color: #303133;
-    }
-
-    :deep(p) {
-      margin-bottom: 16px;
-      text-indent: 2em;
-    }
-
-    :deep(blockquote) {
-      border-left: 4px solid #409eff;
-      padding-left: 16px;
-      margin: 16px 0;
-      color: #606266;
-    }
   }
 }
 

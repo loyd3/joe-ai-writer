@@ -1,3 +1,4 @@
+import uuid
 from pydantic import BaseModel, EmailStr, Field
 from typing import List, Optional, Dict, Any
 from datetime import datetime
@@ -99,9 +100,9 @@ class AIMemoryResponse(AIMemoryBase):
 
 # ========== Document Schemas ==========
 class Block(BaseModel):
-    id: str
-    type: str  # 'paragraph', 'heading', 'list', 'quote', etc.
-    content: str
+    id: str = Field(default_factory=lambda: uuid.uuid4().hex[:8])
+    type: str = "paragraph"
+    content: str = ""
     props: Optional[Dict[str, Any]] = {}
 
 class DocumentBase(BaseModel):

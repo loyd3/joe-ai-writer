@@ -327,9 +327,18 @@ import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { MagicStick, Refresh, Delete, FolderChecked, Plus, Check, Document } from '@element-plus/icons-vue'
 import { useProjectStore } from '@/stores/project'
+import { useAuthStore } from '@/stores/auth'
+import { API_BASE_URL } from '@/api'
 
 const router = useRouter()
 const projectStore = useProjectStore()
+const authStore = useAuthStore()
+
+// API 基础 URL
+const API_BASE = import.meta.env.VITE_API_URL || API_BASE_URL
+
+// 获取当前 token（优先 store，避免 store 未同步时漏带）
+const getAuthToken = () => authStore.token || localStorage.getItem('token')
 
 // 状态
 const generating = ref(false)
@@ -373,6 +382,12 @@ const generateStory = async () => {
     ElMessage.warning('请输入故事主题')
     return
   }
+  const token = getAuthToken()
+  if (!token) {
+    ElMessage.warning('请先登录后再使用故事生成')
+    router.push('/login')
+    return
+  }
 
   generating.value = true
   progress.value = 0
@@ -394,11 +409,11 @@ const generateStory = async () => {
   }, 800)
 
   try {
-    const response = await fetch('/api/ai-story-generator/generate/stream', {
+    const response = await fetch(`${API_BASE}/api/ai-story-generator/generate/stream`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${localStorage.getItem('token')}`
+        'Authorization': `Bearer ${token}`
       },
       body: JSON.stringify({
         theme: form.value.theme,
@@ -409,8 +424,20 @@ const generateStory = async () => {
     })
 
     if (!response.ok) {
-      const error = await response.json()
-      throw new Error(error.detail || '生成失败')
+      if (response.status === 401) {
+        // 仅提示并跳转，不主动清除 token，避免因代理未转发 header 等原因误登出
+        ElMessage.warning('登录已过期或未生效，请重新登录')
+        router.push('/login')
+        throw new Error('请重新登录')
+      }
+      let detail = '生成失败'
+      try {
+        const error = await response.json()
+        detail = error.detail ?? detail
+      } catch {
+        detail = response.statusText || detail
+      }
+      throw new Error(detail)
     }
 
     // 处理流式响应 (SSE 格式)：按事件缓冲解析，避免多行/分包导致解析失败
@@ -559,11 +586,11 @@ const confirmAndCreateProject = async () => {
     }
     if (generatedStory.value) payload.story_data = generatedStory.value
 
-    const response = await fetch('/api/ai-story-generator/quick-create-project', {
+    const response = await fetch(`${API_BASE}/api/ai-story-generator/quick-create-project`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${localStorage.getItem('token')}`
+        'Authorization': `Bearer ${getAuthToken()}`
       },
       body: JSON.stringify(payload)
     })
@@ -597,11 +624,11 @@ const applyToProject = async () => {
 
   applying.value = true
   try {
-    const response = await fetch('/api/ai-story-generator/apply-to-project', {
+    const response = await fetch(`${API_BASE}/api/ai-story-generator/apply-to-project`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${localStorage.getItem('token')}`
+        'Authorization': `Bearer ${getAuthToken()}`
       },
       body: JSON.stringify({
         project_id: applyForm.value.projectId,
@@ -639,11 +666,11 @@ const createLongArticle = async () => {
   }
   longFormCreating.value = true
   try {
-    const res = await fetch(`${import.meta.env.VITE_API_BASE_URL || ''}/api/long-article/create`, {
+    const res = await fetch(`${API_BASE}/api/long-article/create`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${localStorage.getItem('token')}`
+        Authorization: `Bearer ${getAuthToken()}`
       },
       body: JSON.stringify({
         project_id: longFormProjectId.value,
@@ -679,11 +706,11 @@ const quickCreateProject = async () => {
     if (generatedStory.value) {
       payload.story_data = generatedStory.value
     }
-    const response = await fetch('/api/ai-story-generator/quick-create-project', {
+    const response = await fetch(`${API_BASE}/api/ai-story-generator/quick-create-project`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${localStorage.getItem('token')}`
+        'Authorization': `Bearer ${getAuthToken()}`
       },
       body: JSON.stringify(payload)
     })

@@ -276,9 +276,11 @@ import {
   DocumentAdd, VideoPlay, Loading, CircleCheck, Clock,
   Download, View
 } from '@element-plus/icons-vue'
-import { longArticleApi } from '@/api/longArticle'
+import { longArticleApi, API_BASE_URL } from '@/api/longArticle'
 
 const route = useRoute()
+
+const API_BASE = import.meta.env.VITE_API_URL || API_BASE_URL
 
 // 表单
 const formRef = ref(null)
@@ -432,7 +434,7 @@ const connectSSE = () => {
   }
 
   const es = new EventSource(
-    `${import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'}/api/long-article/generate/${articleId.value}`
+    `${API_BASE}/api/long-article/generate/${articleId.value}`
   )
 
   es.onmessage = (event) => {

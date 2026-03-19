@@ -108,6 +108,10 @@ const loading = ref(false)
 const saving = ref(false)
 const uploading = ref(false)
 const changingPassword = ref(false)
+
+// 支持环境变量覆盖 API_BASE_URL
+const BASE_URL = import.meta.env.VITE_API_URL || API_BASE_URL
+
 const profile = ref<{
   id: number
   username: string
@@ -126,7 +130,7 @@ const passwordForm = ref({
 
 const avatarDisplayUrl = computed(() => {
   if (!profile.value?.avatar_url) return ''
-  const base = API_BASE_URL.replace(/\/api\/?$/, '')
+  const base = BASE_URL.replace(/\/api\/?$/, '')
   return base + profile.value.avatar_url
 })
 

@@ -3,10 +3,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
-from starlette.responses import JSONResponse
+from starlette.responses import JSONResponse, RedirectResponse
 import os
 from app.database import engine, Base
-from app.api import projects, ai, auth, search, export, templates, versions, extract, system, dashboard, hot_topics, publish, ai_story_generator, long_article, import_project, brainstorm
+from app.api import projects, ai, auth, search, export, templates, versions, extract, system, dashboard, hot_topics, publish, ai_story_generator, long_article, import_project, brainstorm, auto_write
+from app.api import hot_topics_compat, brainstorm_compat
 from sqlalchemy import text
 
 # 创建数据库表
@@ -105,9 +106,12 @@ app.include_router(system.router)
 app.include_router(dashboard.router)
 app.include_router(hot_topics.router)
 app.include_router(brainstorm.router)
+app.include_router(hot_topics_compat.router)
+app.include_router(brainstorm_compat.router)
 app.include_router(publish.router)
 app.include_router(ai_story_generator.router)
 app.include_router(long_article.router)
+app.include_router(auto_write.router)
 
 app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
@@ -115,6 +119,15 @@ app.mount("/static", StaticFiles(directory=static_dir), name="static")
 def root():
     return {"message": "墨心 API · AI 辅助写作", "version": "2.0.0"}
 
+@app.api_route("/auth/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])
+def auth_compat_redirect(path: str):
+    """
+    兼容旧地址：/auth/* -> /api/auth/*
+    使用 307 以保留方法（尤其是 POST /auth/login）。
+    """
+    return RedirectResponse(url=f"/api/auth/{path}", status_code=307)
+
 @app.get("/health")
+@app.get("/api/health")
 def health():
     return {"status": "ok"}
