@@ -135,25 +135,27 @@
           <div v-if="outline" class="outline-section">
             <h3>📋 文章大纲</h3>
             <div class="outline-content">
-              <h4>{{ outline.title }}</h4>
+              <h4>{{ outline.title || selectedBrainstorm?.title }}</h4>
               <div class="angle" v-if="outline.angle">
                 <strong>写作角度：</strong>{{ outline.angle }}
               </div>
-              <div class="sections">
+              <div class="sections" v-if="(outline.sections || []).length > 0">
                 <div
                   v-for="(section, idx) in outline.sections"
                   :key="idx"
                   class="outline-section-item"
                 >
-                  <h5>{{ idx + 1 }}. {{ section.name }}</h5>
-                  <ul>
+                  <h5>{{ idx + 1 }}. {{ section.name || section.title || '章节' }}</h5>
+                  <ul v-if="(section.points || []).length > 0">
                     <li v-for="(point, pidx) in section.points" :key="pidx">
                       {{ point }}
                     </li>
                   </ul>
                 </div>
               </div>
-              <div class="keywords" v-if="outline.keywords?.length">
+              <!-- fallback: 如果 outline 是字符串 -->
+              <pre v-if="typeof outline === 'string'" class="outline-raw">{{ outline }}</pre>
+              <div class="keywords" v-if="(outline.keywords || []).length > 0">
                 <strong>关键词：</strong>
                 <span
                   v-for="(kw, idx) in outline.keywords"
@@ -182,10 +184,10 @@
             <div class="article-content">
               <h1>{{ article.title }}</h1>
               <div class="article-meta">
-                <span>风格：{{ article.style }}</span>
-                <span>字数：{{ article.word_count }}</span>
+                <span v-if="article.style">风格：{{ article.style }}</span>
+                <span v-if="article.word_count">字数：{{ article.word_count }}</span>
               </div>
-              <div class="article-body" v-html="formatContent(article.content)"></div>
+              <div class="article-body" v-html="renderedArticle"></div>
             </div>
           </div>
         </div>
@@ -213,7 +215,7 @@
             :label="project.id"
             class="project-radio"
           >
-            {{ project.name }}
+            {{ project.title }}
           </el-radio>
         </el-radio-group>
       </div>
@@ -266,14 +268,18 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { marked } from 'marked'
+import DOMPurify from 'dompurify'
 import axios from 'axios'
 import { useAuthStore } from '@/stores/auth'
-import { projectApi, documentApi } from '@/api'
+import { projectApi, documentApi, API_BASE_URL } from '@/api'
 import type { Block } from '@/api/types'
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+marked.setOptions({ breaks: false, gfm: true })
+
+const API_BASE = import.meta.env.VITE_API_URL || API_BASE_URL
 const authStore = useAuthStore()
 
 // 状态
@@ -429,20 +435,18 @@ const quickGenerate = async () => {
   }
 }
 
+// 渲染文章 Markdown
+const renderedArticle = computed(() => {
+  if (!article.value?.content) return ''
+  return DOMPurify.sanitize(marked(article.value.content) as string)
+})
+
 // 格式化热度
 const formatHeat = (heat) => {
   if (heat >= 10000) {
     return (heat / 10000).toFixed(1) + 'w'
   }
   return heat.toString()
-}
-
-// 格式化文章内容
-const formatContent = (content) => {
-  return content
-    .replace(/\n\n/g, '</p><p>')
-    .replace(/\n/g, '<br>')
-    .replace(/^(.+)$/gm, '<p>$1</p>')
 }
 
 // 复制文章
@@ -501,7 +505,7 @@ const saveArticle = async () => {
     // 如果选择了创建新项目
     if (!projectId && newProjectName.value.trim()) {
       const createRes = await projectApi.create({
-        name: newProjectName.value.trim()
+        title: newProjectName.value.trim()
       })
       projectId = createRes.data.id
     }
@@ -961,14 +965,58 @@ onMounted(() => {
   }
 
   .article-body {
-    line-height: 1.8;
+    line-height: 1.9;
     color: #333;
     font-size: 15px;
 
-    p {
-      margin-bottom: 16px;
+    :deep(h1), :deep(h2), :deep(h3) {
+      margin: 24px 0 12px;
+      color: #303133;
+    }
+
+    :deep(h2) { font-size: 19px; }
+    :deep(h3) { font-size: 17px; }
+
+    :deep(p) {
+      margin-bottom: 14px;
+      text-indent: 2em;
+    }
+
+    :deep(blockquote) {
+      border-left: 4px solid #409eff;
+      padding: 10px 16px;
+      margin: 16px 0;
+      color: #606266;
+      background: #f0f5ff;
+      border-radius: 0 6px 6px 0;
+    }
+
+    :deep(ul), :deep(ol) {
+      padding-left: 2em;
+      margin-bottom: 14px;
+    }
+
+    :deep(li) { margin-bottom: 6px; }
+
+    :deep(hr) {
+      border: none;
+      border-top: 1px solid #ebeef5;
+      margin: 20px 0;
     }
   }
+}
+
+.outline-raw {
+  background: #f5f7fa;
+  border: 1px solid #e4e7ed;
+  border-radius: 8px;
+  padding: 16px;
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 400px;
+  overflow-y: auto;
 }
 
 @media (max-width: 1024px) {

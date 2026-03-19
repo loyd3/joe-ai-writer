@@ -10,9 +10,12 @@ import type {
   AIConfig, Theme
 } from './types'
 
-// Docker 环境使用 localhost:9000，本地开发使用 localhost:8000
+// API 基础 URL 配置
+// 优先使用环境变量 VITE_API_URL，否则根据运行环境自动判断
+// - 本地开发（vite）：使用 http://localhost:8000
+// - Docker 环境：使用 http://localhost:9000
 const API_BASE_URL = import.meta.env.VITE_API_URL || 
-  (window.location.port === '8080' ? 'http://localhost:9000' : 'http://localhost:8000')
+  (import.meta.env.DEV ? 'http://localhost:8000' : 'http://localhost:9000')
 
 // 请求配置常量
 const REQUEST_TIMEOUT = 10000 // 10秒超时
@@ -82,7 +85,7 @@ async function retryRequest<T>(
 export async function checkBackendHealth(retries = 2): Promise<{ ok: boolean; message: string }> {
   for (let i = 0; i < retries; i++) {
     try {
-      const response = await axios.get(`${API_BASE_URL}/health`, {
+      const response = await api.get('/health', {
         timeout: 3000
       })
       return { ok: true, message: '后端服务正常' }
@@ -222,8 +225,8 @@ export const authApi = {
     const LOGIN_TIMEOUT = 15000
 
     return retryRequest(() =>
-      axios.post<{ access_token: string; token_type: string }>(
-        `${API_BASE_URL}/api/auth/login`,
+      api.post<{ access_token: string; token_type: string }>(
+        '/auth/login',
         formData,
         {
           headers: { 'Content-Type': 'application/x-www-form-urlencoded' },

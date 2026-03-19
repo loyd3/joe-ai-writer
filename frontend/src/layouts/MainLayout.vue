@@ -163,10 +163,13 @@ const showSettingsDialog = ref(false)
 const showAIConfigDrawer = ref(false)
 const showProfileDrawer = ref(false)
 
+// 支持环境变量覆盖 API_BASE_URL
+const BASE_URL = import.meta.env.VITE_API_URL || API_BASE_URL
+
 const sidebarAvatarUrl = computed(() => {
   const url = authStore.currentUser?.avatar_url
   if (!url) return ''
-  const base = API_BASE_URL.replace(/\/api\/?$/, '')
+  const base = BASE_URL.replace(/\/api\/?$/, '')
   return base + url
 })
 

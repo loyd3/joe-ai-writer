@@ -1,282 +1,161 @@
+"""
+热点写作 API 路由 - 增强版
+"""
 from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import StreamingResponse
-from sqlalchemy.orm import Session
-from typing import Optional
+from sse_starlette.sse import EventSourceResponse
+from typing import Optional, List
+from pydantic import BaseModel, Field
+from app.services.enhanced_hot_topics_service import EnhancedHotTopicsService
+from app.services.llm_service import LLMService
+from app.services.cache_service import CacheService
+from app.api.dependencies import get_llm_service, get_cache_service
 import json
 
-from app.database import get_db
-from app.api.auth import get_current_user, get_current_user_optional
-from app.services.hot_topics_writing_service import HotTopicsWritingService
-from app.services.hot_topics_service import HotTopicsService
-from app.schemas.schemas import HotTopicsRequest, HotTopicsOutlineRequest, HotTopicsArticleRequest
-
-# 热点来源平台（传统抓取）
-LEGACY_PLATFORMS = [
-    {"id": "weibo", "name": "微博热搜"},
-    {"id": "zhihu", "name": "知乎热榜"},
-    {"id": "baidu", "name": "百度热搜"},
-    {"id": "toutiao", "name": "头条热榜"},
-]
-
-router = APIRouter(prefix="/api/hot-topics", tags=["hot-topics"])
+router = APIRouter(prefix="/hot-topics", tags=["热点写作"])
 
 
-@router.get("/list")
-async def get_hot_topics(
-    current_user: dict = Depends(get_current_user_optional)
+class TopicAnalysisRequest(BaseModel):
+    topic_title: str = Field(..., description="话题标题")
+    topic_keyword: str = Field(..., description="核心关键词")
+    topic_aspect: str = Field(..., description="分析角度")
+    category: str = Field(..., description="所属分类")
+    analysis_depth: str = Field(default="standard", description="分析深度: basic/standard/deep")
+
+
+class ArticleOutlineRequest(BaseModel):
+    topic_title: str = Field(..., description="话题标题")
+    topic_keyword: str = Field(..., description="核心关键词")
+    topic_aspect: str = Field(..., description="分析角度")
+    category: str = Field(..., description="所属分类")
+    article_type: str = Field(default="评论", description="文章类型")
+    word_count: int = Field(default=1500, ge=500, le=5000)
+
+
+class ArticleGenerateRequest(BaseModel):
+    topic_title: str = Field(..., description="话题标题")
+    topic_keyword: str = Field(..., description="核心关键词")
+    topic_aspect: str = Field(..., description="分析角度")
+    category: str = Field(..., description="所属分类")
+    outline: dict = Field(..., description="文章大纲")
+    article_type: str = Field(default="评论", description="文章类型")
+    word_count: int = Field(default=1500, ge=500, le=5000)
+    style: str = Field(default="专业", description="写作风格")
+
+
+def get_hot_topics_service(
+    llm_service: LLMService = Depends(get_llm_service),
+    cache_service: CacheService = Depends(get_cache_service)
+) -> EnhancedHotTopicsService:
+    return EnhancedHotTopicsService(llm_service, cache_service)
+
+
+@router.get("/categories")
+async def get_categories(
+    service: EnhancedHotTopicsService = Depends(get_hot_topics_service)
 ):
-    """获取网络热点列表"""
-    try:
-        result = await HotTopicsWritingService.get_hot_topics()
-        return result
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"获取热点失败: {str(e)}")
-
-
-@router.get("/platforms")
-async def get_platforms(
-    current_user: dict = Depends(get_current_user)
-):
-    """获取热点来源平台列表"""
+    """获取热点分类列表"""
     return {
-        "success": True,
-        "platforms": LEGACY_PLATFORMS,
-        "total": len(LEGACY_PLATFORMS)
+        "categories": service.get_categories()
     }
 
 
-@router.get("/search")
-async def search_hot_topics(
-    keyword: str = Query(..., description="搜索关键词"),
-    limit: int = Query(10, ge=1, le=50, description="返回数量限制"),
-    current_user: dict = Depends(get_current_user)
+@router.get("/topics")
+async def get_hot_topics(
+    category: Optional[str] = Query(None, description="分类筛选"),
+    limit: int = Query(10, ge=1, le=20, description="返回数量"),
+    service: EnhancedHotTopicsService = Depends(get_hot_topics_service)
 ):
-    """搜索热点话题（从当前热点列表中按关键词过滤）"""
+    """
+    获取热点话题列表
+    """
     try:
-        result = await HotTopicsService.fetch_all_hot_topics()
-        topics = result.get("topics", [])
-        keyword_lower = keyword.lower().strip()
-        filtered = [
-            t for t in topics
-            if keyword_lower in (t.get("title") or "").lower()
-        ][:limit]
+        topics = await service.get_hot_topics(category=category, limit=limit)
         return {
             "success": True,
-            "keyword": keyword,
-            "results": filtered,
-            "total": len(filtered)
+            "data": topics,
+            "total": len(topics)
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"搜索失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/generate-outline")
+@router.post("/analyze")
+async def analyze_topic(
+    request: TopicAnalysisRequest,
+    service: EnhancedHotTopicsService = Depends(get_hot_topics_service)
+):
+    """
+    深度分析热点话题
+    """
+    try:
+        result = await service.analyze_topic(
+            topic_title=request.topic_title,
+            topic_keyword=request.topic_keyword,
+            topic_aspect=request.topic_aspect,
+            category=request.category,
+            analysis_depth=request.analysis_depth
+        )
+        return {
+            "success": True,
+            "data": result
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/outline")
 async def generate_outline(
-    request: HotTopicsOutlineRequest,
-    current_user: dict = Depends(get_current_user)
+    request: ArticleOutlineRequest,
+    service: EnhancedHotTopicsService = Depends(get_hot_topics_service)
 ):
-    """根据热点话题生成文章大纲（非流式）"""
+    """
+    生成文章大纲
+    """
     try:
-        outline = await HotTopicsWritingService.generate_outline(
+        result = await service.generate_article_outline(
             topic_title=request.topic_title,
-            topic_source=request.topic_source,
+            topic_keyword=request.topic_keyword,
+            topic_aspect=request.topic_aspect,
+            category=request.category,
             article_type=request.article_type,
-            word_count=request.word_count,
-            style=request.style
+            word_count=request.word_count
         )
-        
-        if "error" in outline:
-            error_msg = outline["error"]
-            # 检查是否是配置错误
-            if "配置" in error_msg or "API Key" in error_msg:
-                raise HTTPException(status_code=400, detail=error_msg)
-            raise HTTPException(status_code=500, detail=error_msg)
-        
         return {
             "success": True,
-            "outline": outline
+            "data": result
         }
-    except HTTPException:
-        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"生成大纲失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/generate-outline/stream")
-async def generate_outline_stream(
-    request: HotTopicsOutlineRequest,
-    current_user: dict = Depends(get_current_user)
-):
-    """根据热点话题生成文章大纲（流式）"""
-    async def generate():
-        async for chunk in HotTopicsWritingService.generate_outline_stream(
-            topic_title=request.topic_title,
-            topic_source=request.topic_source,
-            article_type=request.article_type,
-            word_count=request.word_count,
-            style=request.style
-        ):
-            yield f"data: {chunk}\n\n"
-        yield "data: [DONE]\n\n"
-    
-    return StreamingResponse(generate(), media_type="text/event-stream")
-
-
-@router.post("/generate-article")
-async def generate_article(
-    request: HotTopicsArticleRequest,
-    current_user: dict = Depends(get_current_user)
-):
-    """根据大纲生成完整文章（非流式）"""
-    try:
-        article = await HotTopicsWritingService.generate_article(
-            outline=request.outline,
-            selected_title=request.selected_title,
-            additional_requirements=request.additional_requirements
-        )
-        
-        # 检查文章是否返回错误信息
-        if article.startswith("[配置错误]") or article.startswith("[错误]"):
-            raise HTTPException(status_code=500, detail=article)
-        
-        return {
-            "success": True,
-            "article": article,
-            "title": request.selected_title or request.outline.get("title_options", ["热点文章"])[0]
-        }
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"生成文章失败: {str(e)}")
-
-
-@router.post("/generate-article/stream")
+@router.post("/generate-stream")
 async def generate_article_stream(
-    request: HotTopicsArticleRequest,
-    current_user: dict = Depends(get_current_user)
-):
-    """根据大纲生成完整文章（流式）"""
-    async def generate():
-        async for chunk in HotTopicsWritingService.generate_article_stream(
-            outline=request.outline,
-            selected_title=request.selected_title,
-            additional_requirements=request.additional_requirements
-        ):
-            yield f"data: {chunk}\n\n"
-        yield "data: [DONE]\n\n"
-    
-    return StreamingResponse(generate(), media_type="text/event-stream")
-
-
-@router.post("/create-document")
-async def create_document_from_hot_topic(
-    request: HotTopicsRequest,
-    db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user)
-):
-    """将生成的文章保存为项目文档"""
-    from app.models.models import Project
-    
-    # 检查项目权限
-    project = db.query(Project).filter(
-        Project.id == request.project_id,
-        Project.owner_id == current_user["id"]
-    ).first()
-    
-    if not project:
-        raise HTTPException(status_code=403, detail="无权访问该项目")
-    
-    try:
-        document = await HotTopicsWritingService.create_document_from_article(
-            db=db,
-            project_id=request.project_id,
-            title=request.title,
-            content=request.content,
-            outline_data=request.outline_data,
-            user_id=current_user["id"]
-        )
-        
-        return {
-            "success": True,
-            "document": {
-                "id": document.id,
-                "title": document.title,
-                "project_id": document.project_id,
-                "created_at": document.created_at.isoformat()
-            }
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"创建文档失败: {str(e)}")
-
-
-@router.post("/quick-write")
-async def quick_write_from_hot_topic(
-    request: HotTopicsOutlineRequest,
-    db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user)
+    request: ArticleGenerateRequest,
+    service: EnhancedHotTopicsService = Depends(get_hot_topics_service)
 ):
     """
-    一键写作：热点 → 大纲 → 文章 → 保存文档
-    这是一个组合接口，适合快速生成文章
+    流式生成热点文章
     """
-    from app.models.models import Project
-    
-    # 检查项目权限
-    project = db.query(Project).filter(
-        Project.id == request.project_id,
-        Project.owner_id == current_user["id"]
-    ).first()
-    
-    if not project:
-        raise HTTPException(status_code=403, detail="无权访问该项目")
-    
-    try:
-        # 1. 生成大纲
-        outline = await HotTopicsWritingService.generate_outline(
-            topic_title=request.topic_title,
-            topic_source=request.topic_source,
-            article_type=request.article_type,
-            word_count=request.word_count,
-            style=request.style
-        )
-        
-        if "error" in outline:
-            raise HTTPException(status_code=500, detail=f"大纲生成失败: {outline['error']}")
-        
-        # 2. 生成文章
-        selected_title = outline.get("title_options", [request.topic_title])[0]
-        article = await HotTopicsWritingService.generate_article(
-            outline=outline,
-            selected_title=selected_title
-        )
-        
-        # 检查文章是否返回错误信息
-        if article.startswith("[配置错误]") or article.startswith("[错误]"):
-            raise HTTPException(status_code=500, detail=article)
-        
-        # 3. 保存为文档
-        document = await HotTopicsWritingService.create_document_from_article(
-            db=db,
-            project_id=request.project_id,
-            title=selected_title,
-            content=article,
-            outline_data=outline,
-            user_id=current_user["id"]
-        )
-        
-        return {
-            "success": True,
-            "outline": outline,
-            "article": article,
-            "document": {
-                "id": document.id,
-                "title": document.title,
-                "project_id": document.project_id,
-                "created_at": document.created_at.isoformat()
+    async def event_generator():
+        try:
+            async for chunk in service.generate_article_stream(
+                topic_title=request.topic_title,
+                topic_keyword=request.topic_keyword,
+                topic_aspect=request.topic_aspect,
+                category=request.category,
+                outline=request.outline,
+                article_type=request.article_type,
+                word_count=request.word_count,
+                style=request.style
+            ):
+                yield {
+                    "event": "message",
+                    "data": json.dumps(chunk, ensure_ascii=False)
+                }
+        except Exception as e:
+            yield {
+                "event": "error",
+                "data": json.dumps({"error": str(e)}, ensure_ascii=False)
             }
-        }
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"一键写作失败: {str(e)}")
+
+    return EventSourceResponse(event_generator())

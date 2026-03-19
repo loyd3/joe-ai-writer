@@ -214,6 +214,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import axios from 'axios'
+import { API_BASE_URL } from '@/api'
 import {
   DataLine,
   FolderOpened,
@@ -228,11 +229,12 @@ import {
 } from '@element-plus/icons-vue'
 
 const router = useRouter()
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+// 使用统一的 API_BASE_URL，支持环境变量覆盖
+const BASE_URL = import.meta.env.VITE_API_URL || API_BASE_URL
 
 // 创建 axios 实例
 const api = axios.create({
-  baseURL: `${API_BASE_URL}/api`
+  baseURL: `${BASE_URL}/api`
 })
 
 // 请求拦截器
