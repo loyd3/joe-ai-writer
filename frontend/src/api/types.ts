@@ -128,6 +128,13 @@ export interface AIRequest {
   instruction?: string
 }
 
+/** 非流式 /ai/assist：正文 + 格式标识 + 与脑洞写作一致的块结构 */
+export interface AIAssistResponse {
+  response: string
+  format: string
+  blocks: Block[]
+}
+
 export interface ChatMessage {
   role: 'user' | 'assistant' | 'system'
   content: string

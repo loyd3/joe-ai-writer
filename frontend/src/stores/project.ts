@@ -1,10 +1,10 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { projectApi, documentApi, memoryApi } from '@/api'
-import type { Project, Document, AIMemory, ProjectCreate, ProjectUpdate, DocumentCreate, DocumentUpdate, AIMemoryUpdate } from '@/api'
+import type { Project, Document, AIMemory, Block, ProjectCreate, ProjectUpdate, DocumentCreate, DocumentUpdate, AIMemoryUpdate } from '@/api'
 
 // 从 API 模块重新导出类型，保持兼容性
-export type { Project, Document, AIMemory }
+export type { Project, Document, AIMemory, Block }
 
 export const useProjectStore = defineStore('project', () => {
   // State

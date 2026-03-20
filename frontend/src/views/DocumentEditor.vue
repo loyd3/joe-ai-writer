@@ -137,7 +137,10 @@
         :document-id="Number(documentId)"
         :content="content"
         @insert="insertText"
-        @replace="(oldText, newText, blockIndex) => replaceText(oldText, newText, blockIndex)"
+        @insert-blocks="insertBlocksFromAi"
+        @preview="onAiPreview"
+        @preview-cancel="onAiPreviewCancel"
+        @replace="(oldText, newText, blockIndex, blocks) => replaceText(oldText, newText, blockIndex, blocks)"
       />
     </div>
 
@@ -212,6 +215,9 @@ const showChatPanel = ref(true)
 const showExtractDrawer = ref(false)
 const showGenerateDrawer = ref(false)
 const hasChanges = ref(false)
+/** AI 预览块：插入到文档末尾，仅用于阅读与 diff 接受/拒绝；未接受前不应自动保存 */
+const aiPreviewId = ref<string | null>(null)
+const AI_PREVIEW_KEY = '__ai_preview_id'
 const lastSaved = ref<Date | null>(null)
 const aiChatRef = ref<{ polishWithText: (text: string, blockIndex?: number) => Promise<void> } | null>(null)
 const exportMenuRef = ref<{ triggerExport: (command: string) => void } | null>(null)
@@ -368,16 +374,79 @@ function insertText(text: string) {
   hasChanges.value = true
 }
 
-function replaceText(oldText: string, newText: string, blockIndex?: number) {
-  if (blockIndex != null && blockIndex >= 0 && content.value[blockIndex]?.content.includes(oldText)) {
-    content.value[blockIndex].content = content.value[blockIndex].content.replace(oldText, newText)
-    hasChanges.value = true
-    return
+/** AI 助手返回的 blocks（与后端 / 脑洞写作解析一致）直接插入文档末尾 */
+function insertBlocksFromAi(blocks: Block[]) {
+  if (!blocks?.length) return
+  const normalize = (b: Block): Block => ({
+    id: b.id && String(b.id).length ? String(b.id) : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`,
+    type: b.type || 'paragraph',
+    content: typeof b.content === 'string' ? b.content : '',
+    props: b.props && typeof b.props === 'object' ? { ...b.props } : {},
+  })
+  content.value.push(...blocks.map(normalize))
+  hasChanges.value = true
+}
+
+function removeAiPreviewBlocks() {
+  if (!aiPreviewId.value) return
+  const pid = aiPreviewId.value
+  // 预览块只用于阅读，不应落盘，因此通过私有 props 标记移除。
+  content.value = content.value.filter(b => !(b.props && (b.props as any)[AI_PREVIEW_KEY] === pid))
+  aiPreviewId.value = null
+}
+
+function onAiPreview(payload: { blockIndex?: number; text: string; blocks?: Block[] }) {
+  removeAiPreviewBlocks()
+  if (!payload?.text?.trim() && (!payload.blocks || payload.blocks.length === 0)) return
+
+  const previewId = `ai-preview-${Date.now().toString(36)}`
+  aiPreviewId.value = previewId
+
+  const sourceBlocks = payload.blocks?.length ? payload.blocks : parseFormattedTextToBlocks(payload.text, 'doc')
+  if (!sourceBlocks?.length) return
+
+  const normalized: Block[] = sourceBlocks.map(b => ({
+    id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`,
+    type: b.type || 'paragraph',
+    content: typeof b.content === 'string' ? b.content : '',
+    props: {
+      ...(b.props || {}),
+      [AI_PREVIEW_KEY]: previewId,
+    },
+  }))
+
+  // 预览只插入到文档末尾供阅读，未接受前不设置 hasChanges，避免自动保存落盘。
+  content.value.push(...normalized)
+}
+
+function onAiPreviewCancel() {
+  removeAiPreviewBlocks()
+}
+
+function replaceText(oldText: string, newText: string, blockIndex?: number, rewrittenBlocks?: Block[]) {
+  // AI 改写类操作通常会返回「编辑器块格式」文本。
+  // 这里优先把改写结果解析为 Block，并用新块替换当前块，以确保块类型/样式匹配编辑器。
+  if (blockIndex != null && blockIndex >= 0 && blockIndex < content.value.length) {
+    const blocks = rewrittenBlocks?.length ? rewrittenBlocks : parseFormattedTextToBlocks(newText, 'doc')
+    if (blocks.length) {
+      // 接受后：用 AI 结果替换选中块，并移除末尾预览内容。
+      const normalized: Block[] = blocks.map(b => ({
+        id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`,
+        type: b.type || 'paragraph',
+        content: typeof b.content === 'string' ? b.content : '',
+        props: b.props && typeof b.props === 'object' ? { ...b.props } : {},
+      }))
+      content.value.splice(blockIndex, 1, ...normalized)
+      hasChanges.value = true
+      removeAiPreviewBlocks()
+      return
+    }
   }
   for (let i = 0; i < content.value.length; i++) {
     if (content.value[i].content.includes(oldText)) {
       content.value[i].content = content.value[i].content.replace(oldText, newText)
       hasChanges.value = true
+      removeAiPreviewBlocks()
       return
     }
   }
