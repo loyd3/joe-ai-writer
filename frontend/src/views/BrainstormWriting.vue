@@ -67,6 +67,67 @@
             🔥 将当前热点转为脑洞
           </button>
         </div>
+
+        <!-- 自定义脑洞 -->
+        <div class="section">
+          <div class="section-header">
+            <h3>🧩 自定义脑洞</h3>
+          </div>
+
+          <div class="custom-form">
+            <el-input
+              v-model="customTitle"
+              placeholder="脑洞标题（可选）"
+              clearable
+            />
+            <el-input
+              v-model="customConcept"
+              type="textarea"
+              :rows="4"
+              placeholder="核心概念/设定（必填）"
+              show-word-limit
+            />
+          </div>
+
+          <div class="custom-actions">
+            <button
+              class="primary-btn"
+              :disabled="!customConcept.trim()"
+              @click="addCustomBrainstorm"
+            >
+              ➕ 添加自定义脑洞
+            </button>
+          </div>
+
+          <div v-if="customBrainstorms.length > 0" class="custom-list">
+            <div
+              v-for="(item, index) in customBrainstorms"
+              :key="item.id || index"
+              class="brainstorm-card custom-brain-card"
+              :class="{ selected: selectedBrainstorm?.id ? selectedBrainstorm?.id === item.id : selectedBrainstorm?.concept === item.concept }"
+              @click="selectBrainstorm(item)"
+            >
+              <div class="card-header">
+                <span class="category-tag">自定义</span>
+                <button
+                  class="delete-icon-btn"
+                  title="删除"
+                  @click.stop="deleteCustomBrainstorm(index)"
+                >
+                  删除
+                </button>
+              </div>
+              <h4>{{ item.title }}</h4>
+              <p class="custom-concept">
+                {{ item.concept.length > 80 ? item.concept.slice(0, 80) + '...' : item.concept }}
+              </p>
+            </div>
+          </div>
+
+          <div v-else class="custom-empty">
+            <p class="hint">还没有自定义脑洞</p>
+          </div>
+        </div>
       </div>
 
       <!-- 右侧：写作区 -->
@@ -294,6 +355,9 @@ const categories = ref([])
 const trendingBrainstorms = ref([])
 const selectedCategory = ref(null)
 const selectedBrainstorm = ref(null)
+const customBrainstorms = ref<Array<{ id: string; title: string; category: string; concept: string }>>([])
+const customTitle = ref('')
+const customConcept = ref('')
 const writingStyle = ref('幽默风趣')
 const wordCount = ref('medium')
 const outline = ref(null)
@@ -345,6 +409,68 @@ const selectBrainstorm = (brainstorm) => {
   selectedBrainstorm.value = brainstorm
   outline.value = null
   article.value = null
+}
+
+const CUSTOM_BRAINS_KEY = 'brainstorm_custom_brainstorms_v1'
+
+function loadCustomBrainstorms() {
+  try {
+    const raw = localStorage.getItem(CUSTOM_BRAINS_KEY)
+    if (!raw) return
+    const arr = JSON.parse(raw)
+    if (Array.isArray(arr)) {
+      customBrainstorms.value = arr
+    }
+  } catch {
+    // ignore
+  }
+}
+
+function persistCustomBrainstorms() {
+  try {
+    localStorage.setItem(CUSTOM_BRAINS_KEY, JSON.stringify(customBrainstorms.value))
+  } catch {
+    // ignore
+  }
+}
+
+function addCustomBrainstorm() {
+  const concept = customConcept.value.trim()
+  if (!concept) return
+
+  const title = customTitle.value.trim() || `自定义脑洞｜${concept.slice(0, 10)}`
+
+  const item = {
+    id: crypto.randomUUID(),
+    title,
+    category: '自定义',
+    concept,
+  }
+
+  customBrainstorms.value = [item, ...customBrainstorms.value]
+  persistCustomBrainstorms()
+
+  customTitle.value = ''
+  customConcept.value = ''
+
+  selectBrainstorm(item)
+  ElMessage.success('已添加并选中自定义脑洞')
+}
+
+function deleteCustomBrainstorm(index: number) {
+  const removed = customBrainstorms.value[index]
+  if (!removed) return
+
+  customBrainstorms.value = customBrainstorms.value.filter((_, i) => i !== index)
+  persistCustomBrainstorms()
+
+  if (selectedBrainstorm.value?.id && selectedBrainstorm.value?.id === removed.id) {
+    selectedBrainstorm.value = null
+    outline.value = null
+    article.value = null
+  }
+
+  ElMessage.success('已删除自定义脑洞')
 }
 
 // 随机生成脑洞
@@ -540,6 +666,7 @@ const saveArticle = async () => {
 onMounted(() => {
   fetchCategories()
   fetchTrendingBrainstorms()
+  loadCustomBrainstorms()
 })
 </script>
 
@@ -1096,5 +1223,48 @@ onMounted(() => {
   display: flex;
   justify-content: flex-end;
   gap: 12px;
+}
+
+.custom-actions {
+  margin: 12px 0 6px;
+}
+
+.custom-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.custom-list {
+  margin-top: 12px;
+}
+
+.custom-empty {
+  margin-top: 12px;
+}
+
+.custom-brain-card {
+  position: relative;
+}
+
+.delete-icon-btn {
+  background: #fff;
+  border: 1px solid #e0e0e0;
+  border-radius: 6px;
+  padding: 4px 8px;
+  cursor: pointer;
+  font-size: 12px;
+
+  &:hover {
+    border-color: #f56c6c;
+    color: #f56c6c;
+  }
+}
+
+.custom-concept {
+  margin: 8px 0 0;
+  color: #606266;
+  font-size: 13px;
+  line-height: 1.6;
 }
 </style>
