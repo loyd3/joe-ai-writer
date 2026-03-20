@@ -38,6 +38,7 @@ async def generate_story(
             theme=theme,
             genre=request.get("genre"),
             word_count=request.get("word_count", 5000),
+            chapter_count=request.get("chapter_count"),
             additional_requirements=request.get("additional_requirements")
         )
         
@@ -67,6 +68,7 @@ async def generate_story_stream(
             theme=theme,
             genre=request.get("genre"),
             word_count=request.get("word_count", 5000),
+            chapter_count=request.get("chapter_count"),
             additional_requirements=request.get("additional_requirements")
         ):
             yield f"data: {chunk}\n\n"
@@ -89,7 +91,7 @@ async def generate_outline(
         result = await AIStoryGeneratorService.generate_outline_only(
             theme=theme,
             genre=request.get("genre"),
-            acts=request.get("acts", 3),
+            acts=request.get("acts") or request.get("chapter_count") or 3,
             word_count=request.get("word_count", 5000)
         )
         
@@ -222,7 +224,8 @@ async def quick_create_project(
             story_data = await AIStoryGeneratorService.generate_full_story(
                 theme=theme or "未命名",
                 genre=request.get("genre"),
-                word_count=request.get("word_count", 5000)
+                word_count=request.get("word_count", 5000),
+                chapter_count=request.get("chapter_count")
             )
             if "error" in story_data:
                 raise HTTPException(status_code=500, detail=f"生成失败: {story_data['error']}")

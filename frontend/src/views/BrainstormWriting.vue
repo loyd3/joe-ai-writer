@@ -179,6 +179,9 @@
                 <button class="icon-btn" @click="openSaveDialog" title="保存">
                   💾
                 </button>
+                <button class="icon-btn" @click="showPublishDialog = true" title="发布到自媒体">
+                  📢
+                </button>
               </div>
             </div>
             <div class="article-content">
@@ -212,11 +215,10 @@
           <el-radio 
             v-for="project in projects" 
             :key="project.id" 
-            :label="project.id"
+            :value="project.id"
+            :label="project.title"
             class="project-radio"
-          >
-            {{ project.title }}
-          </el-radio>
+          />
         </el-radio-group>
       </div>
       
@@ -265,21 +267,26 @@
       </div>
     </template>
   </el-dialog>
+
+  <PublishDialog
+    v-model="showPublishDialog"
+    :raw-title="article?.title || selectedBrainstorm?.title || ''"
+    :raw-content="article?.content || ''"
+  />
 </template>
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessage } from 'element-plus'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
-import axios from 'axios'
+import PublishDialog from '@/components/PublishDialog.vue'
 import { useAuthStore } from '@/stores/auth'
-import { projectApi, documentApi, API_BASE_URL } from '@/api'
+import api, { projectApi, documentApi } from '@/api'
 import type { Block } from '@/api/types'
 
 marked.setOptions({ breaks: false, gfm: true })
 
-const API_BASE = import.meta.env.VITE_API_URL || API_BASE_URL
 const authStore = useAuthStore()
 
 // 状态
@@ -300,11 +307,12 @@ const projects = ref([])
 const selectedProjectId = ref(null)
 const newProjectName = ref('')
 const saving = ref(false)
+const showPublishDialog = ref(false)
 
 // 获取分类
 const fetchCategories = async () => {
   try {
-    const res = await axios.get(`${API_BASE}/api/brainstorm/categories`)
+    const res = await api.get('/brainstorm/categories')
     categories.value = res.data
   } catch (error) {
     console.error('获取分类失败:', error)
@@ -314,7 +322,11 @@ const fetchCategories = async () => {
 // 获取热门脑洞
 const fetchTrendingBrainstorms = async () => {
   try {
-    const res = await axios.get(`${API_BASE}/api/brainstorm/trending?limit=20`)
+    const params: Record<string, any> = { limit: 20 }
+    if (selectedCategory.value) {
+      params.category = selectedCategory.value
+    }
+    const res = await api.get('/brainstorm/trending', { params })
     trendingBrainstorms.value = res.data
   } catch (error) {
     console.error('获取热门脑洞失败:', error)
@@ -323,12 +335,9 @@ const fetchTrendingBrainstorms = async () => {
 }
 
 // 选择分类
-const selectCategory = (category) => {
+const selectCategory = (category: string | null) => {
   selectedCategory.value = category
-  if (category) {
-    // 过滤显示该分类的热门脑洞
-    fetchTrendingBrainstorms()
-  }
+  fetchTrendingBrainstorms()
 }
 
 // 选择脑洞
@@ -341,7 +350,7 @@ const selectBrainstorm = (brainstorm) => {
 // 随机生成脑洞
 const generateRandomBrainstorm = async () => {
   try {
-    const res = await axios.get(`${API_BASE}/api/brainstorm/random`, {
+    const res = await api.get('/brainstorm/random', {
       params: { category: selectedCategory.value }
     })
     selectBrainstorm(res.data)
@@ -356,7 +365,7 @@ const generateRandomBrainstorm = async () => {
 const generateFromHotTopics = async () => {
   try {
     ElMessage.info('正在从热点生成脑洞...')
-    const res = await axios.get(`${API_BASE}/api/brainstorm/from-hot-topics?limit=5`)
+    const res = await api.get('/brainstorm/from-hot-topics', { params: { limit: 5 } })
     if (res.data.brainstorms?.length > 0) {
       trendingBrainstorms.value = res.data.brainstorms
       ElMessage.success(`已生成 ${res.data.brainstorms.length} 个脑洞`)
@@ -373,13 +382,13 @@ const generateOutline = async () => {
 
   generatingOutline.value = true
   try {
-    const res = await axios.post(`${API_BASE}/api/brainstorm/generate-outline`, {
+    const res = await api.post('/brainstorm/generate-outline', {
       title: selectedBrainstorm.value.title,
       category: selectedBrainstorm.value.category,
       concept: selectedBrainstorm.value.concept,
       style: writingStyle.value,
       word_count: wordCount.value
-    })
+    }, { timeout: 180000 })
     outline.value = res.data.outline
     ElMessage.success('大纲生成成功')
   } catch (error) {
@@ -396,14 +405,14 @@ const generateArticle = async () => {
 
   generatingArticle.value = true
   try {
-    const res = await axios.post(`${API_BASE}/api/brainstorm/generate-article`, {
+    const res = await api.post('/brainstorm/generate-article', {
       title: selectedBrainstorm.value.title,
       category: selectedBrainstorm.value.category,
       concept: selectedBrainstorm.value.concept,
       style: writingStyle.value,
       word_count: wordCount.value,
       outline: outline.value
-    })
+    }, { timeout: 180000 })
     article.value = res.data.article
     ElMessage.success('文章生成成功')
   } catch (error) {
@@ -421,17 +430,9 @@ const quickGenerate = async () => {
     return
   }
 
-  generatingOutline.value = true
-  generatingArticle.value = true
-
-  try {
-    // 先生成大纲
-    await generateOutline()
-    // 再生成文章
+  await generateOutline()
+  if (outline.value) {
     await generateArticle()
-  } finally {
-    generatingOutline.value = false
-    generatingArticle.value = false
   }
 }
 
@@ -523,7 +524,6 @@ const saveArticle = async () => {
     await documentApi.create(projectId, {
       title: article.value.title,
       content: blocks,
-      type: 'article'
     })
     
     ElMessage.success('文章保存成功')

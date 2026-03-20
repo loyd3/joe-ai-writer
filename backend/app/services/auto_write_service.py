@@ -28,7 +28,7 @@ class AutoWriteService:
         project_id: int,
         document_id: int,
         outline_nodes: List[Dict[str, Any]],
-        max_tokens_per_chapter: int = 2000,
+        max_tokens_per_chapter: int = 8000,
         custom_instruction: Optional[str] = None
     ) -> AsyncGenerator[Dict[str, Any], None]:
         """
@@ -115,7 +115,7 @@ class AutoWriteService:
         node: Dict[str, Any],
         chapter_index: int,
         total_chapters: int,
-        max_tokens: int = 2000,
+        max_tokens: int = 8000,
         custom_instruction: Optional[str] = None,
         previous_chapter_summary: Optional[str] = None
     ) -> AsyncGenerator[Dict[str, Any], None]:
@@ -183,7 +183,7 @@ class AutoWriteService:
         project_id: int,
         document_id: int,
         outline_nodes: List[Dict[str, Any]],
-        max_tokens_per_chapter: int = 2000,
+        max_tokens_per_chapter: int = 8000,
         custom_instruction: Optional[str] = None
     ) -> AsyncGenerator[Dict[str, Any], None]:
         """
@@ -219,24 +219,26 @@ class AutoWriteService:
             "message": "批量生成全部完成"
         }
 
+    SINGLE_CALL_TOKEN_LIMIT = 8192
+
     async def _generate_chapter_content_stream(
         self,
         node: Dict[str, Any],
         chapter_index: int,
         total_chapters: int,
-        max_tokens: int = 2000,
+        max_tokens: int = 8000,
         custom_instruction: Optional[str] = None,
         previous_chapter_summary: Optional[str] = None
     ) -> AsyncGenerator[Dict[str, Any], None]:
         """
-        流式生成单个章节内容
+        流式生成单个章节内容。
+        当 max_tokens 超过 API 单次上限时自动分段续写。
         """
         title = node.get("title", f"第{chapter_index + 1}章")
         description = node.get("description", "")
         key_points = node.get("keyPoints", [])
         target_word_count = node.get("targetWordCount", 1500)
 
-        # 构建提示词
         prompt = self._build_chapter_prompt(
             title=title,
             description=description,
@@ -249,18 +251,35 @@ class AutoWriteService:
         )
 
         full_content = ""
+        target_chars = int(max_tokens * 0.7)
+        max_rounds = max(1, (max_tokens // self.SINGLE_CALL_TOKEN_LIMIT) + 1)
+        tokens_per_call = min(max_tokens, self.SINGLE_CALL_TOKEN_LIMIT)
 
         try:
-            async for chunk in self.llm_service.generate_stream(prompt, max_tokens=max_tokens):
-                content = chunk.get("content", "")
-                full_content += content
+            for round_idx in range(max_rounds):
+                current_prompt = prompt if round_idx == 0 else (
+                    f"请继续创作以下章节的后续内容，直接从断点处衔接，不要重复已有内容。\n\n"
+                    f"章节标题：{title}\n"
+                    f"目标总字数：{target_word_count}字\n"
+                    f"已写约{len(full_content)}字，还需约{max(0, target_word_count - len(full_content))}字\n\n"
+                    f"--- 已有内容（末尾）---\n{full_content[-800:]}\n\n"
+                    f"--- 请从此处继续 ---\n"
+                )
 
-                yield {
-                    "type": "content",
-                    "chapter_index": chapter_index,
-                    "content": content,
-                    "full_content_so_far": full_content
-                }
+                async for chunk in self.llm_service.generate_stream(
+                    current_prompt, max_tokens=tokens_per_call
+                ):
+                    content = chunk if isinstance(chunk, str) else chunk.get("content", "")
+                    full_content += content
+                    yield {
+                        "type": "content",
+                        "chapter_index": chapter_index,
+                        "content": content,
+                        "full_content_so_far": full_content
+                    }
+
+                if len(full_content) >= target_chars:
+                    break
 
             yield {
                 "type": "complete",

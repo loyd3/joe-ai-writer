@@ -58,7 +58,7 @@ class Settings(BaseSettings):
 
     # AI 参数（提高上限以支持长文生成）
     ai_temperature: float = 0.7
-    ai_max_tokens: int = 8192
+    ai_max_tokens: int = 16384
 
     # JWT - 自动生成的安全密钥，或在 .env 中设置
     secret_key: str = Field(default_factory=_generate_or_load_secret)

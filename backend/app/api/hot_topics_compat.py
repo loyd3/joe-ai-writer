@@ -344,7 +344,9 @@ async def quick_write_and_save(
 
     # 非流式快速生成全文（避免前端再跑一遍 stream）
     prompt = f"""请根据以下大纲写一篇文章。\n标题：{selected_title}\n大纲：\n{json.dumps(outline, ensure_ascii=False, indent=2)}\n\n请直接输出正文，不要包含多余说明。"""
-    article = await llm.generate(prompt, max_tokens=min(4096, max(800, word_count * 2)))
+    article = await llm.generate(
+        prompt, max_tokens=max(8000, word_count * 3), timeout=300.0
+    )
     article_text = article.strip()
 
     doc = Document(

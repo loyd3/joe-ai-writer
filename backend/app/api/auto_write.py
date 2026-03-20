@@ -20,7 +20,7 @@ class AutoWriteRequest(BaseModel):
     project_id: int = Field(..., description="项目ID")
     document_id: int = Field(..., description="文档ID")
     outline_nodes: list = Field(..., description="大纲节点列表")
-    max_tokens_per_chapter: int = Field(default=2000, ge=500, le=8000, description="每章最大token数")
+    max_tokens_per_chapter: int = Field(default=8000, ge=500, le=32000, description="每章最大token数")
     continue_on_complete: bool = Field(default=True, description="完成后是否继续")
     custom_instruction: Optional[str] = Field(default=None, description="自定义指令")
 
@@ -31,7 +31,7 @@ class AutoWriteChapterRequest(BaseModel):
     node: dict = Field(..., description="大纲节点")
     chapter_index: int = Field(..., description="章节索引")
     total_chapters: int = Field(..., description="总章节数")
-    max_tokens: int = Field(default=2000, ge=500, le=8000)
+    max_tokens: int = Field(default=8000, ge=500, le=32000)
     custom_instruction: Optional[str] = Field(default=None)
     previous_chapter_summary: Optional[str] = Field(default=None, description="前一章摘要，用于保持连贯性")
 

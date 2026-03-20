@@ -23,7 +23,7 @@ class AIStoryGeneratorService:
 1. **故事标题** - 提供3个吸引人的标题选项
 2. **故事类型/题材** - 如：科幻、悬疑、爱情、历史、奇幻等
 3. **核心主题** - 故事要表达的核心思想
-4. **故事大纲** - 包含起承转合的完整结构，分为3-5幕
+4. **故事大纲** - 包含起承转合的完整结构，章节数量由用户指定
 5. **角色设定** - 主要角色（3-5个）的详细信息
 6. **关键情节点** - 推动故事发展的关键事件（5-10个）
 7. **世界观设定** - 故事发生的时间、地点、背景规则
@@ -80,7 +80,7 @@ class AIStoryGeneratorService:
     OUTLINE_ONLY_PROMPT = """你是一位资深的故事大纲设计师。请根据用户提供的主题，生成一个详细的故事大纲。
 
 要求：
-1. 将故事分为3-5幕（Act）
+1. 幕数/章节数量由用户指定，请严格按照指定数量划分
 2. 每幕包含多个场景（Scene）
 3. 标注每个场景的预估字数
 4. 说明场景之间的衔接关系
@@ -159,6 +159,7 @@ class AIStoryGeneratorService:
         theme: str,
         genre: Optional[str] = None,
         word_count: int = 5000,
+        chapter_count: Optional[int] = None,
         additional_requirements: Optional[str] = None
     ) -> Dict[str, Any]:
         """
@@ -168,16 +169,19 @@ class AIStoryGeneratorService:
             theme: 故事主题/核心概念
             genre: 故事类型（可选）
             word_count: 目标字数
+            chapter_count: 章节数量（可选）
             additional_requirements: 额外要求
         """
+        acts = chapter_count or max(3, min(word_count // 2000, 50))
         user_prompt = f"""请为以下主题生成完整的故事创作指南：
 
 主题：{theme}
 目标字数：{word_count}字
+章节/幕数：{acts}幕（请严格按此数量划分大纲）
 {f'故事类型：{genre}' if genre else ''}
 {f'额外要求：{additional_requirements}' if additional_requirements else ''}
 
-请确保输出是合法的 JSON 格式。"""
+请确保输出是合法的 JSON 格式。outline 数组必须包含 {acts} 个元素。"""
 
         messages = [
             {"role": "system", "content": AIStoryGeneratorService.STORY_GENERATION_PROMPT},
@@ -295,17 +299,20 @@ class AIStoryGeneratorService:
         theme: str,
         genre: Optional[str] = None,
         word_count: int = 5000,
+        chapter_count: Optional[int] = None,
         additional_requirements: Optional[str] = None
     ) -> AsyncGenerator[str, None]:
         """流式生成完整故事设定"""
+        acts = chapter_count or max(3, min(word_count // 2000, 50))
         user_prompt = f"""请为以下主题生成完整的故事创作指南：
 
 主题：{theme}
 目标字数：{word_count}字
+章节/幕数：{acts}幕（请严格按此数量划分大纲）
 {f'故事类型：{genre}' if genre else ''}
 {f'额外要求：{additional_requirements}' if additional_requirements else ''}
 
-请确保输出是合法的 JSON 格式。"""
+请确保输出是合法的 JSON 格式。outline 数组必须包含 {acts} 个元素。"""
 
         messages = [
             {"role": "system", "content": AIStoryGeneratorService.STORY_GENERATION_PROMPT},

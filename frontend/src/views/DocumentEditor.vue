@@ -65,6 +65,9 @@
               <el-dropdown-item command="export-txt">
                 <el-icon><Document /></el-icon> 导出纯文本
               </el-dropdown-item>
+              <el-dropdown-item divided command="publish">
+                <el-icon><Promotion /></el-icon> 发布到自媒体
+              </el-dropdown-item>
               <el-dropdown-item divided command="rename">
                 <el-icon><Edit /></el-icon> 重命名
               </el-dropdown-item>
@@ -171,6 +174,11 @@
         @insert="insertText"
       />
     </el-drawer>
+
+    <PublishDialog
+      v-model="showPublishDialog"
+      :document-id="Number(documentId)"
+    />
   </div>
 </template>
 
@@ -184,9 +192,10 @@ import AIChatPanel from '@/components/AIChatPanel.vue'
 import AIExtract from '@/components/AIExtract.vue'
 import AIGenerateFromMemory from '@/components/AIGenerateFromMemory.vue'
 import ExportMenu from '@/components/ExportMenu.vue'
+import PublishDialog from '@/components/PublishDialog.vue'
 import { parseFormattedTextToBlocks } from '@/utils/formatToBlocks'
 import { ElMessageBox } from 'element-plus'
-import { ArrowLeft, ArrowRight, ArrowDown, ArrowUp, ChatDotRound, Check, Loading, CircleCheck, MoreFilled, Edit, Delete, Aim, MagicStick, Document, Collection, Files, Sort } from '@element-plus/icons-vue'
+import { ArrowLeft, ArrowRight, ArrowDown, ArrowUp, ChatDotRound, Check, Loading, CircleCheck, MoreFilled, Edit, Delete, Aim, MagicStick, Document, Collection, Files, Sort, Promotion } from '@element-plus/icons-vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -207,6 +216,7 @@ const lastSaved = ref<Date | null>(null)
 const aiChatRef = ref<{ polishWithText: (text: string, blockIndex?: number) => Promise<void> } | null>(null)
 const exportMenuRef = ref<{ triggerExport: (command: string) => void } | null>(null)
 const headerExpanded = ref(true)
+const showPublishDialog = ref(false)
 
 let autoSaveInterval: number | null = null
 
@@ -293,6 +303,8 @@ function handleMoreCommand(command: string) {
     exportMenuRef.value?.triggerExport('docx')
   } else if (command === 'export-txt') {
     exportMenuRef.value?.triggerExport('txt')
+  } else if (command === 'publish') {
+    showPublishDialog.value = true
   } else if (command === 'rename' || command === 'delete') {
     handleDocCommand(command)
   }

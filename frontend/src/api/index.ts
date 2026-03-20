@@ -352,6 +352,40 @@ export const systemApi = {
     api.post('/system/user-ai-config', data),
 }
 
+// ========== 多平台发布 API ==========
+export const publishApi = {
+  getPlatforms: () => api.get('/publish/platforms'),
+
+  formatForPlatform: (data: {
+    document_id?: number
+    raw_title?: string
+    raw_content?: string
+    raw_blocks?: any[]
+    platform_id: string
+  }) => api.post('/publish/format', data),
+
+  formatBatch: (data: {
+    document_id?: number
+    raw_title?: string
+    raw_content?: string
+    raw_blocks?: any[]
+    platform_ids: string[]
+  }) => api.post('/publish/format-batch', data),
+
+  wechatDraft: (data: {
+    document_id: number
+    title?: string
+    author?: string
+    digest?: string
+    content_source_url?: string
+    thumb_media_id?: string
+    need_open_comment?: boolean
+    only_fans_can_comment?: boolean
+    publish_now?: boolean
+    mock_mode?: boolean
+  }) => api.post('/publish/wechat/draft', data),
+}
+
 export default api
 export { API_BASE_URL }
 export * from './types'

@@ -422,22 +422,37 @@ class AIWritingService:
                 max_chars=estimated_chars_per_chapter
             )
             
-            # 生成章节内容
+            # 生成章节内容（超过 API 单次上限时自动分段续写）
+            SINGLE_CALL_LIMIT = 8192
             chapter_content = []
+            max_rounds = max(1, (max_tokens_per_chapter // SINGLE_CALL_LIMIT) + 1)
+            tokens_per_call = min(max_tokens_per_chapter, SINGLE_CALL_LIMIT)
             try:
-                async for text_chunk in ai_client.stream_completion(
-                    messages,
-                    max_tokens=max_tokens_per_chapter
-                ):
-                    chapter_content.append(text_chunk)
-                    # 实时发送内容块
-                    content_chunk = AIGenerateChunk(
-                        type="content",
-                        content=text_chunk,
-                        chapter_index=idx,
-                        chapter_title=chapter_title
-                    )
-                    yield json.dumps(content_chunk.dict(), ensure_ascii=False)
+                for round_idx in range(max_rounds):
+                    if round_idx > 0:
+                        so_far = "".join(chapter_content)
+                        if len(so_far) >= estimated_chars_per_chapter:
+                            break
+                        messages = AIWritingService._build_chapter_prompt(
+                            memory_context=memory_context,
+                            outline_node=node,
+                            previous_context=so_far[-2000:],
+                            custom_instruction=(custom_instruction or "") + f"\n请从上文断点处继续写，还需约{max(0, estimated_chars_per_chapter - len(so_far))}字，不要重复已有内容。",
+                            max_chars=max(500, estimated_chars_per_chapter - len(so_far))
+                        )
+
+                    async for text_chunk in ai_client.stream_completion(
+                        messages,
+                        max_tokens=tokens_per_call
+                    ):
+                        chapter_content.append(text_chunk)
+                        content_chunk = AIGenerateChunk(
+                            type="content",
+                            content=text_chunk,
+                            chapter_index=idx,
+                            chapter_title=chapter_title
+                        )
+                        yield json.dumps(content_chunk.dict(), ensure_ascii=False)
                 
                 full_chapter = "".join(chapter_content)
                 accumulated_content += full_chapter + "\n\n"
