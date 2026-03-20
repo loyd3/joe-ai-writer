@@ -43,6 +43,13 @@
         </div>
         <div class="message-content">
           <div class="message-text markdown-body" v-html="formatMessage(msg.content)" />
+          <div
+            v-if="msg.role === 'assistant' && msg.format === 'markdown' && index > 0"
+            class="format-meta"
+          >
+            <span class="format-tag">Markdown</span>
+            <span v-if="msg.blocks && msg.blocks.length > 1" class="block-count">已解析 {{ msg.blocks.length }} 个块</span>
+          </div>
           <div v-if="msg.role === 'assistant' && index > 0" class="message-actions">
             <!-- 如果是改写类操作，显示预览修改按钮 -->
             <template v-if="msg.actionType && ['polish', 'revise', 'expand'].includes(msg.actionType)">
@@ -50,7 +57,7 @@
                 <el-icon><View /></el-icon> 预览修改
               </el-button>
             </template>
-            <el-button link size="small" @click="insertToDoc(msg.content)">
+            <el-button link size="small" @click="insertToDoc(msg)">
               <el-icon><DocumentAdd /></el-icon> 插入文档
             </el-button>
             <el-button link size="small" @click="copyToClipboard(msg.content)">
@@ -66,7 +73,9 @@
         </div>
         <div class="message-content">
           <div class="message-text markdown-body">
-            <span v-html="formatMessage(streamingContent)"></span><span class="cursor">|</span>
+            <span v-if="assistStreamDisplay === 'full'" v-html="formatMessage(streamingContent)"></span>
+            <span v-else>生成中...</span>
+            <span v-if="assistStreamDisplay === 'full'" class="cursor">|</span>
           </div>
         </div>
       </div>
@@ -106,12 +115,46 @@
 <script setup lang="ts">
 import { ref, nextTick } from 'vue'
 import { marked } from 'marked'
+import DOMPurify from 'dompurify'
 import { aiApi } from '@/api'
+import type { Block } from '@/api/types'
 import { ElMessage } from 'element-plus'
 import { Star, Compass, Edit, Brush, Right, User, DocumentAdd, CopyDocument, Promotion, InfoFilled, View } from '@element-plus/icons-vue'
 import AIDiffViewer from './AIDiffViewer.vue'
 
 marked.setOptions({ gfm: true, breaks: true })
+
+type AssistChatMessage = {
+  role: string
+  content: string
+  format?: string
+  blocks?: Block[]
+  actionType?: string
+  originalText?: string
+  blockIndex?: number
+}
+
+function feedSseChunk(chunk: string, acc: { buf: string }, onPayload: (data: string) => void) {
+  acc.buf += chunk
+  const parts = acc.buf.split('\n')
+  acc.buf = parts.pop() ?? ''
+  for (const line of parts) {
+    if (line.startsWith('data: ')) {
+      onPayload(line.slice(6))
+    }
+  }
+}
+
+function flushSse(acc: { buf: string }, onPayload: (data: string) => void) {
+  if (!acc.buf) return
+  const tail = acc.buf
+  acc.buf = ''
+  for (const line of tail.split('\n')) {
+    if (line.startsWith('data: ')) {
+      onPayload(line.slice(6))
+    }
+  }
+}
 
 const props = defineProps<{
   documentId: number
@@ -120,10 +163,13 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'insert', text: string): void
-  (e: 'replace', oldText: string, newText: string, blockIndex?: number): void
+  (e: 'insertBlocks', blocks: Block[]): void
+  (e: 'replace', oldText: string, newText: string, blockIndex?: number, blocks?: Block[]): void
+  (e: 'preview', payload: { blockIndex?: number; text: string; blocks?: Block[] }): void
+  (e: 'previewCancel'): void
 }>()
 
-const messages = ref<{ role: string; content: string; actionType?: string; originalText?: string; blockIndex?: number }[]>([
+const messages = ref<AssistChatMessage[]>([
   { role: 'assistant', content: '你好！我是你的 AI 写作助手。我可以帮你指导写作、修改润色、续写文章等。有什么可以帮你的吗？' }
 ])
 
@@ -140,33 +186,42 @@ const diffRewrittenText = ref('')
 const lastSelectedText = ref('')
 /** 当前 diff 对应的块索引，用于接受时精确替换到该块 */
 const pendingReplaceBlockIndex = ref<number | undefined>(undefined)
+/** 当前 diff 对应的结构化 blocks，接受时优先用于替换 */
+const pendingReplaceBlocks = ref<Block[] | undefined>(undefined)
+/** 是否在对话框中展示流式内容（Cursor 风格：改写类只展示在 diff/编辑器预览里） */
+const assistStreamDisplay = ref<'full' | 'minimal'>('full')
 
-function showDiffForMessage(msg: typeof messages.value[0]) {
+function showDiffForMessage(msg: AssistChatMessage) {
   diffOriginalText.value = msg.originalText || ''
   diffRewrittenText.value = msg.content
   pendingReplaceBlockIndex.value = msg.blockIndex
+  pendingReplaceBlocks.value = msg.blocks
   diffVisible.value = true
 }
 
 function onDiffAccept(text: string) {
   const original = diffOriginalText.value
   const blockIndex = pendingReplaceBlockIndex.value
-  emit('replace', original, text, blockIndex)
+  emit('replace', original, text, blockIndex, pendingReplaceBlocks.value)
   pendingReplaceBlockIndex.value = undefined
+  pendingReplaceBlocks.value = undefined
   ElMessage.success('已应用到文档')
 }
 
 function onDiffReject() {
   pendingReplaceBlockIndex.value = undefined
+  pendingReplaceBlocks.value = undefined
+  emit('previewCancel')
   ElMessage.info('已拒绝修改')
 }
 
 function formatMessage(text: string): string {
   if (!text || typeof text !== 'string') return ''
   try {
-    return marked.parse(text.trim()) as string
+    const html = marked.parse(text.trim()) as string
+    return DOMPurify.sanitize(html)
   } catch {
-    return text.replace(/\n/g, '<br>')
+    return DOMPurify.sanitize(text.replace(/\n/g, '<br>'))
   }
 }
 
@@ -193,27 +248,42 @@ async function sendMessage() {
     if (!reader) throw new Error('No reader')
     
     const decoder = new TextDecoder()
-    
+    const sseAcc = { buf: '' }
+    let assistMeta: { format?: string; blocks?: Block[] } | null = null
+
+    const handlePayload = (data: string) => {
+      if (data === '[DONE]') {
+        const meta = assistMeta
+        assistMeta = null
+        messages.value.push({
+          role: 'assistant',
+          content: streamingContent.value,
+          format: meta?.format,
+          blocks: meta?.blocks,
+        })
+        streamingContent.value = ''
+        streaming.value = false
+        return
+      }
+      if (data.startsWith('[ASSIST_META]')) {
+        try {
+          assistMeta = JSON.parse(data.slice('[ASSIST_META]'.length)) as { format?: string; blocks?: Block[] }
+        } catch {
+          assistMeta = null
+        }
+        return
+      }
+      streamingContent.value += data
+      scrollToBottom()
+    }
+
     while (true) {
       const { done, value } = await reader.read()
-      if (done) break
-      
-      const text = decoder.decode(value)
-      const lines = text.split('\n')
-      
-      for (const line of lines) {
-        if (line.startsWith('data: ')) {
-          const data = line.slice(6)
-          if (data === '[DONE]') {
-            messages.value.push({ role: 'assistant', content: streamingContent.value })
-            streamingContent.value = ''
-            streaming.value = false
-          } else {
-            streamingContent.value += data
-            scrollToBottom()
-          }
-        }
+      if (done) {
+        flushSse(sseAcc, handlePayload)
+        break
       }
+      feedSseChunk(decoder.decode(value, { stream: true }), sseAcc, handlePayload)
     }
   } catch (error) {
     ElMessage.error('请求失败，请检查网络连接')
@@ -252,6 +322,7 @@ async function runAssistAction(action: string, selectedText?: string, blockIndex
   loading.value = true
   streaming.value = true
   streamingContent.value = ''
+  assistStreamDisplay.value = ['polish', 'revise', 'expand', 'continue'].includes(action) ? 'minimal' : 'full'
 
   const originalText = selectedText || ''
   lastSelectedText.value = originalText
@@ -268,36 +339,54 @@ async function runAssistAction(action: string, selectedText?: string, blockIndex
     const reader = response.body?.getReader()
     if (!reader) throw new Error('No reader')
     const decoder = new TextDecoder()
+    const sseAcc = { buf: '' }
+    let assistMeta: { format?: string; blocks?: Block[] } | null = null
+
+    const handlePayload = (data: string) => {
+      if (data === '[DONE]') {
+        const rewritten = streamingContent.value
+        const meta = assistMeta
+        assistMeta = null
+        const assistantMsg: AssistChatMessage = {
+          role: 'assistant',
+          content: rewritten,
+          format: meta?.format,
+          blocks: meta?.blocks,
+          actionType: action,
+          originalText: originalText,
+          blockIndex,
+        }
+        streamingContent.value = ''
+        streaming.value = false
+        const isRewriteAction = ['polish', 'revise', 'expand', 'continue'].includes(action)
+        const canPreview = isRewriteAction && originalText && rewritten
+        if (canPreview) {
+          nextTick(() => showDiffForMessage(assistantMsg))
+          emit('preview', { blockIndex, text: rewritten, blocks: meta?.blocks })
+        } else {
+          messages.value.push(assistantMsg)
+        }
+        return
+      }
+      if (data.startsWith('[ASSIST_META]')) {
+        try {
+          assistMeta = JSON.parse(data.slice('[ASSIST_META]'.length)) as { format?: string; blocks?: Block[] }
+        } catch {
+          assistMeta = null
+        }
+        return
+      }
+      streamingContent.value += data
+      scrollToBottom()
+    }
+
     while (true) {
       const { done, value } = await reader.read()
-      if (done) break
-      const text = decoder.decode(value)
-      const lines = text.split('\n')
-      for (const line of lines) {
-        if (line.startsWith('data: ')) {
-          const data = line.slice(6)
-          if (data === '[DONE]') {
-            const rewritten = streamingContent.value
-            const assistantMsg = {
-              role: 'assistant',
-              content: rewritten,
-              actionType: action,
-              originalText: originalText,
-              blockIndex
-            }
-            messages.value.push(assistantMsg)
-            streamingContent.value = ''
-            streaming.value = false
-            // 改写类操作：自动弹出 diff 面板，方便用户对照并选择接受/拒绝（类似 Cursor）
-            if (originalText && rewritten && ['polish', 'revise', 'expand'].includes(action)) {
-              nextTick(() => showDiffForMessage(assistantMsg))
-            }
-          } else {
-            streamingContent.value += data
-            scrollToBottom()
-          }
-        }
+      if (done) {
+        flushSse(sseAcc, handlePayload)
+        break
       }
+      feedSseChunk(decoder.decode(value, { stream: true }), sseAcc, handlePayload)
     }
   } catch (error) {
     ElMessage.error('请求失败')
@@ -309,8 +398,12 @@ async function runAssistAction(action: string, selectedText?: string, blockIndex
 
 defineExpose({ polishWithText: (text: string, blockIndex?: number) => polishWithText(text, blockIndex) })
 
-function insertToDoc(text: string) {
-  emit('insert', text)
+function insertToDoc(msg: AssistChatMessage) {
+  if (msg.blocks?.length) {
+    emit('insertBlocks', msg.blocks)
+  } else {
+    emit('insert', msg.content)
+  }
   ElMessage.success('已插入到文档末尾')
 }
 
@@ -447,6 +540,26 @@ function scrollToBottom() {
   .message-content {
     flex: 1;
     min-width: 0;
+
+    .format-meta {
+      margin: 6px 0 0 4px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 11px;
+      color: var(--coffee-text-light);
+
+      .format-tag {
+        padding: 2px 8px;
+        border-radius: 6px;
+        background: var(--coffee-bg-hover);
+        border: 1px solid var(--coffee-border);
+      }
+
+      .block-count {
+        opacity: 0.85;
+      }
+    }
   }
   
   .message-text {

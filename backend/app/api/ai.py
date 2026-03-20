@@ -1,3 +1,4 @@
+import json
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
@@ -7,6 +8,7 @@ from app.services.ai_writing_service import AIWritingService
 from app.models.models import Document, Project
 from app.api.auth import get_current_user
 from app.api.projects import check_project_owner
+from app.utils.document_format import parse_formatted_text_to_blocks
 
 router = APIRouter(prefix="/api/ai", tags=["ai"])
 
@@ -25,6 +27,17 @@ def check_document_access(db: Session, document_id: int, user_id: int):
     
     return document
 
+
+def _assist_blocks_from_text(text: str) -> list:
+    """与脑洞写作文章一致：正文为 Markdown/块标记，解析为编辑器 blocks。"""
+    if not text or not str(text).strip():
+        return []
+    s = str(text).strip()
+    if s.startswith("[错误]") or s.startswith("[配置错误]"):
+        return []
+    return parse_formatted_text_to_blocks(text, "assist")
+
+
 @router.post("/assist")
 async def ai_assist(
     request: AIRequest,
@@ -36,8 +49,12 @@ async def ai_assist(
     
     content = "\n".join([block.get('content', '') for block in document.content])
     response = await AIWritingService.process_request(db, request, content, current_user["id"])
-    
-    return {"response": response}
+    blocks = _assist_blocks_from_text(response)
+    return {
+        "response": response,
+        "format": "markdown",
+        "blocks": blocks,
+    }
 
 @router.post("/assist/stream")
 async def ai_assist_stream(
@@ -51,8 +68,15 @@ async def ai_assist_stream(
     content = "\n".join([block.get('content', '') for block in document.content])
     
     async def generate():
+        buf: list[str] = []
         async for chunk in AIWritingService.stream_request(db, request, content, current_user["id"]):
+            buf.append(chunk)
             yield f"data: {chunk}\n\n"
+        full = "".join(buf)
+        blocks = _assist_blocks_from_text(full)
+        if blocks:
+            meta = json.dumps({"format": "markdown", "blocks": blocks}, ensure_ascii=False)
+            yield f"data: [ASSIST_META]{meta}\n\n"
         yield "data: [DONE]\n\n"
     
     return StreamingResponse(generate(), media_type="text/event-stream")
@@ -68,10 +92,17 @@ async def ai_chat_stream(
     check_document_access(db, request.document_id, current_user["id"])
     
     async def generate():
+        buf: list[str] = []
         async for chunk in AIWritingService.chat(
             db, request.document_id, request.messages, request.include_memory, current_user["id"]
         ):
+            buf.append(chunk)
             yield f"data: {chunk}\n\n"
+        full = "".join(buf)
+        blocks = _assist_blocks_from_text(full)
+        if blocks:
+            meta = json.dumps({"format": "markdown", "blocks": blocks}, ensure_ascii=False)
+            yield f"data: [ASSIST_META]{meta}\n\n"
         yield "data: [DONE]\n\n"
     
     return StreamingResponse(generate(), media_type="text/event-stream")

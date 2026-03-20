@@ -4,7 +4,7 @@ import type {
   Project, ProjectCreate, ProjectUpdate,
   Document, DocumentCreate, DocumentUpdate,
   AIMemory, AIMemoryUpdate,
-  AIRequest, AIChatRequest, AIGenerateRequest, AIBatchGenerateRequest,
+  AIRequest, AIAssistResponse, AIChatRequest, AIGenerateRequest, AIBatchGenerateRequest,
   LiteraryAnalysisRequest, LiteraryAnalysisResult, CreateProjectFromLiteratureRequest,
   Template, TemplateCreate,
   AIConfig, Theme
@@ -288,7 +288,7 @@ export const memoryApi = {
 
 // ========== AI 写作 API ==========
 export const aiApi = {
-  assist: (data: AIRequest) => api.post<{ response: string }>('/ai/assist', data),
+  assist: (data: AIRequest) => api.post<AIAssistResponse>('/ai/assist', data),
   assistStream: (data: AIRequest) => {
     const token = localStorage.getItem('token')
     return fetch(`${API_BASE_URL}/api/ai/assist/stream`, {
