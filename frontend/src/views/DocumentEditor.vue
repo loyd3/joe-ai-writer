@@ -43,11 +43,7 @@
           </el-button>
           <template #dropdown>
             <el-dropdown-menu>
-              <el-dropdown-item command="format-doc">
-                <el-icon><Document /></el-icon> 整理排版
-                <span class="shortcut-hint">Ctrl+Shift+F</span>
-              </el-dropdown-item>
-              <el-dropdown-item divided command="extract">
+              <el-dropdown-item command="extract">
                 <el-icon><Aim /></el-icon> AI 智能提取
               </el-dropdown-item>
               <el-dropdown-item command="generate">
@@ -79,10 +75,6 @@
         </el-dropdown>
         <!-- 展开时显示的其余按钮 -->
         <template v-if="headerExpanded">
-          <el-button class="format-doc-btn" @click="doFormatDocument" title="整理排版 (Ctrl+Shift+F)">
-            <el-icon><Sort /></el-icon>
-            <span>整理排版</span>
-          </el-button>
           <el-button class="extract-btn" @click="showExtractDrawer = true">
             <el-icon><Aim /></el-icon>
             <span>AI 智能提取</span>
@@ -91,11 +83,50 @@
             <el-icon><MagicStick /></el-icon>
             <span>根据设定生成</span>
           </el-button>
+          <el-dropdown
+            trigger="click"
+            class="export-dropdown"
+            @command="(cmd: string) => exportMenuRef?.triggerExport(cmd)"
+          >
+            <el-button class="extract-btn export-dropdown-btn">
+              <el-icon><Download /></el-icon>
+              <span>导出</span>
+              <el-icon class="arrow-icon"><ArrowDown /></el-icon>
+            </el-button>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item command="markdown">
+                  <el-icon><Document /></el-icon> Markdown
+                </el-dropdown-item>
+                <el-dropdown-item command="pdf">
+                  <el-icon><Collection /></el-icon> PDF
+                </el-dropdown-item>
+                <el-dropdown-item command="docx">
+                  <el-icon><Files /></el-icon> Word
+                </el-dropdown-item>
+                <el-dropdown-item command="txt">
+                  <el-icon><Document /></el-icon> 纯文本
+                </el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
+          <el-button class="extract-btn" @click="showPublishDialog = true">
+            <el-icon><Promotion /></el-icon>
+            <span>发布到自媒体</span>
+          </el-button>
+          <el-button class="extract-btn" @click="handleDocCommand('rename')">
+            <el-icon><Edit /></el-icon>
+            <span>重命名</span>
+          </el-button>
+          <el-button class="header-delete-btn" type="danger" @click="handleDocCommand('delete')">
+            <el-icon><Delete /></el-icon>
+            <span>删除文档</span>
+          </el-button>
         </template>
         <ExportMenu
           ref="exportMenuRef"
           mode="document"
-          :show-button="headerExpanded"
+          :show-button="false"
           :document-id="Number(documentId)"
           :document-title="documentTitle"
         />
@@ -201,7 +232,7 @@ import ExportMenu from '@/components/ExportMenu.vue'
 import PublishDialog from '@/components/PublishDialog.vue'
 import { parseFormattedTextToBlocks } from '@/utils/formatToBlocks'
 import { ElMessageBox } from 'element-plus'
-import { ArrowLeft, ArrowRight, ArrowDown, ArrowUp, ChatDotRound, Check, Loading, CircleCheck, MoreFilled, Edit, Delete, Aim, MagicStick, Document, Collection, Files, Sort, Promotion } from '@element-plus/icons-vue'
+import { ArrowLeft, ArrowRight, ArrowDown, ArrowUp, ChatDotRound, Check, Loading, CircleCheck, MoreFilled, Edit, Delete, Aim, MagicStick, Document, Collection, Files, Promotion, Download } from '@element-plus/icons-vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -281,15 +312,6 @@ function onExpandSelected(payload: { indices: number[]; text: string }) {
   })
 }
 
-async function saveTitle() {
-  if (documentTitle.value !== document.value?.title) {
-    await store.updateDocument(Number(documentId.value), {
-      title: documentTitle.value
-    })
-    ElMessage.success('标题已保存')
-  }
-}
-
 async function saveDocument() {
   if (!hasChanges.value && !saving.value) return
   
@@ -322,10 +344,6 @@ function goBack() {
 }
 
 function handleMoreCommand(command: string) {
-  if (command === 'format-doc') {
-    doFormatDocument()
-    return
-  }
   if (command === 'extract') {
     showExtractDrawer.value = true
   } else if (command === 'generate') {
@@ -348,13 +366,14 @@ function handleMoreCommand(command: string) {
 async function handleDocCommand(command: string) {
   if (command === 'rename') {
     try {
-      const { value } = await ElMessageBox.prompt('输入新标题', '重命名文档', {
+      const res = await ElMessageBox.prompt('输入新标题', '重命名文档', {
         confirmButtonText: '确定',
         cancelButtonText: '取消',
         inputValue: documentTitle.value,
         inputPattern: /.{1,100}/,
         inputErrorMessage: '标题长度 1～100 个字符'
       })
+      const value = (res as any)?.value as string
       await store.updateDocument(Number(documentId.value), { title: value })
       documentTitle.value = value
       ElMessage.success('已重命名')
@@ -531,50 +550,13 @@ onBeforeUnmount(() => {
   }
 })
 
-/** 一键整理排版：去除每块首尾空白、删除空块、段落内多余换行合并 */
-function formatDocumentContent(blocks: Block[]): Block[] {
-  if (!blocks?.length) return blocks
-  const result: Block[] = []
-  for (const b of blocks) {
-    const trimmed = typeof b.content === 'string' ? b.content.trim() : ''
-    if (b.type === 'divider') {
-      result.push({ ...b, content: '' })
-      continue
-    }
-    if (!trimmed) continue
-    const normalized = trimmed.replace(/\n{3,}/g, '\n\n')
-    result.push({ ...b, content: normalized })
-  }
-  if (result.length === 0) {
-    return [{ id: String(Date.now()), type: 'paragraph', content: '', props: {} }]
-  }
-  return result
-}
-
-function doFormatDocument() {
-  const next = formatDocumentContent(content.value)
-  if (JSON.stringify(next) === JSON.stringify(content.value)) {
-    ElMessage.info('当前文档已整洁，无需整理')
-    return
-  }
-  content.value = next
-  hasChanges.value = true
-  ElMessage.success('已整理排版')
-}
-
-// 阻止页面级别的 Ctrl+A 选择，让编辑器自己处理；Ctrl+Shift+F 一键整理排版
+// 阻止页面级别的 Ctrl+A 选择，让编辑器自己处理
 function handleDocumentKeydown(event: KeyboardEvent) {
   const isMod = event.ctrlKey || event.metaKey
   const key = event.key.toLowerCase()
 
-  if (isMod && event.shiftKey && key === 'f') {
-    event.preventDefault()
-    doFormatDocument()
-    return
-  }
-
   if (isMod && key === 'a') {
-    const activeElement = document.activeElement
+    const activeElement = globalThis.document.activeElement as HTMLElement | null
     const isInEditor = activeElement?.closest('.block-editor') !== null
     if (!isInEditor) {
       event.preventDefault()
@@ -714,6 +696,26 @@ onUnmounted(() => {
     font-size: 13px;
     &:hover { color: var(--coffee-primary); }
     .el-icon { margin-right: 2px; font-size: 14px; }
+  }
+
+  .export-dropdown {
+    display: inline-flex;
+    .export-dropdown-btn {
+      .el-icon.arrow-icon {
+        margin-left: 6px;
+        margin-right: 0;
+        font-size: 12px;
+      }
+    }
+  }
+
+  .header-delete-btn {
+    height: 40px;
+    padding: 0 16px;
+    border-radius: 8px;
+    .el-icon {
+      margin-right: 6px;
+    }
   }
 
   :deep(.delete-item) {
