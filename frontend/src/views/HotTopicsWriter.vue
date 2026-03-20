@@ -297,39 +297,21 @@
             </el-button>
           </div>
 
-          <!-- 发布到公众号 -->
-          <el-divider v-if="savedDoc">或</el-divider>
-          
-          <div v-if="savedDoc" class="publish-section">
-            <h4>📢 发布到公众号</h4>
-            <el-form :model="publishConfig" label-position="top">
-              <el-form-item label="作者">
-                <el-input v-model="publishConfig.author" placeholder="作者名称" />
-              </el-form-item>
-              <el-form-item label="摘要">
-                <el-input 
-                  v-model="publishConfig.digest" 
-                  type="textarea" 
-                  :rows="2"
-                  placeholder="文章摘要（不填则自动提取）" 
-                />
-              </el-form-item>
-              <el-form-item>
-                <el-checkbox v-model="publishConfig.needOpenComment">开启评论</el-checkbox>
-                <el-checkbox v-model="publishConfig.onlyFansCanComment">仅粉丝可评论</el-checkbox>
-                <el-checkbox v-model="publishConfig.publishNow">立即发布（否则保存为草稿）</el-checkbox>
-              </el-form-item>
-            </el-form>
-            
-            <div class="publish-buttons">
-              <el-button type="warning" @click="publishToWechat" :loading="publishing" size="large">
-                <el-icon><Promotion /></el-icon> 发布到公众号
-              </el-button>
-              <el-button @click="publishToWechatMock" :loading="publishing" size="large">
-                🧪 模拟发布（测试）
-              </el-button>
-            </div>
+          <!-- 发布到自媒体平台 -->
+          <el-divider v-if="savedDoc || generatedArticle">或</el-divider>
+
+          <div v-if="savedDoc || generatedArticle" class="publish-section">
+            <el-button type="warning" size="large" @click="showPublishDialog = true">
+              <el-icon><Promotion /></el-icon> 一键发布到自媒体平台
+            </el-button>
           </div>
+
+          <PublishDialog
+            v-model="showPublishDialog"
+            :document-id="savedDoc?.id"
+            :raw-title="selectedTitle || saveConfig.title"
+            :raw-content="generatedArticle"
+          />
 
           <!-- 保存成功提示 -->
           <el-alert
@@ -358,6 +340,7 @@ import { ElMessage } from 'element-plus'
 import { Refresh, TrendCharts, MagicStick, EditPen, DocumentChecked, Search, Promotion } from '@element-plus/icons-vue'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
+import PublishDialog from '@/components/PublishDialog.vue'
 import { useProjectStore } from '@/stores/project'
 import { API_BASE_URL } from '@/api'
 
@@ -388,16 +371,7 @@ const generatedArticle = ref('')
 const saving = ref(false)
 const quickWriting = ref(false)
 const savedDoc = ref<any>(null)
-const publishing = ref(false)
-
-// 发布配置
-const publishConfig = ref({
-  author: '',
-  digest: '',
-  needOpenComment: true,
-  onlyFansCanComment: false,
-  publishNow: false
-})
+const showPublishDialog = ref(false)
 
 // 配置
 const outlineConfig = ref({
@@ -727,101 +701,6 @@ const quickWrite = async () => {
 const goToDocument = () => {
   if (savedDoc.value) {
     router.push(`/editor/${savedDoc.value.id}`)
-  }
-}
-
-// 发布到公众号
-const publishToWechat = async () => {
-  if (!savedDoc.value) {
-    ElMessage.warning('请先保存文档')
-    return
-  }
-  
-  publishing.value = true
-  try {
-    const response = await fetch(`${API_BASE}/api/publish/wechat/draft`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${localStorage.getItem('token')}`
-      },
-      body: JSON.stringify({
-        document_id: savedDoc.value.id,
-        title: saveConfig.value.title,
-        author: publishConfig.value.author,
-        digest: publishConfig.value.digest,
-        need_open_comment: publishConfig.value.needOpenComment,
-        only_fans_can_comment: publishConfig.value.onlyFansCanComment,
-        publish_now: publishConfig.value.publishNow,
-        mock_mode: false
-      })
-    })
-    
-    if (!response.ok) {
-      const error = await response.json()
-      throw new Error(error.detail || '发布失败')
-    }
-    
-    const data = await response.json()
-    
-    if (data.success) {
-      if (publishConfig.value.publishNow) {
-        ElMessage.success('文章已提交发布！')
-      } else {
-        ElMessage.success('草稿已创建！请在公众号后台查看')
-      }
-    } else {
-      ElMessage.error(data.draft?.error || '发布失败')
-    }
-  } catch (error: any) {
-    ElMessage.error(error.message || '发布失败')
-    console.error(error)
-  } finally {
-    publishing.value = false
-  }
-}
-
-// 模拟发布到公众号（测试用）
-const publishToWechatMock = async () => {
-  if (!savedDoc.value) {
-    ElMessage.warning('请先保存文档')
-    return
-  }
-  
-  publishing.value = true
-  try {
-    const response = await fetch(`${API_BASE}/api/publish/wechat/draft`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${localStorage.getItem('token')}`
-      },
-      body: JSON.stringify({
-        document_id: savedDoc.value.id,
-        title: saveConfig.value.title,
-        author: publishConfig.value.author || '测试作者',
-        digest: publishConfig.value.digest,
-        need_open_comment: publishConfig.value.needOpenComment,
-        only_fans_can_comment: publishConfig.value.onlyFansCanComment,
-        publish_now: publishConfig.value.publishNow,
-        mock_mode: true
-      })
-    })
-    
-    if (!response.ok) throw new Error('模拟发布失败')
-    const data = await response.json()
-    
-    if (data.success) {
-      ElMessage.success(`✅ 模拟发布成功！\nMedia ID: ${data.draft.media_id}`)
-      console.log('发布结果:', data)
-    } else {
-      ElMessage.error(data.draft?.error || '模拟发布失败')
-    }
-  } catch (error) {
-    ElMessage.error('模拟发布失败')
-    console.error(error)
-  } finally {
-    publishing.value = false
   }
 }
 
@@ -1258,23 +1137,8 @@ onMounted(() => {
   margin-top: 20px;
 }
 
-// 发布区域样式
 .publish-section {
-  margin-top: 24px;
-  padding: 20px;
-  background: #f5f7fa;
-  border-radius: 8px;
-
-  h4 {
-    margin: 0 0 16px 0;
-    color: #303133;
-    font-size: 16px;
-  }
-
-  .publish-buttons {
-    display: flex;
-    gap: 12px;
-    margin-top: 16px;
-  }
+  margin-top: 16px;
+  text-align: center;
 }
 </style>

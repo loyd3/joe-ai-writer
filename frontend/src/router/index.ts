@@ -48,12 +48,6 @@ const router = createRouter({
           meta: { title: 'AI故事生成器' }
         },
         {
-          path: 'long-article',
-          name: 'long-article',
-          component: () => import('@/views/LongArticleGenerator.vue'),
-          meta: { title: '长篇文章生成器' }
-        },
-        {
           path: 'brainstorm-writing',
           name: 'brainstorm-writing',
           component: () => import('@/views/BrainstormWriting.vue'),

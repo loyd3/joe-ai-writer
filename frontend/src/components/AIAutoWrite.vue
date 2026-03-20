@@ -19,21 +19,28 @@
         <p class="sub">请先在「项目设定」中创建大纲</p>
       </div>
       
-      <el-checkbox-group v-else v-model="selectedNodes" class="outline-list">
-        <div
-          v-for="(node, index) in outline"
-          :key="index"
-          class="outline-item"
-          :class="{ selected: selectedNodes.includes(index) }"
-        >
-          <el-checkbox :label="index">
-            <div class="node-info">
-              <span class="node-title">{{ node.title || `章节 ${index + 1}` }}</span>
-              <span v-if="node.description" class="node-desc">{{ node.description }}</span>
-            </div>
-          </el-checkbox>
+      <template v-else>
+        <div class="select-toolbar">
+          <el-button link type="primary" @click="selectAll">全选</el-button>
+          <el-button link @click="selectNone">取消全选</el-button>
+          <span class="select-count">已选 {{ selectedNodes.length }} / {{ outline.length }}</span>
         </div>
-      </el-checkbox-group>
+        <el-checkbox-group v-model="selectedNodes" class="outline-list">
+          <div
+            v-for="(node, index) in outline"
+            :key="index"
+            class="outline-item"
+            :class="{ selected: selectedNodes.includes(index) }"
+          >
+            <el-checkbox :label="index">
+              <div class="node-info">
+                <span class="node-title">{{ node.title || `章节 ${index + 1}` }}</span>
+                <span v-if="node.description" class="node-desc">{{ node.description }}</span>
+              </div>
+            </el-checkbox>
+          </div>
+        </el-checkbox-group>
+      </template>
 
       <div class="step-actions">
         <el-button @click="emit('close')">取消</el-button>
@@ -49,18 +56,20 @@
       <h4>配置生成参数</h4>
       
       <el-form label-position="top">
-        <el-form-item label="每章字数限制">
+        <el-form-item label="每章字数限制（tokens）">
           <div class="slider-with-value">
             <el-slider
               v-model="maxTokens"
               :min="1000"
-              :max="8000"
-              :step="500"
-              show-stops
+              :max="30000"
+              :step="1000"
             />
-            <span class="value-display">{{ estimatedChars }} 字</span>
+            <span class="value-display">≈ {{ estimatedChars.toLocaleString() }} 字</span>
           </div>
-          <p class="form-hint">建议：短篇 1500-2500 字，中篇 2000-4000 字</p>
+          <p class="form-hint">
+            建议：短篇 2000-4000，中篇 4000-8000，长篇 8000-20000。
+            超过 8192 tokens 时会自动分段续写。
+          </p>
         </el-form-item>
 
         <el-form-item label="额外要求（可选）">
@@ -89,10 +98,20 @@
           </p>
         </el-form-item>
 
-        <el-form-item>
-          <el-checkbox v-model="autoContinue">
-            出错时自动继续下一章
-          </el-checkbox>
+        <el-form-item label="容错设置">
+          <div class="fault-tolerance-config">
+            <el-checkbox v-model="autoContinue">
+              出错时自动继续下一章
+            </el-checkbox>
+            <div class="retry-config">
+              <span class="retry-label">失败自动重试次数：</span>
+              <el-input-number v-model="maxRetries" :min="0" :max="5" :step="1" size="small" />
+            </div>
+            <div class="timeout-config">
+              <span class="retry-label">单章超时时间（秒）：</span>
+              <el-input-number v-model="chapterTimeoutSec" :min="30" :max="600" :step="30" size="small" />
+            </div>
+          </div>
         </el-form-item>
       </el-form>
 
@@ -120,9 +139,44 @@
 
     <!-- 第三步：逐章生成与操作 -->
     <div v-if="step === 'generating'" class="step-panel generating">
+      <!-- 控制栏（暂停/继续/停止） -->
+      <div class="generation-controls">
+        <el-button
+          v-if="!isPaused && isGenerating"
+          type="warning"
+          size="small"
+          @click="pauseGeneration"
+        >
+          <el-icon><VideoPause /></el-icon>
+          暂停
+        </el-button>
+        <el-button
+          v-if="isPaused"
+          type="success"
+          size="small"
+          @click="resumeGeneration"
+        >
+          <el-icon><VideoPlay /></el-icon>
+          继续
+        </el-button>
+        <el-button
+          type="danger"
+          size="small"
+          plain
+          @click="confirmStopGeneration"
+        >
+          <el-icon><Close /></el-icon>
+          停止全部
+        </el-button>
+        <span v-if="currentRetryCount > 0" class="retry-indicator">
+          <el-icon class="is-loading"><Loading /></el-icon>
+          第 {{ currentRetryCount }} 次重试中...
+        </span>
+      </div>
+
       <!-- 自动模式：简洁显示 -->
       <template v-if="autoInsert">
-        <h4>自动生成中...</h4>
+        <h4>{{ isPaused ? '已暂停' : '自动生成中...' }}</h4>
         <div class="auto-mode-info">
           <el-tag type="info" size="large">
             {{ autoInsertMode === 'create' ? '智能匹配：自动更新或创建文档' : '全部追加到当前打开的文档' }}
@@ -130,8 +184,9 @@
         </div>
 
         <div class="current-chapter-info" v-if="currentChapterTitle">
-          <span>正在生成：</span>
+          <span>{{ isPaused ? '暂停于：' : '正在生成：' }}</span>
           <el-tag size="large" type="primary">{{ currentChapterTitle }}</el-tag>
+          <el-tag v-if="currentRetryCount > 0" type="warning" size="small">重试 {{ currentRetryCount }}/{{ maxRetries }}</el-tag>
         </div>
 
         <div class="progress-section">
@@ -142,6 +197,7 @@
           />
           <div class="progress-text">
             总体进度：{{ completedChapters.length }} / {{ totalChapters }} 章已完成
+            <span v-if="failedChapterCount > 0" class="failed-count">（{{ failedChapterCount }} 个失败）</span>
           </div>
         </div>
 
@@ -165,15 +221,20 @@
         <!-- 最后生成的章节预览 -->
         <div v-else-if="lastCompletedChapter" class="last-chapter-preview">
           <div class="preview-header">
-            <span>✓ {{ lastCompletedChapter.title }} 已{{ lastCompletedChapter.action === 'create' ? '创建' : '保存' }}</span>
+            <span>{{ lastCompletedChapter.error ? '✗' : '✓' }} {{ lastCompletedChapter.title }}
+              {{ lastCompletedChapter.error ? '生成失败' : `已${lastCompletedChapter.action === 'create' ? '创建' : '保存'}` }}
+            </span>
             <span class="char-count">{{ lastCompletedChapter.chars }} 字</span>
           </div>
+          <p v-if="lastCompletedChapter.errorMessage" class="error-detail">
+            {{ lastCompletedChapter.errorMessage }}
+          </p>
         </div>
       </template>
 
       <!-- 手动模式：详细操作 -->
       <template v-else>
-        <h4>正在生成第 {{ currentChapterIndex + 1 }} / {{ totalChapters }} 章</h4>
+        <h4>{{ isPaused ? '已暂停' : `正在生成第 ${currentChapterIndex + 1} / ${totalChapters} 章` }}</h4>
 
         <div class="current-chapter-info">
           <el-tag size="large" type="primary">{{ currentChapterTitle }}</el-tag>
@@ -188,26 +249,35 @@
           />
           <div class="progress-text">
             总体进度：{{ completedChapters.length }} / {{ totalChapters }} 章已完成
+            <span v-if="failedChapterCount > 0" class="failed-count">（{{ failedChapterCount }} 个失败）</span>
           </div>
         </div>
 
         <!-- 生成中状态 -->
         <div v-if="isGenerating" class="generating-status">
-          <el-skeleton :rows="6" animated />
+          <div v-if="currentChapterContent" class="auto-preview-content inline-preview" ref="autoPreviewRef">
+            {{ currentChapterContent }}<span class="cursor">|</span>
+          </div>
+          <el-skeleton v-else :rows="6" animated />
           <div class="generating-text">
             <el-icon class="is-loading"><Loading /></el-icon>
-            AI 正在创作中...
+            AI 正在创作中... {{ currentChapterChars > 0 ? `(${currentChapterChars} 字)` : '' }}
           </div>
         </div>
 
         <!-- 生成完成，等待操作 -->
-        <div v-else-if="currentChapterContent" class="chapter-ready">
+        <div v-else-if="currentChapterContent && !generationError" class="chapter-ready">
           <div class="content-preview-box">
             <div class="preview-header">
               <span>生成内容预览（{{ currentChapterChars }} 字）</span>
-              <el-button link size="small" @click="showFullContent = !showFullContent">
-                {{ showFullContent ? '收起' : '展开全文' }}
-              </el-button>
+              <div>
+                <el-button link size="small" type="warning" @click="regenerateChapter">
+                  <el-icon><RefreshRight /></el-icon> 重新生成
+                </el-button>
+                <el-button link size="small" @click="showFullContent = !showFullContent">
+                  {{ showFullContent ? '收起' : '展开全文' }}
+                </el-button>
+              </div>
             </div>
             <div class="preview-content" :class="{ expanded: showFullContent }">
               {{ showFullContent ? currentChapterContent : currentChapterContent.slice(0, 300) + (currentChapterContent.length > 300 ? '...' : '') }}
@@ -236,19 +306,34 @@
         <!-- 错误状态 -->
         <div v-else-if="generationError" class="error-state">
           <el-icon :size="48" color="#f56c6c"><CircleClose /></el-icon>
-          <p>生成失败：{{ generationError }}</p>
-          <el-button type="primary" @click="retryChapter">重试</el-button>
-          <el-button @click="skipChapter">跳过</el-button>
+          <p class="error-title">生成失败</p>
+          <div class="error-detail-box">
+            <p>{{ generationError }}</p>
+            <p v-if="currentRetryCount > 0" class="retry-exhausted">已重试 {{ currentRetryCount }} 次仍然失败</p>
+          </div>
+          <div class="error-actions">
+            <el-button type="primary" @click="retryChapter">
+              <el-icon><RefreshRight /></el-icon> 重试本章
+            </el-button>
+            <el-button @click="skipChapter">跳过</el-button>
+            <el-button type="danger" plain @click="confirmStopGeneration">停止全部</el-button>
+          </div>
         </div>
       </template>
     </div>
 
     <!-- 第四步：全部完成 -->
     <div v-if="step === 'complete'" class="step-panel">
-      <div class="success-state">
-        <el-icon class="success-icon" :size="64"><CircleCheck /></el-icon>
-        <h4>全部完成！</h4>
-        <p>共生成 <strong>{{ completedChapters.length }}</strong> 章</p>
+      <div class="success-state" :class="{ 'has-errors': failedChapterCount > 0 }">
+        <el-icon class="success-icon" :size="64">
+          <component :is="failedChapterCount > 0 ? WarningFilled : CircleCheck" />
+        </el-icon>
+        <h4>{{ failedChapterCount > 0 ? '生成完成（部分失败）' : '全部完成！' }}</h4>
+        <p>共处理 <strong>{{ completedChapters.length }}</strong> 章</p>
+        <p v-if="successChapterCount > 0">成功 <strong>{{ successChapterCount }}</strong> 章</p>
+        <p v-if="failedChapterCount > 0" style="color: var(--el-color-danger)">
+          失败 <strong>{{ failedChapterCount }}</strong> 章
+        </p>
         <p v-if="updatedChaptersCount > 0">更新 <strong>{{ updatedChaptersCount }}</strong> 个现有文档</p>
         <p v-if="createdDocuments.length > 0">成功创建 <strong>{{ createdDocuments.length }}</strong> 个新文档</p>
         <p>总计 <strong>{{ totalChars.toLocaleString() }}</strong> 字</p>
@@ -265,16 +350,38 @@
             <div class="timeline-content">
               <span class="timeline-title">{{ chapter.title }}</span>
               <span class="timeline-chars">{{ chapter.chars.toLocaleString() }} 字</span>
-              <el-tag :type="chapter.action === 'create' ? 'success' : chapter.action === 'update' ? 'warning' : chapter.action === 'insert' ? 'primary' : 'info'" size="small">
+              <el-tag
+                v-if="!chapter.error"
+                :type="chapter.action === 'create' ? 'success' : chapter.action === 'update' ? 'warning' : chapter.action === 'insert' ? 'primary' : 'info'"
+                size="small"
+              >
                 {{ chapter.action === 'create' ? '新建文档' : chapter.action === 'update' ? '更新文档' : chapter.action === 'insert' ? '插入当前' : '已跳过' }}
               </el-tag>
-              <el-tag v-if="chapter.error" type="danger" size="small">失败</el-tag>
+              <template v-if="chapter.error">
+                <el-tag type="danger" size="small">失败</el-tag>
+                <el-button
+                  link
+                  type="primary"
+                  size="small"
+                  @click="retryFailedChapter(index)"
+                  :loading="retryingIndex === index"
+                >
+                  <el-icon><RefreshRight /></el-icon> 重试
+                </el-button>
+              </template>
             </div>
+            <p v-if="chapter.error && chapter.errorMessage" class="timeline-error">
+              {{ chapter.errorMessage }}
+            </p>
           </el-timeline-item>
         </el-timeline>
       </div>
 
       <div class="step-actions">
+        <el-button v-if="failedChapterCount > 0" type="primary" @click="retryAllFailed" :loading="retryingAll">
+          <el-icon><RefreshRight /></el-icon>
+          重试所有失败章节
+        </el-button>
         <el-button @click="resetAndClose">关闭</el-button>
       </div>
     </div>
@@ -282,15 +389,15 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ref, computed, nextTick, watch } from 'vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { aiApi, documentApi } from '@/api'
 import type { OutlineNode, AIGenerateChunk } from '@/api/types'
 import { parseFormattedTextToBlocks } from '@/utils/formatToBlocks'
 import {
-  ArrowRight, ArrowLeft, VideoPlay, EditPen,
-  CircleCheck, DocumentAdd, Document, Plus, Right,
-  Loading, CircleClose, InfoFilled
+  ArrowRight, ArrowLeft, VideoPlay, VideoPause, EditPen,
+  CircleCheck, DocumentAdd, Document, Plus, Right, Close,
+  Loading, CircleClose, InfoFilled, RefreshRight, WarningFilled
 } from '@element-plus/icons-vue'
 
 const props = defineProps<{
@@ -313,15 +420,19 @@ const step = ref<'select' | 'config' | 'generating' | 'complete'>('select')
 const selectedNodes = ref<number[]>([])
 
 // 第二步：配置
-const maxTokens = ref(2000)
+const maxTokens = ref(8000)
 const customInstruction = ref('')
 const autoContinue = ref(true)
 const autoInsert = ref(false)
 const autoInsertMode = ref<'create' | 'append'>('create')
+const maxRetries = ref(2)
+const chapterTimeoutSec = ref(180)
 
 // 第三步：逐章生成
 const isGenerating = ref(false)
 const isProcessing = ref(false)
+const isPaused = ref(false)
+const isStopped = ref(false)
 const processingTitle = ref('')
 const currentChapterIndex = ref(0)
 const currentChapterTitle = ref('')
@@ -332,8 +443,14 @@ const showFullContent = ref(false)
 const generationError = ref('')
 const lastCompletedChapter = ref<CompletedChapter | null>(null)
 const autoPreviewRef = ref<HTMLElement>()
+const currentRetryCount = ref(0)
+const retryingIndex = ref(-1)
+const retryingAll = ref(false)
 
-// 完成的章节记录
+let activeReader: ReadableStreamDefaultReader<Uint8Array> | null = null
+let pauseResolve: (() => void) | null = null
+let timeoutTimer: ReturnType<typeof setTimeout> | null = null
+
 interface CompletedChapter {
   title: string
   chars: number
@@ -341,24 +458,20 @@ interface CompletedChapter {
   action?: 'create' | 'insert' | 'skip' | 'update'
   documentId?: number
   error?: boolean
+  errorMessage?: string
+  nodeIndex?: number
 }
 const completedChapters = ref<CompletedChapter[]>([])
 const createdDocuments = ref<{ id: number; title: string }[]>([])
 const totalChars = ref(0)
 
-// 待生成的章节队列
 const pendingChapters = ref<OutlineNode[]>([])
 
-// document_id 为 0 时（项目页）先创建文档，后续请求用此 id
 const effectiveDocumentId = ref(0)
-// 本次会话在项目页创建的文档标题，用于智能匹配时优先更新该文档而非新建
 const sessionCreatedDocTitle = ref('')
 
 // 计算属性
-const estimatedChars = computed(() => {
-  return Math.floor(maxTokens.value / 1.5)
-})
-
+const estimatedChars = computed(() => Math.floor(maxTokens.value / 1.5))
 const totalChapters = computed(() => pendingChapters.value.length)
 
 const overallProgress = computed(() => {
@@ -367,15 +480,41 @@ const overallProgress = computed(() => {
 })
 
 const progressStatus = computed(() => {
-  if (step.value === 'complete') return 'success'
+  if (step.value === 'complete') {
+    return failedChapterCount.value > 0 ? 'warning' : 'success'
+  }
   return ''
 })
 
-const updatedChaptersCount = computed(() => {
-  return completedChapters.value.filter(c => c.action === 'update').length
+const updatedChaptersCount = computed(() =>
+  completedChapters.value.filter(c => c.action === 'update').length
+)
+
+const failedChapterCount = computed(() =>
+  completedChapters.value.filter(c => c.error).length
+)
+
+const successChapterCount = computed(() =>
+  completedChapters.value.filter(c => !c.error && c.action !== 'skip').length
+)
+
+// 自动滚动 preview
+watch(() => currentChapterContent.value, () => {
+  nextTick(() => {
+    if (autoPreviewRef.value) {
+      autoPreviewRef.value.scrollTop = autoPreviewRef.value.scrollHeight
+    }
+  })
 })
 
 // 方法
+function selectAll() {
+  selectedNodes.value = props.outline.map((_, i) => i)
+}
+function selectNone() {
+  selectedNodes.value = []
+}
+
 function goToConfig() {
   if (selectedNodes.value.length === 0) {
     ElMessage.warning('请至少选择一个章节')
@@ -384,24 +523,22 @@ function goToConfig() {
   step.value = 'config'
 }
 
-// 自动滚动预览区域
-function scrollAutoPreview() {
-  nextTick(() => {
-    if (autoPreviewRef.value) {
-      autoPreviewRef.value.scrollTop = autoPreviewRef.value.scrollHeight
-    }
-  })
+function clearTimeoutTimer() {
+  if (timeoutTimer) {
+    clearTimeout(timeoutTimer)
+    timeoutTimer = null
+  }
 }
 
 async function startGeneration() {
-  // 准备待生成队列
   pendingChapters.value = selectedNodes.value.map(i => props.outline[i])
   completedChapters.value = []
   createdDocuments.value = []
   totalChars.value = 0
   currentChapterIndex.value = 0
+  isPaused.value = false
+  isStopped.value = false
 
-  // document_id 为 0 时（从项目页进入）：若第一章已有对应文档则直接用，否则新建一篇
   if (props.documentId === 0) {
     const firstTitle = pendingChapters.value[0]?.title || 'AI 自动生成'
     const existingFirst = findExistingDocumentByTitle(firstTitle)
@@ -429,16 +566,23 @@ async function startGeneration() {
   }
 
   step.value = 'generating'
-
-  // 开始生成第一章
   await generateCurrentChapter()
 }
 
 async function generateCurrentChapter() {
-  if (currentChapterIndex.value >= pendingChapters.value.length) {
-    // 全部完成
+  if (isStopped.value) {
     step.value = 'complete'
     return
+  }
+  if (currentChapterIndex.value >= pendingChapters.value.length) {
+    step.value = 'complete'
+    return
+  }
+
+  // Check pause before starting
+  if (isPaused.value) {
+    await waitForResume()
+    if (isStopped.value) { step.value = 'complete'; return }
   }
 
   const node = pendingChapters.value[currentChapterIndex.value]
@@ -449,88 +593,249 @@ async function generateCurrentChapter() {
   generationError.value = ''
   isGenerating.value = true
   showFullContent.value = false
+  currentRetryCount.value = 0
 
+  await attemptGenerate(node)
+}
+
+async function attemptGenerate(node: OutlineNode) {
   try {
-    const res = await aiApi.batchGenerateStream({
-      project_id: props.projectId,
-      document_id: effectiveDocumentId.value,
-      outline_nodes: [node],  // 只生成当前这一章
-      max_tokens_per_chapter: maxTokens.value,
-      continue_on_complete: autoContinue.value,
-      custom_instruction: customInstruction.value || undefined
-    })
+    const res = await fetchWithTimeout(
+      () => aiApi.batchGenerateStream({
+        project_id: props.projectId,
+        document_id: effectiveDocumentId.value,
+        outline_nodes: [node],
+        max_tokens_per_chapter: maxTokens.value,
+        continue_on_complete: autoContinue.value,
+        custom_instruction: customInstruction.value || undefined
+      }),
+      chapterTimeoutSec.value * 1000
+    )
 
     if (!res.ok) {
       const err = await res.json().catch(() => ({}))
-      throw new Error(err.detail || '生成失败')
+      const detail = err.detail
+      const errMsg = typeof detail === 'string'
+        ? detail
+        : Array.isArray(detail)
+          ? detail.map((d: any) => d.msg || JSON.stringify(d)).join('; ')
+          : '生成失败'
+      throw new Error(errMsg)
     }
 
     const reader = res.body?.getReader()
+    if (!reader) throw new Error('无法读取响应流')
+    activeReader = reader
+
     const decoder = new TextDecoder()
-
-    if (!reader) throw new Error('无法读取响应')
-
     let fullContent = ''
+    let lastChunkTime = Date.now()
 
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) break
+    // Start inactivity watchdog
+    const inactivityLimit = Math.max(60000, chapterTimeoutSec.value * 500)
+    const watchdog = setInterval(() => {
+      if (Date.now() - lastChunkTime > inactivityLimit && isGenerating.value) {
+        clearInterval(watchdog)
+        reader.cancel().catch(() => {})
+      }
+    }, 5000)
 
-      const chunk = decoder.decode(value, { stream: true })
-      const lines = chunk.split('\n')
+    let sseBuffer = ''
 
-      for (const line of lines) {
-        if (!line.startsWith('data: ')) continue
+    try {
+      while (true) {
+        if (isStopped.value) {
+          await reader.cancel()
+          break
+        }
+        if (isPaused.value) {
+          await waitForResume()
+          if (isStopped.value) { await reader.cancel(); break }
+        }
 
-        const data = line.slice(6)
-        if (data === '[DONE]') continue
+        const { done, value } = await reader.read()
+        if (done) break
+        lastChunkTime = Date.now()
 
-        try {
-          const parsed: AIGenerateChunk = JSON.parse(data)
-          if (parsed.type === 'content' && parsed.content) {
-            // 实时累积内容用于预览
-            currentChapterContent.value += parsed.content
-            currentChapterChars.value = currentChapterContent.value.length
-            // 自动滚动预览区域
-            scrollAutoPreview()
+        sseBuffer += decoder.decode(value, { stream: true })
+        const lines = sseBuffer.split('\n')
+        sseBuffer = lines.pop() || ''
+
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue
+          const data = line.slice(6).trim()
+          if (data === '[DONE]') continue
+
+          try {
+            const parsed: AIGenerateChunk = JSON.parse(data)
+            if (parsed.type === 'content' && parsed.content) {
+              currentChapterContent.value += parsed.content
+              currentChapterChars.value = currentChapterContent.value.length
+            }
+            if (parsed.type === 'chapter_complete' && parsed.chapter_content) {
+              fullContent = parsed.chapter_content
+              currentChapterChars.value = parsed.chapter_chars || fullContent.length
+            }
+            if (parsed.type === 'error') {
+              throw new Error(parsed.error_message || '服务端返回错误')
+            }
+          } catch (parseErr: any) {
+            if (parseErr.message && !parseErr.message.includes('JSON')) throw parseErr
           }
-          if (parsed.type === 'chapter_complete' && parsed.chapter_content) {
-            fullContent = parsed.chapter_content
-            currentChapterChars.value = parsed.chapter_chars || fullContent.length
-          }
-        } catch (e) {
-          // 忽略解析错误
         }
       }
+    } finally {
+      clearInterval(watchdog)
+      activeReader = null
+    }
+
+    // Use accumulated content if no chapter_complete event
+    if (!fullContent && currentChapterContent.value.trim()) {
+      fullContent = currentChapterContent.value
+    }
+
+    if (!fullContent.trim()) {
+      throw new Error('生成结果为空，可能是 AI 服务异常')
     }
 
     currentChapterContent.value = fullContent
+    currentChapterChars.value = fullContent.length
     isGenerating.value = false
 
-    // 自动模式下，自动执行插入
-    if (autoInsert.value && fullContent.trim()) {
+    if (autoInsert.value) {
       await autoProcessChapter()
     }
 
   } catch (e: any) {
     isGenerating.value = false
+    activeReader = null
+
+    if (isStopped.value) {
+      step.value = 'complete'
+      return
+    }
+
+    const errorMsg = parseErrorMessage(e)
+
+    // Auto-retry logic
+    if (currentRetryCount.value < maxRetries.value) {
+      currentRetryCount.value++
+      const delayMs = Math.min(2000 * currentRetryCount.value, 10000)
+      ElMessage.warning(`生成失败，${delayMs / 1000}秒后自动重试 (${currentRetryCount.value}/${maxRetries.value})`)
+
+      currentChapterContent.value = ''
+      currentChapterChars.value = 0
+      isGenerating.value = true
+      await sleep(delayMs)
+
+      if (isStopped.value) { step.value = 'complete'; return }
+      await attemptGenerate(node)
+      return
+    }
+
     if (autoInsert.value && autoContinue.value) {
-      // 自动模式下且设置了出错继续，则记录错误并继续
       completedChapters.value.push({
         title: currentChapterTitle.value,
         chars: 0,
-        error: true
+        error: true,
+        errorMessage: errorMsg,
+        nodeIndex: currentChapterIndex.value
       })
+      lastCompletedChapter.value = completedChapters.value[completedChapters.value.length - 1]
       await nextChapter()
     } else {
-      generationError.value = e?.message || '生成失败'
-      completedChapters.value.push({
-        title: currentChapterTitle.value,
-        chars: 0,
-        error: true
-      })
+      generationError.value = errorMsg
     }
   }
+}
+
+function parseErrorMessage(e: any): string {
+  if (!e) return '未知错误'
+  const msg = e?.message || String(e)
+  if (msg.includes('timeout') || msg.includes('Timeout')) return '生成超时，请检查网络或减少字数后重试'
+  if (msg.includes('Failed to fetch') || msg.includes('NetworkError')) return '网络连接失败，请检查网络后重试'
+  if (msg.includes('max_tokens')) return 'Token 数量超出限制，请减少每章字数'
+  if (msg.includes('rate_limit') || msg.includes('429')) return 'API 调用频率超限，请稍后再试'
+  return msg
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms))
+}
+
+async function fetchWithTimeout(fetchFn: () => Promise<Response>, timeoutMs: number): Promise<Response> {
+  const controller = new AbortController()
+  clearTimeoutTimer()
+  timeoutTimer = setTimeout(() => controller.abort(), timeoutMs)
+
+  try {
+    const res = await fetchFn()
+    clearTimeoutTimer()
+    return res
+  } catch (e: any) {
+    clearTimeoutTimer()
+    if (e.name === 'AbortError' || controller.signal.aborted) {
+      throw new Error(`请求超时（${Math.round(timeoutMs / 1000)}秒）`)
+    }
+    throw e
+  }
+}
+
+// 暂停/恢复/停止
+function pauseGeneration() {
+  isPaused.value = true
+  ElMessage.info('已暂停，点击"继续"恢复生成')
+}
+
+function resumeGeneration() {
+  isPaused.value = false
+  if (pauseResolve) {
+    pauseResolve()
+    pauseResolve = null
+  }
+}
+
+function waitForResume(): Promise<void> {
+  return new Promise(resolve => { pauseResolve = resolve })
+}
+
+async function confirmStopGeneration() {
+  try {
+    await ElMessageBox.confirm(
+      '确定要停止所有生成任务吗？已完成的章节不会丢失。',
+      '确认停止',
+      { confirmButtonText: '确定停止', cancelButtonText: '取消', type: 'warning' }
+    )
+    stopGeneration()
+  } catch { /* cancelled */ }
+}
+
+function stopGeneration() {
+  isStopped.value = true
+  isPaused.value = false
+  isGenerating.value = false
+  clearTimeoutTimer()
+  if (pauseResolve) { pauseResolve(); pauseResolve = null }
+  if (activeReader) {
+    activeReader.cancel().catch(() => {})
+    activeReader = null
+  }
+  step.value = 'complete'
+}
+
+// 重新生成当前章节（手动模式）
+async function regenerateChapter() {
+  if (completedChapters.value.length > 0 &&
+      completedChapters.value[completedChapters.value.length - 1].title === currentChapterTitle.value) {
+    completedChapters.value.pop()
+  }
+  currentRetryCount.value = 0
+  currentChapterContent.value = ''
+  currentChapterChars.value = 0
+  generationError.value = ''
+  isGenerating.value = true
+  const node = pendingChapters.value[currentChapterIndex.value]
+  await attemptGenerate(node)
 }
 
 // 自动处理当前章节
@@ -825,7 +1130,8 @@ async function skipChapter() {
   completedChapters.value.push({
     title: currentChapterTitle.value,
     chars: 0,
-    action: 'skip'
+    action: 'skip',
+    nodeIndex: currentChapterIndex.value
   })
 
   ElMessage.info(`已跳过：${currentChapterTitle.value}`)
@@ -834,6 +1140,10 @@ async function skipChapter() {
 
 async function nextChapter() {
   currentChapterIndex.value++
+  if (isStopped.value) {
+    step.value = 'complete'
+    return
+  }
   if (currentChapterIndex.value < pendingChapters.value.length) {
     await generateCurrentChapter()
   } else {
@@ -842,15 +1152,159 @@ async function nextChapter() {
 }
 
 async function retryChapter() {
-  // 移除之前的错误记录
   if (completedChapters.value.length > 0 &&
       completedChapters.value[completedChapters.value.length - 1].error) {
     completedChapters.value.pop()
   }
+  currentRetryCount.value = 0
   await generateCurrentChapter()
 }
 
+async function retryFailedChapter(completedIndex: number) {
+  const chapter = completedChapters.value[completedIndex]
+  if (!chapter || !chapter.error) return
+
+  const nodeIdx = chapter.nodeIndex
+  if (nodeIdx === undefined || nodeIdx < 0 || nodeIdx >= pendingChapters.value.length) {
+    ElMessage.error('无法定位原始章节数据')
+    return
+  }
+
+  retryingIndex.value = completedIndex
+  const node = pendingChapters.value[nodeIdx]
+  currentChapterTitle.value = node.title || `章节 ${nodeIdx + 1}`
+  currentChapterDesc.value = node.description || ''
+  currentChapterContent.value = ''
+  currentChapterChars.value = 0
+  generationError.value = ''
+  currentRetryCount.value = 0
+
+  try {
+    isGenerating.value = true
+    const res = await aiApi.batchGenerateStream({
+      project_id: props.projectId,
+      document_id: effectiveDocumentId.value,
+      outline_nodes: [node],
+      max_tokens_per_chapter: maxTokens.value,
+      continue_on_complete: true,
+      custom_instruction: customInstruction.value || undefined
+    })
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}))
+      throw new Error(err.detail || '生成失败')
+    }
+
+    const reader = res.body?.getReader()
+    if (!reader) throw new Error('无法读取响应流')
+
+    const decoder = new TextDecoder()
+    let fullContent = ''
+    let sseBuffer = ''
+
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      sseBuffer += decoder.decode(value, { stream: true })
+      const lines = sseBuffer.split('\n')
+      sseBuffer = lines.pop() || ''
+
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue
+        const data = line.slice(6).trim()
+        if (data === '[DONE]') continue
+        try {
+          const parsed: AIGenerateChunk = JSON.parse(data)
+          if (parsed.type === 'content' && parsed.content) {
+            currentChapterContent.value += parsed.content
+            currentChapterChars.value = currentChapterContent.value.length
+          }
+          if (parsed.type === 'chapter_complete' && parsed.chapter_content) {
+            fullContent = parsed.chapter_content
+            currentChapterChars.value = parsed.chapter_chars || fullContent.length
+          }
+          if (parsed.type === 'error') throw new Error(parsed.error_message || '服务端返回错误')
+        } catch (pe: any) {
+          if (pe.message && !pe.message.includes('JSON')) throw pe
+        }
+      }
+    }
+
+    if (!fullContent && currentChapterContent.value.trim()) fullContent = currentChapterContent.value
+    if (!fullContent.trim()) throw new Error('生成结果为空')
+
+    isGenerating.value = false
+
+    // Auto-save the regenerated content
+    if (autoInsert.value) {
+      const content = fullContent
+      const contentBlocks = parseFormattedTextToBlocks(content, 'retry')
+      const doc = await documentApi.create(props.projectId, {
+        title: currentChapterTitle.value,
+        content: contentBlocks.length
+          ? contentBlocks
+          : [{ id: Date.now().toString(), type: 'paragraph', content, props: {} }]
+      })
+      emit('document-created', doc.data.id)
+      emit('refresh-documents')
+
+      completedChapters.value[completedIndex] = {
+        title: currentChapterTitle.value,
+        chars: fullContent.length,
+        content: fullContent,
+        action: 'create',
+        documentId: doc.data.id,
+        nodeIndex: nodeIdx
+      }
+      totalChars.value += fullContent.length
+      ElMessage.success(`重新生成成功：${currentChapterTitle.value}`)
+    } else {
+      completedChapters.value[completedIndex] = {
+        title: currentChapterTitle.value,
+        chars: fullContent.length,
+        content: fullContent,
+        action: 'create',
+        nodeIndex: nodeIdx
+      }
+      totalChars.value += fullContent.length
+      ElMessage.success(`重新生成成功：${currentChapterTitle.value}`)
+    }
+  } catch (e: any) {
+    isGenerating.value = false
+    completedChapters.value[completedIndex] = {
+      ...chapter,
+      errorMessage: parseErrorMessage(e)
+    }
+    ElMessage.error(`重试失败：${parseErrorMessage(e)}`)
+  } finally {
+    retryingIndex.value = -1
+    currentChapterContent.value = ''
+  }
+}
+
+async function retryAllFailed() {
+  const failedIndices = completedChapters.value
+    .map((c, i) => c.error ? i : -1)
+    .filter(i => i >= 0)
+
+  if (failedIndices.length === 0) return
+
+  retryingAll.value = true
+  for (const idx of failedIndices) {
+    if (isStopped.value) break
+    await retryFailedChapter(idx)
+  }
+  retryingAll.value = false
+
+  if (failedChapterCount.value === 0) {
+    ElMessage.success('所有失败章节已重新生成成功！')
+  }
+}
+
 function resetAndClose() {
+  clearTimeoutTimer()
+  isStopped.value = false
+  isPaused.value = false
   step.value = 'select'
   selectedNodes.value = []
   completedChapters.value = []
@@ -858,21 +1312,17 @@ function resetAndClose() {
   pendingChapters.value = []
   currentChapterContent.value = ''
   currentChapterIndex.value = 0
+  currentRetryCount.value = 0
+  retryingIndex.value = -1
+  activeReader = null
   emit('close')
 }
 </script>
 
 <style scoped lang="scss">
-// 动画关键帧
 @keyframes fadeInUp {
-  from {
-    opacity: 0;
-    transform: translateY(20px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 @keyframes pulse {
@@ -881,14 +1331,8 @@ function resetAndClose() {
 }
 
 @keyframes slideIn {
-  from {
-    opacity: 0;
-    transform: translateX(-20px);
-  }
-  to {
-    opacity: 1;
-    transform: translateX(0);
-  }
+  from { opacity: 0; transform: translateX(-20px); }
+  to { opacity: 1; transform: translateX(0); }
 }
 
 @keyframes shimmer {
@@ -902,14 +1346,8 @@ function resetAndClose() {
 }
 
 @keyframes scaleIn {
-  from {
-    opacity: 0;
-    transform: scale(0.9);
-  }
-  to {
-    opacity: 1;
-    transform: scale(1);
-  }
+  from { opacity: 0; transform: scale(0.9); }
+  to { opacity: 1; transform: scale(1); }
 }
 
 .ai-auto-write {
@@ -1377,16 +1815,132 @@ function resetAndClose() {
     border: 1px solid var(--el-color-danger-light-5);
     animation: shake 0.5s ease-in-out;
 
-    p {
-      margin: 16px 0;
+    .error-title {
+      margin: 16px 0 8px;
       color: var(--el-color-danger);
-      font-size: 15px;
+      font-size: 17px;
+      font-weight: 600;
     }
 
-    .el-button {
-      margin: 0 8px;
+    .error-detail-box {
+      margin: 0 auto 20px;
+      max-width: 400px;
+      padding: 12px 16px;
+      background: var(--el-bg-color);
+      border-radius: 8px;
+      border: 1px solid var(--el-color-danger-light-5);
+      text-align: left;
+
+      p {
+        margin: 4px 0;
+        color: var(--el-text-color-secondary);
+        font-size: 13px;
+        word-break: break-word;
+      }
+
+      .retry-exhausted {
+        color: var(--el-color-warning);
+        font-weight: 500;
+        margin-top: 8px;
+      }
+    }
+
+    .error-actions {
+      display: flex;
+      justify-content: center;
+      gap: 10px;
+      flex-wrap: wrap;
     }
   }
+
+  .inline-preview {
+    max-height: 160px;
+    margin-bottom: 12px;
+    border: 1px solid var(--el-border-color-light);
+    border-radius: 8px;
+    padding: 12px;
+    font-size: 13px;
+    line-height: 1.7;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+}
+
+.select-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 10px;
+  padding: 8px 12px;
+  background: var(--el-fill-color-light);
+  border-radius: 8px;
+
+  .select-count {
+    margin-left: auto;
+    font-size: 13px;
+    color: var(--el-text-color-secondary);
+  }
+}
+
+.generation-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 16px;
+  padding: 10px 14px;
+  background: var(--el-fill-color-light);
+  border-radius: 10px;
+  border: 1px solid var(--el-border-color-lighter);
+
+  .retry-indicator {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    color: var(--el-color-warning);
+    font-weight: 500;
+  }
+}
+
+.fault-tolerance-config {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+
+  .retry-config,
+  .timeout-config {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding-left: 4px;
+  }
+
+  .retry-label {
+    font-size: 14px;
+    color: var(--el-text-color-regular);
+    white-space: nowrap;
+  }
+}
+
+.failed-count {
+  color: var(--el-color-danger);
+  font-weight: 500;
+}
+
+.error-detail {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: var(--el-color-danger-light-3);
+  word-break: break-word;
+}
+
+.timeline-error {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--el-color-danger);
+  word-break: break-word;
 }
 
 .success-state {
@@ -1396,6 +1950,11 @@ function resetAndClose() {
   border-radius: 16px;
   border: 2px solid var(--el-color-success-light-5);
   animation: scaleIn 0.4s ease-out;
+
+  &.has-errors {
+    background: linear-gradient(135deg, var(--el-color-warning-light-9) 0%, var(--el-fill-color-light) 100%);
+    border-color: var(--el-color-warning-light-5);
+  }
 
   .success-icon {
     color: var(--el-color-success);

@@ -209,7 +209,7 @@ async def generate_outline(
 只输出 JSON，不要包含其他文字。"""
 
     try:
-        text = await llm.generate(prompt, max_tokens=1200)
+        text = await llm.generate(prompt, max_tokens=4000, timeout=180.0)
         outline = _normalize_outline(text, title)
     except Exception:
         outline = {
@@ -268,7 +268,11 @@ async def generate_article(
 请直接输出 Markdown 格式的正文："""
 
     try:
-        text = await llm.generate(prompt, max_tokens=min(4096, target_wc * 2))
+        text = await llm.generate(
+            prompt,
+            max_tokens=max(8000, target_wc * 3),
+            timeout=300.0,
+        )
         content = text.strip()
     except Exception as e:
         content = f"生成失败：{str(e)}"

@@ -2,15 +2,16 @@
 长文本写作 API 路由 - 增强版
 """
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
 from sse_starlette.sse import EventSourceResponse
-from typing import Optional, List
+from typing import Any, Dict, Optional, List
 from pydantic import BaseModel, Field
 from app.services.enhanced_long_article_service import EnhancedLongArticleService
 from app.services.llm_service import LLMService
 from app.api.dependencies import get_llm_service
 import json
 
-router = APIRouter(prefix="/long-article", tags=["长文本写作"])
+router = APIRouter(prefix="/api/long-article", tags=["长文本写作"])
 
 
 class CreatePlanRequest(BaseModel):
@@ -193,3 +194,182 @@ async def export_article(
         raise HTTPException(status_code=404, detail=result["error"])
 
     return result
+
+
+# ====================================================================
+# 前端兼容接口：前端调用 /create, /generate-outline, /chapters 等
+# ====================================================================
+
+# 用 plan_id 当 article_id，存在内存里便于映射
+_article_plan_map: Dict[int, str] = {}
+_next_article_id = {"val": 1}
+
+
+def _alloc_article_id(plan_id: str) -> int:
+    aid = _next_article_id["val"]
+    _next_article_id["val"] += 1
+    _article_plan_map[aid] = plan_id
+    return aid
+
+
+def _get_plan_id(article_id: int) -> str:
+    pid = _article_plan_map.get(article_id)
+    if not pid:
+        raise HTTPException(status_code=404, detail="文章不存在或已过期")
+    return pid
+
+
+@router.post("/create")
+async def compat_create(
+    payload: Dict[str, Any],
+    service: EnhancedLongArticleService = Depends(get_long_article_service),
+):
+    """前端兼容：创建长文任务"""
+    topic = payload.get("topic") or payload.get("title") or "未命名"
+    target_words = int(payload.get("target_words") or payload.get("word_count") or 50000)
+    style = payload.get("style") or "文学叙事"
+    requirements = payload.get("requirements") or ""
+
+    try:
+        plan = await service.create_plan(
+            title=topic,
+            article_type="novel",
+            total_word_count=target_words,
+            style=style,
+            theme=topic,
+            requirements=requirements,
+        )
+        aid = _alloc_article_id(plan.id)
+        return {
+            "success": True,
+            "article_id": aid,
+            "plan_id": plan.id,
+            "message": f"长文任务已创建，共 {plan.chapter_count} 章",
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"创建失败: {str(e)}")
+
+
+@router.post("/generate-outline")
+async def compat_generate_outline(
+    payload: Dict[str, Any],
+    service: EnhancedLongArticleService = Depends(get_long_article_service),
+):
+    """前端兼容：获取/生成大纲"""
+    article_id = int(payload.get("article_id") or 0)
+    plan_id = _get_plan_id(article_id)
+    plan_dict = service.get_plan(plan_id)
+    if not plan_dict:
+        raise HTTPException(status_code=404, detail="计划不存在")
+    return {
+        "success": True,
+        "outline": plan_dict.get("chapters", []),
+        "plan": plan_dict,
+    }
+
+
+@router.get("/chapters/{article_id}")
+async def compat_get_chapters(
+    article_id: int,
+    service: EnhancedLongArticleService = Depends(get_long_article_service),
+):
+    """前端兼容：获取章节列表"""
+    plan_id = _get_plan_id(article_id)
+    plan_dict = service.get_plan(plan_id)
+    if not plan_dict:
+        raise HTTPException(status_code=404, detail="计划不存在")
+    return {
+        "success": True,
+        "chapters": plan_dict.get("chapters", []),
+    }
+
+
+@router.get("/progress/{article_id}")
+async def compat_get_progress(
+    article_id: int,
+    service: EnhancedLongArticleService = Depends(get_long_article_service),
+):
+    """前端兼容：获取进度"""
+    plan_id = _get_plan_id(article_id)
+    plan_dict = service.get_plan(plan_id)
+    if not plan_dict:
+        raise HTTPException(status_code=404, detail="计划不存在")
+    chapters = plan_dict.get("chapters", [])
+    completed = sum(1 for c in chapters if c.get("content"))
+    return {
+        "success": True,
+        "total": len(chapters),
+        "completed": completed,
+        "percent": round(completed / max(len(chapters), 1) * 100, 1),
+    }
+
+
+@router.get("/generate/{article_id}")
+async def compat_generate_stream(
+    article_id: int,
+    service: EnhancedLongArticleService = Depends(get_long_article_service),
+):
+    """前端兼容：流式生成所有章节（SSE）"""
+    plan_id = _get_plan_id(article_id)
+    plan_dict = service.get_plan(plan_id)
+    if not plan_dict:
+        raise HTTPException(status_code=404, detail="计划不存在")
+
+    chapters = plan_dict.get("chapters", [])
+
+    async def gen():
+        for idx, ch in enumerate(chapters):
+            ch_id = ch.get("id", str(idx))
+            yield f"data: {json.dumps({'type': 'chapter_start', 'index': idx, 'title': ch.get('title', '')}, ensure_ascii=False)}\n\n"
+            try:
+                async for chunk in service.generate_chapter_stream(
+                    plan_id=plan_id, chapter_id=ch_id
+                ):
+                    yield f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n"
+            except Exception as e:
+                yield f"data: {json.dumps({'type': 'error', 'error': str(e)}, ensure_ascii=False)}\n\n"
+            yield f"data: {json.dumps({'type': 'chapter_done', 'index': idx}, ensure_ascii=False)}\n\n"
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(gen(), media_type="text/event-stream")
+
+
+@router.get("/export/{article_id}")
+async def compat_export(
+    article_id: int,
+    format: str = Query("txt"),
+    service: EnhancedLongArticleService = Depends(get_long_article_service),
+):
+    """前端兼容：导出"""
+    plan_id = _get_plan_id(article_id)
+    result = service.export_article(plan_id, format)
+    if "error" in result:
+        raise HTTPException(status_code=404, detail=result["error"])
+    return result
+
+
+@router.get("/list")
+async def compat_list(
+    service: EnhancedLongArticleService = Depends(get_long_article_service),
+):
+    """前端兼容：列出所有任务"""
+    items = []
+    for aid, pid in _article_plan_map.items():
+        plan = service.get_plan(pid)
+        if plan:
+            items.append({
+                "article_id": aid,
+                "plan_id": pid,
+                "title": plan.get("title", ""),
+                "total_word_count": plan.get("total_word_count", 0),
+                "chapter_count": len(plan.get("chapters", [])),
+            })
+    return {"success": True, "articles": items}
+
+
+@router.delete("/{article_id}")
+async def compat_delete(article_id: int):
+    """前端兼容：删除任务"""
+    if article_id in _article_plan_map:
+        del _article_plan_map[article_id]
+    return {"success": True}

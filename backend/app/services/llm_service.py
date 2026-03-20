@@ -124,11 +124,16 @@ class LLMService:
         except json.JSONDecodeError as e:
             raise ValueError(f"无法解析 JSON 响应: {str(e)}\n原始响应: {response}")
 
-    async def generate(self, prompt: str, max_tokens: Optional[int] = None) -> str:
-        """实例方法：供自动写作等模块调用"""
+    async def generate(
+        self,
+        prompt: str,
+        max_tokens: Optional[int] = None,
+        timeout: float = 120.0,
+    ) -> str:
+        """实例方法：供自动写作等模块调用。长文生成请传入更大 timeout（如 300）。"""
         messages = [{"role": "user", "content": prompt}]
         return await ai_client.chat_completion(
-            messages, max_tokens=max_tokens
+            messages, max_tokens=max_tokens, timeout=timeout
         )
 
     async def generate_stream(

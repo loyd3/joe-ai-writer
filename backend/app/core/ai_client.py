@@ -168,15 +168,16 @@ class AIClient:
                 ssl_context.check_hostname = False
                 ssl_context.verify_mode = ssl.CERT_NONE
                 
+                # 长文生成（高 max_tokens）可能超过 60s，与 chat_completion 的 wait_for 对齐
                 http_client = httpx.AsyncClient(
                     verify=ssl_context,
-                    timeout=60.0,
+                    timeout=300.0,
                 )
                 
                 self._client = openai.AsyncOpenAI(
                     api_key=self.api_key,
                     base_url=self.base_url,
-                    timeout=60.0,
+                    timeout=300.0,
                     max_retries=1,
                     http_client=http_client,
                 )
@@ -185,7 +186,7 @@ class AIClient:
                 self._client = openai.AsyncOpenAI(
                     api_key=self.api_key,
                     base_url=self.base_url,
-                    timeout=60.0,
+                    timeout=300.0,
                     max_retries=1,
                 )
             
@@ -193,6 +194,13 @@ class AIClient:
         except Exception as e:
             print(f"[AIClient] 创建客户端失败: {e}")
             raise
+
+    PROVIDER_TOKEN_LIMITS = {
+        "deepseek": 8192,
+        "openai": 16384,
+        "siliconflow": 8192,
+        "custom": 16384,
+    }
 
     def _get_default_base_url(self, provider: str) -> str:
         """获取默认的 base_url"""
@@ -203,6 +211,12 @@ class AIClient:
             "custom": "",
         }
         return urls.get(provider, "")
+
+    def _clamp_max_tokens(self, requested: Optional[int]) -> int:
+        """将 max_tokens 限制在 provider 允许的范围内"""
+        limit = self.PROVIDER_TOKEN_LIMITS.get(self.provider, 8192)
+        val = requested or self.max_tokens
+        return min(val, limit)
 
     def _check_config(self):
         """检查配置是否有效"""
@@ -265,13 +279,14 @@ class AIClient:
         
         for attempt in range(1, max_retries + 1):
             try:
-                print(f"[AIClient] 开始调用 AI API (尝试 {attempt}/{max_retries}): model={self.model}, base_url={self.base_url}")
+                clamped = self._clamp_max_tokens(max_tokens)
+                print(f"[AIClient] 开始调用 AI API (尝试 {attempt}/{max_retries}): model={self.model}, max_tokens={clamped}")
                 response = await asyncio.wait_for(
                     self.client.chat.completions.create(
                         model=self.model,
                         messages=messages,
                         temperature=temperature or self.temperature,
-                        max_tokens=max_tokens or self.max_tokens,
+                        max_tokens=clamped,
                         **kwargs,
                     ),
                     timeout=timeout
@@ -321,12 +336,13 @@ class AIClient:
         self._check_config()
 
         try:
+            clamped = self._clamp_max_tokens(max_tokens)
             stream = await asyncio.wait_for(
                 self.client.chat.completions.create(
                     model=self.model,
                     messages=messages,
                     temperature=temperature or self.temperature,
-                    max_tokens=max_tokens or self.max_tokens,
+                    max_tokens=clamped,
                     stream=True,
                 ),
                 timeout=30.0  # 连接超时
