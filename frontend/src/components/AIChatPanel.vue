@@ -132,6 +132,7 @@ type AssistChatMessage = {
   actionType?: string
   originalText?: string
   blockIndex?: number
+  blockIndices?: number[]
 }
 
 function feedSseChunk(chunk: string, acc: { buf: string }, onPayload: (data: string) => void) {
@@ -164,8 +165,8 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: 'insert', text: string): void
   (e: 'insertBlocks', blocks: Block[]): void
-  (e: 'replace', oldText: string, newText: string, blockIndex?: number, blocks?: Block[]): void
-  (e: 'preview', payload: { blockIndex?: number; text: string; blocks?: Block[] }): void
+  (e: 'replace', oldText: string, newText: string, blockIndex?: number, blocks?: Block[], blockIndices?: number[]): void
+  (e: 'preview', payload: { blockIndex?: number; blockIndices?: number[]; text: string; blocks?: Block[] }): void
   (e: 'previewCancel'): void
 }>()
 
@@ -186,6 +187,8 @@ const diffRewrittenText = ref('')
 const lastSelectedText = ref('')
 /** 当前 diff 对应的块索引，用于接受时精确替换到该块 */
 const pendingReplaceBlockIndex = ref<number | undefined>(undefined)
+/** 当前 diff 对应的块索引集合，用于接受时批量替换 */
+const pendingReplaceBlockIndices = ref<number[] | undefined>(undefined)
 /** 当前 diff 对应的结构化 blocks，接受时优先用于替换 */
 const pendingReplaceBlocks = ref<Block[] | undefined>(undefined)
 /** 是否在对话框中展示流式内容（Cursor 风格：改写类只展示在 diff/编辑器预览里） */
@@ -195,6 +198,7 @@ function showDiffForMessage(msg: AssistChatMessage) {
   diffOriginalText.value = msg.originalText || ''
   diffRewrittenText.value = msg.content
   pendingReplaceBlockIndex.value = msg.blockIndex
+  pendingReplaceBlockIndices.value = msg.blockIndices
   pendingReplaceBlocks.value = msg.blocks
   diffVisible.value = true
 }
@@ -202,14 +206,16 @@ function showDiffForMessage(msg: AssistChatMessage) {
 function onDiffAccept(text: string) {
   const original = diffOriginalText.value
   const blockIndex = pendingReplaceBlockIndex.value
-  emit('replace', original, text, blockIndex, pendingReplaceBlocks.value)
+  emit('replace', original, text, blockIndex, pendingReplaceBlocks.value, pendingReplaceBlockIndices.value)
   pendingReplaceBlockIndex.value = undefined
+  pendingReplaceBlockIndices.value = undefined
   pendingReplaceBlocks.value = undefined
   ElMessage.success('已应用到文档')
 }
 
 function onDiffReject() {
   pendingReplaceBlockIndex.value = undefined
+  pendingReplaceBlockIndices.value = undefined
   pendingReplaceBlocks.value = undefined
   emit('previewCancel')
   ElMessage.info('已拒绝修改')
@@ -303,6 +309,21 @@ async function polishWithText(text: string, blockIndex?: number) {
   await runAssistAction('polish', text, blockIndex)
 }
 
+/** 由父组件调用：对选中多个块执行润色 */
+async function polishWithSelectedText(text: string, blockIndices: number[]) {
+  await runAssistAction('polish', text, undefined, blockIndices)
+}
+
+/** 由父组件调用：对选中多个块执行修改 */
+async function reviseWithSelectedText(text: string, blockIndices: number[]) {
+  await runAssistAction('revise', text, undefined, blockIndices)
+}
+
+/** 由父组件调用：对选中多个块执行扩展 */
+async function expandWithSelectedText(text: string, blockIndices: number[]) {
+  await runAssistAction('expand', text, undefined, blockIndices)
+}
+
 /** 根据操作类型和选中文本生成展示用的用户消息 */
 function getActionUserMessage(action: string, selectedText?: string): string {
   const t = selectedText?.trim()
@@ -318,7 +339,7 @@ function getActionUserMessage(action: string, selectedText?: string): string {
   return actionLabels[action] || (t ? `请求：\n\n${t}` : `执行操作：${action}`)
 }
 
-async function runAssistAction(action: string, selectedText?: string, blockIndex?: number) {
+async function runAssistAction(action: string, selectedText?: string, blockIndex?: number, blockIndices?: number[]) {
   loading.value = true
   streaming.value = true
   streamingContent.value = ''
@@ -355,6 +376,7 @@ async function runAssistAction(action: string, selectedText?: string, blockIndex
           actionType: action,
           originalText: originalText,
           blockIndex,
+          blockIndices,
         }
         streamingContent.value = ''
         streaming.value = false
@@ -362,7 +384,7 @@ async function runAssistAction(action: string, selectedText?: string, blockIndex
         const canPreview = isRewriteAction && originalText && rewritten
         if (canPreview) {
           nextTick(() => showDiffForMessage(assistantMsg))
-          emit('preview', { blockIndex, text: rewritten, blocks: meta?.blocks })
+          emit('preview', { blockIndex, blockIndices, text: rewritten, blocks: meta?.blocks })
         } else {
           messages.value.push(assistantMsg)
         }
@@ -396,7 +418,12 @@ async function runAssistAction(action: string, selectedText?: string, blockIndex
   }
 }
 
-defineExpose({ polishWithText: (text: string, blockIndex?: number) => polishWithText(text, blockIndex) })
+defineExpose({
+  polishWithText: (text: string, blockIndex?: number) => polishWithText(text, blockIndex),
+  polishWithSelectedText: (text: string, blockIndices: number[]) => polishWithSelectedText(text, blockIndices),
+  reviseWithSelectedText: (text: string, blockIndices: number[]) => reviseWithSelectedText(text, blockIndices),
+  expandWithSelectedText: (text: string, blockIndices: number[]) => expandWithSelectedText(text, blockIndices),
+})
 
 function insertToDoc(msg: AssistChatMessage) {
   if (msg.blocks?.length) {

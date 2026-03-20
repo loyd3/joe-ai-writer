@@ -127,6 +127,9 @@
             v-model="content" 
             @update:modelValue="onContentChange"
             @polish="onPolish"
+            @polish-selected="onPolishSelected"
+            @revise-selected="onReviseSelected"
+            @expand-selected="onExpandSelected"
           />
         </div>
       </div>
@@ -140,7 +143,7 @@
         @insert-blocks="insertBlocksFromAi"
         @preview="onAiPreview"
         @preview-cancel="onAiPreviewCancel"
-        @replace="(oldText, newText, blockIndex, blocks) => replaceText(oldText, newText, blockIndex, blocks)"
+        @replace="(oldText, newText, blockIndex, blocks, blockIndices) => replaceText(oldText, newText, blockIndex, blocks, blockIndices)"
       />
     </div>
 
@@ -219,7 +222,12 @@ const hasChanges = ref(false)
 const aiPreviewId = ref<string | null>(null)
 const AI_PREVIEW_KEY = '__ai_preview_id'
 const lastSaved = ref<Date | null>(null)
-const aiChatRef = ref<{ polishWithText: (text: string, blockIndex?: number) => Promise<void> } | null>(null)
+const aiChatRef = ref<{
+  polishWithText: (text: string, blockIndex?: number) => Promise<void>
+  polishWithSelectedText: (text: string, blockIndices: number[]) => Promise<void>
+  reviseWithSelectedText: (text: string, blockIndices: number[]) => Promise<void>
+  expandWithSelectedText: (text: string, blockIndices: number[]) => Promise<void>
+} | null>(null)
 const exportMenuRef = ref<{ triggerExport: (command: string) => void } | null>(null)
 const headerExpanded = ref(true)
 const showPublishDialog = ref(false)
@@ -249,6 +257,27 @@ function onPolish(payload: { index: number; text: string }) {
   showChatPanel.value = true
   nextTick(() => {
     aiChatRef.value?.polishWithText(payload.text, payload.index)
+  })
+}
+
+function onPolishSelected(payload: { indices: number[]; text: string }) {
+  showChatPanel.value = true
+  nextTick(() => {
+    aiChatRef.value?.polishWithSelectedText(payload.text, payload.indices)
+  })
+}
+
+function onReviseSelected(payload: { indices: number[]; text: string }) {
+  showChatPanel.value = true
+  nextTick(() => {
+    aiChatRef.value?.reviseWithSelectedText(payload.text, payload.indices)
+  })
+}
+
+function onExpandSelected(payload: { indices: number[]; text: string }) {
+  showChatPanel.value = true
+  nextTick(() => {
+    aiChatRef.value?.expandWithSelectedText(payload.text, payload.indices)
   })
 }
 
@@ -395,7 +424,7 @@ function removeAiPreviewBlocks() {
   aiPreviewId.value = null
 }
 
-function onAiPreview(payload: { blockIndex?: number; text: string; blocks?: Block[] }) {
+function onAiPreview(payload: { blockIndex?: number; blockIndices?: number[]; text: string; blocks?: Block[] }) {
   removeAiPreviewBlocks()
   if (!payload?.text?.trim() && (!payload.blocks || payload.blocks.length === 0)) return
 
@@ -423,7 +452,42 @@ function onAiPreviewCancel() {
   removeAiPreviewBlocks()
 }
 
-function replaceText(oldText: string, newText: string, blockIndex?: number, rewrittenBlocks?: Block[]) {
+function replaceText(
+  oldText: string,
+  newText: string,
+  blockIndex?: number,
+  rewrittenBlocks?: Block[],
+  blockIndices?: number[]
+) {
+  // 多选块：把 AI 输出的 blocks 替换到选中的块集合上
+  if (blockIndices?.length) {
+    const indices = Array.from(new Set(blockIndices))
+      .filter(i => i >= 0 && i < content.value.length)
+      .sort((a, b) => a - b)
+    if (indices.length === 0) return
+
+    const blocks = rewrittenBlocks?.length ? rewrittenBlocks : parseFormattedTextToBlocks(newText, 'doc')
+    if (!blocks.length) return
+
+    const normalized: Block[] = blocks.map(b => ({
+      id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`,
+      type: b.type || 'paragraph',
+      content: typeof b.content === 'string' ? b.content : '',
+      props: b.props && typeof b.props === 'object' ? { ...b.props } : {},
+    }))
+
+    // 从大到小删除，避免删除导致下标错乱；再在最小下标处插入 AI 结果
+    const desc = [...indices].sort((a, b) => b - a)
+    for (const idx of desc) {
+      content.value.splice(idx, 1)
+    }
+    content.value.splice(indices[0], 0, ...normalized)
+
+    hasChanges.value = true
+    removeAiPreviewBlocks()
+    return
+  }
+
   // AI 改写类操作通常会返回「编辑器块格式」文本。
   // 这里优先把改写结果解析为 Block，并用新块替换当前块，以确保块类型/样式匹配编辑器。
   if (blockIndex != null && blockIndex >= 0 && blockIndex < content.value.length) {

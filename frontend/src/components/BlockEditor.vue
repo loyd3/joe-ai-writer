@@ -13,6 +13,33 @@
             <el-icon><Scissor /></el-icon>
             <span>剪切</span>
           </button>
+          <button
+            type="button"
+            class="toolbar-btn ai-btn"
+            @click="emitPolishSelected"
+            title="AI 润色（选中多个块）"
+          >
+            <el-icon><Brush /></el-icon>
+            <span>AI 润色</span>
+          </button>
+          <button
+            type="button"
+            class="toolbar-btn ai-btn"
+            @click="emitReviseSelected"
+            title="AI 修改（选中多个块）"
+          >
+            <el-icon><EditPen /></el-icon>
+            <span>AI 修改</span>
+          </button>
+          <button
+            type="button"
+            class="toolbar-btn ai-btn"
+            @click="emitExpandSelected"
+            title="AI 扩展（选中多个块）"
+          >
+            <el-icon><MagicStick /></el-icon>
+            <span>AI 扩展</span>
+          </button>
           <button type="button" class="toolbar-btn delete" @click="deleteSelectedBlocks" title="删除 (Delete)">
             <el-icon><Delete /></el-icon>
             <span>删除</span>
@@ -321,7 +348,7 @@
 import { ref, computed, nextTick, onMounted, onUnmounted, watch } from 'vue'
 import type { Block } from '@/stores/project'
 import { ElMessage } from 'element-plus'
-import { Plus, MoreFilled, Top, ChatDotRound, List, Document, Delete, EditPen, Brush, Rank, Operation, Minus, RefreshLeft, RefreshRight, DocumentCopy, Scissor, Close } from '@element-plus/icons-vue'
+import { Plus, MoreFilled, Top, ChatDotRound, List, Document, Delete, EditPen, Brush, Rank, Operation, Minus, RefreshLeft, RefreshRight, DocumentCopy, Scissor, Close, MagicStick } from '@element-plus/icons-vue'
 
 const props = defineProps<{
   modelValue: Block[]
@@ -331,6 +358,9 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: 'update:modelValue', value: Block[]): void
   (e: 'polish', payload: { index: number; text: string }): void
+  (e: 'polish-selected', payload: { indices: number[]; text: string }): void
+  (e: 'revise-selected', payload: { indices: number[]; text: string }): void
+  (e: 'expand-selected', payload: { indices: number[]; text: string }): void
   (e: 'toggleFocusMode'): void
   (e: 'replace', payload: { index: number; oldText: string; newText: string }): void
 }>()
@@ -1302,12 +1332,66 @@ function pasteBlocks(afterIndex: number): boolean {
 
 function emitPolish(index: number) {
   const block = props.modelValue[index]
+  if (!block) return
+
+  // 多选状态下：如果当前块在选中集合中，则对“全部选中块”执行润色
+  if (selectedBlocks.value.size > 1 && selectedBlocks.value.has(index)) {
+    emitPolishSelected()
+    return
+  }
+
   const text = block?.content ? stripHtml(block.content) : ''
   if (!text.trim()) {
     ElMessage.warning('请先输入要润色的内容')
     return
   }
   emit('polish', { index, text })
+}
+
+function emitPolishSelected() {
+  emitRewriteSelected('polish')
+}
+
+function emitReviseSelected() {
+  emitRewriteSelected('revise')
+}
+
+function emitExpandSelected() {
+  emitRewriteSelected('expand')
+}
+
+function emitRewriteSelected(action: 'polish' | 'revise' | 'expand') {
+  const indices = Array.from(selectedBlocks.value).sort((a, b) => a - b)
+  if (indices.length === 0) return
+
+  const parts = indices
+    .map(i => {
+      const b = props.modelValue[i]
+      return b?.content ? stripHtml(b.content) : ''
+    })
+    .filter(t => t.trim())
+
+  const text = parts.join('\n\n')
+  if (!text.trim()) {
+    const msg = action === 'polish'
+      ? '请先输入要润色的内容'
+      : action === 'revise'
+        ? '请先输入要修改的内容'
+        : '请先输入要扩展的内容'
+    ElMessage.warning(msg)
+    return
+  }
+
+  // 启动 AI 前清空选择，避免替换后下标变化导致高亮错位
+  clearBlockSelection()
+
+  if (action === 'polish') {
+    emit('polish-selected', { indices, text })
+  } else if (action === 'revise') {
+    emit('revise-selected', { indices, text })
+  } else {
+    emit('expand-selected', { indices, text })
+  }
 }
 
 function stripHtml(html: string): string {
