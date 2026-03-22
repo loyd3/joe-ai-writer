@@ -237,6 +237,91 @@ async def generate_outline_compat(
     return {"outline": outline}
 
 
+@router.post("/generate-outline/stream")
+async def generate_outline_stream_compat(
+    payload: Dict[str, Any],
+    service: EnhancedHotTopicsService = Depends(get_hot_topics_service),
+):
+    """
+    流式输出热点写作大纲（兼容前端）。
+
+    SSE 协议：
+    - data: <chunk>\n\n （大纲生成过程的原始文本）
+    - data: [OUTLINE_META]{...}\n\n （结构化大纲，供前端渲染）
+    - data: [DONE]\n\n
+    """
+    topic_title = payload.get("topic_title") or ""
+    article_type = payload.get("article_type") or "评论"
+    word_count = int(payload.get("word_count") or 1500)
+
+    guess = _guess_topic_fields(topic_title)
+
+    prompt = f"""请为以下热点话题生成一篇文章大纲：
+
+话题标题: {topic_title}
+核心关键词: {guess["keyword"]}
+分析角度: {guess["aspect"]}
+所属分类: {guess["category"]}
+文章类型: {article_type}
+目标字数: {word_count}字
+
+请生成包含以下要素的大纲：
+1. 文章标题（3个备选）
+2. 文章导语
+3. 主要章节（3-5个）
+4. 每个章节的关键点
+5. 结尾建议
+6. 写作风格建议
+
+请以JSON格式输出。"""
+
+    async def gen():
+        chunks: list[str] = []
+        try:
+            async for chunk in service.llm_service.generate_stream(prompt, max_tokens=1500):
+                text = str(chunk)
+                if text:
+                    chunks.append(text)
+                    safe = text.replace("\n", "")
+                    yield f"data: {safe}\n\n"
+
+        except Exception as e:
+            yield f"data: [ERROR] {str(e)}\n\n"
+
+        # 生成结束：解析并返回结构化元数据
+        try:
+            raw_text = "".join(chunks)
+
+            outline_obj: Dict[str, Any]
+            try:
+                json_match = re.search(r"\{.*\}", raw_text, re.DOTALL)
+                if json_match:
+                    outline_obj = json.loads(json_match.group())
+                else:
+                    outline_obj = service._parse_outline_text(raw_text)
+            except json.JSONDecodeError:
+                outline_obj = service._parse_outline_text(raw_text)
+            except Exception:
+                outline_obj = service._get_default_outline(topic_title, guess["keyword"], article_type)
+
+            normalized = _normalize_outline(outline_obj or {}, topic_title)
+            meta = json.dumps({"outline": normalized}, ensure_ascii=False)
+            yield f"data: [OUTLINE_META]{meta}\n\n"
+
+        except Exception as e:
+            # 避免解析失败让前端永远卡住
+            default_outline = service._get_default_outline(topic_title, guess["keyword"], article_type)
+            normalized = _normalize_outline(default_outline or {}, topic_title)
+            meta = json.dumps({"outline": normalized}, ensure_ascii=False)
+            yield f"data: [OUTLINE_META]{meta}\n\n"
+            yield f"data: [ERROR] {str(e)}\n\n"
+
+        finally:
+            yield "data: [DONE]\n\n"
+
+    return StreamingResponse(gen(), media_type="text/event-stream")
+
+
 @router.post("/generate-article/stream")
 async def generate_article_stream_compat(
     payload: Dict[str, Any],

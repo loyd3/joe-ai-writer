@@ -141,11 +141,15 @@ def get_platform_list() -> List[Dict[str, Any]]:
 def _blocks_to_text(blocks: list) -> str:
     parts = []
     for b in blocks:
-        content = b.get("content", "")
+        content = b.get("content", "") or ""
+        btype = b.get("type", "paragraph")
+        props = b.get("props") or {}
+        if btype == "image":
+            src = props.get("src") or ""
+            parts.append(f"[插图]{src}" if src else "[插图]")
+            continue
         if not content:
             continue
-        btype = b.get("type", "paragraph")
-        level = b.get("props", {}).get("level", 2)
         if btype == "heading":
             parts.append(content)
         else:
@@ -156,11 +160,17 @@ def _blocks_to_text(blocks: list) -> str:
 def _blocks_to_markdown(blocks: list) -> str:
     parts = []
     for b in blocks:
-        content = b.get("content", "")
-        if not content:
-            continue
+        content = b.get("content", "") or ""
         btype = b.get("type", "paragraph")
         props = b.get("props", {})
+        if btype == "image":
+            src = props.get("src") or ""
+            alt = props.get("alt") or "插图"
+            if src:
+                parts.append(f"![{alt}]({src})")
+            continue
+        if not content:
+            continue
         if btype == "heading":
             level = props.get("level", 2)
             parts.append(f"{'#' * level} {content}")
@@ -180,11 +190,24 @@ def _blocks_to_markdown(blocks: list) -> str:
 def _blocks_to_html(blocks: list) -> str:
     parts = []
     for b in blocks:
-        content = b.get("content", "")
-        if not content:
-            continue
+        content = b.get("content", "") or ""
         btype = b.get("type", "paragraph")
         props = b.get("props", {})
+        if btype == "image":
+            src = props.get("src") or ""
+            alt = props.get("alt") or ""
+            if src:
+                parts.append(
+                    f'<p><img src="{src}" alt="{alt}" style="max-width:100%;height:auto;"/></p>'
+                )
+            cap = content.strip()
+            if cap:
+                for para in cap.split("\n"):
+                    if para.strip():
+                        parts.append(f"<p>{para.strip()}</p>")
+            continue
+        if not content:
+            continue
         if btype == "heading":
             level = min(props.get("level", 2), 4)
             parts.append(f"<h{level}>{content}</h{level}>")

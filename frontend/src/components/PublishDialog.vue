@@ -2,7 +2,7 @@
   <el-dialog
     v-model="visible"
     title="发布到自媒体平台"
-    width="720px"
+    width="820px"
     :close-on-click-modal="false"
     class="publish-dialog"
     @close="handleClose"

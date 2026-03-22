@@ -18,6 +18,7 @@ import random
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
 
 from app.api.dependencies import get_llm_service
 from app.services.enhanced_brainstorm_service import EnhancedBrainstormService
@@ -227,6 +228,65 @@ async def generate_outline(
     return {"outline": outline}
 
 
+@router.post("/generate-outline/stream")
+async def generate_outline_stream(
+    payload: Dict[str, Any],
+    llm: LLMService = Depends(get_llm_service),
+):
+    """
+    流式输出脑洞文章大纲：
+    - SSE: data: <chunk>\n\n
+    - 最后：data: [OUTLINE_META]{json}\n\n
+    - 结束：data: [DONE]\n\n
+    """
+    title = payload.get("title") or "脑洞写作"
+    concept = payload.get("concept") or ""
+    style = payload.get("style") or "幽默风趣"
+    word_count = payload.get("word_count") or "medium"
+
+    prompt = f"""请为以下脑洞生成文章大纲。
+
+标题：{title}
+核心概念：{concept}
+风格：{style}
+篇幅：{word_count}
+
+请以 JSON 格式输出，格式如下：
+{{
+  "title": "文章标题",
+  "angle": "写作角度/切入点",
+  "sections": [
+    {{"name": "章节名", "points": ["要点1", "要点2"]}},
+    ...
+  ],
+  "keywords": ["关键词1", "关键词2"]
+}}
+
+只输出 JSON，不要包含其他文字。"""
+
+    async def gen():
+        full = []
+        try:
+            async for chunk in llm.generate_stream(prompt, max_tokens=4000):
+                text = str(chunk)
+                if text:
+                    full.append(text)
+                    safe = text.replace("\n", "")
+                    yield f"data: {safe}\n\n"
+        except Exception as e:
+            yield f"data: [ERROR] {str(e)}\n\n"
+            yield "data: [DONE]\n\n"
+            return
+
+        raw_text = "".join(full)
+        outline = _normalize_outline(raw_text, title)
+        meta = json.dumps(outline, ensure_ascii=False)
+        yield f"data: [OUTLINE_META]{meta}\n\n"
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(gen(), media_type="text/event-stream")
+
+
 @router.post("/generate-article")
 async def generate_article(
     payload: Dict[str, Any],
@@ -285,3 +345,62 @@ async def generate_article(
             "word_count": len(content),
         }
     }
+
+
+@router.post("/generate-article/stream")
+async def generate_article_stream(
+    payload: Dict[str, Any],
+    llm: LLMService = Depends(get_llm_service),
+):
+    """
+    流式输出脑洞文章正文（与前端 /hot-topics/generate-article/stream 类似）。
+    逐片输出 data: {text}\n\n，最后输出 data: [DONE]\n\n。
+    """
+    title = payload.get("title") or "脑洞写作"
+    concept = payload.get("concept") or ""
+    style = payload.get("style") or "幽默风趣"
+    word_count = payload.get("word_count") or "medium"
+    outline = payload.get("outline")
+
+    wc_map = {"short": 1000, "medium": 1500, "long": 2500}
+    target_wc = wc_map.get(word_count, 1500) if isinstance(word_count, str) else int(word_count)
+
+    outline_text = ""
+    if outline and isinstance(outline, dict):
+        for i, s in enumerate(outline.get("sections") or [], 1):
+            name = s.get("name") or s.get("title") or f"第{i}部分"
+            outline_text += f"\n{i}. {name}"
+            for p in (s.get("points") or []):
+                outline_text += f"\n   - {p}"
+    elif outline and isinstance(outline, str):
+        outline_text = outline
+
+    prompt = f"""请根据以下脑洞信息写一篇文章，使用 Markdown 格式（包含标题、小标题、段落）。
+
+标题：{title}
+核心概念：{concept}
+风格：{style}
+目标字数：约 {target_wc} 字
+大纲：{outline_text}
+
+要求：
+1. 开头引人入胜
+2. 保持 {style} 的文风
+3. 情节发展自然
+4. 结尾有余韵
+
+请直接输出 Markdown 格式的正文："""
+
+    async def gen():
+        try:
+            max_tokens = max(8000, target_wc * 3)
+            async for chunk in llm.generate_stream(prompt, max_tokens=max_tokens):
+                text = str(chunk)
+                if text:
+                    yield f"data: {text}\n\n"
+        except Exception as e:
+            yield f"data: [ERROR] {str(e)}\n\n"
+        finally:
+            yield "data: [DONE]\n\n"
+
+    return StreamingResponse(gen(), media_type="text/event-stream")

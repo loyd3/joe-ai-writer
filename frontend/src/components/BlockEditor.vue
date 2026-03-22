@@ -40,6 +40,35 @@
             <el-icon><MagicStick /></el-icon>
             <span>AI 扩展</span>
           </button>
+          <button
+            type="button"
+            class="toolbar-btn ai-btn"
+            @click="emitGenerateImageForSelection"
+            title="根据选中段落生成插图（Ctrl+点击多选）"
+          >
+            <el-icon><Picture /></el-icon>
+            <span>选中生成插图</span>
+          </button>
+          <button
+            type="button"
+            class="toolbar-btn"
+            :disabled="!canMoveUpMultiToolbar"
+            @click="tryMoveBlocks(-1, multiToolbarAnchorIndex)"
+            title="整体上移 (Ctrl+Shift+↑)"
+          >
+            <el-icon><ArrowUp /></el-icon>
+            <span>上移</span>
+          </button>
+          <button
+            type="button"
+            class="toolbar-btn"
+            :disabled="!canMoveDownMultiToolbar"
+            @click="tryMoveBlocks(1, multiToolbarAnchorIndex)"
+            title="整体下移 (Ctrl+Shift+↓)"
+          >
+            <el-icon><ArrowDown /></el-icon>
+            <span>下移</span>
+          </button>
           <button type="button" class="toolbar-btn delete" @click="deleteSelectedBlocks" title="删除 (Delete)">
             <el-icon><Delete /></el-icon>
             <span>删除</span>
@@ -157,6 +186,27 @@
             <span class="fmt-underline">U</span>
           </button>
           <span class="toolbar-divider" />
+          <button
+            type="button"
+            class="toolbar-btn"
+            :disabled="!canMoveUpForToolbar(index)"
+            @click.stop="tryMoveBlocks(-1, index)"
+            title="上移块 (Ctrl+Shift+↑)"
+          >
+            <el-icon><ArrowUp /></el-icon>
+            <span>上移</span>
+          </button>
+          <button
+            type="button"
+            class="toolbar-btn"
+            :disabled="!canMoveDownForToolbar(index)"
+            @click.stop="tryMoveBlocks(1, index)"
+            title="下移块 (Ctrl+Shift+↓)"
+          >
+            <el-icon><ArrowDown /></el-icon>
+            <span>下移</span>
+          </button>
+          <span class="toolbar-divider" />
           <button type="button" class="toolbar-btn delete" :disabled="modelValue.length <= 1" @click.stop="handleCommand('delete', index)" title="删除块 (Ctrl+Shift+D)">
             <el-icon><Delete /></el-icon>
           </button>
@@ -166,7 +216,38 @@
         <el-icon><Plus /></el-icon>
       </div>
       
+      <template v-if="block.type === 'image'">
+        <div class="block-image-section">
+          <img
+            v-if="block.props?.src"
+            :src="resolveImageUrl(String(block.props.src))"
+            class="block-image-el"
+            alt=""
+            draggable="false"
+          />
+          <div v-else class="block-image-placeholder">暂无图片地址</div>
+        </div>
+        <div
+          :ref="el => setBlockRef(el, index)"
+          class="block-content block-type-image-caption"
+          :data-type="block.type"
+          contenteditable="true"
+          @input="updateBlock(index)"
+          @focus="onBlockFocus(index)"
+          @blur="handleBlur"
+          @contextmenu.prevent="onBlockContextMenu(index, $event)"
+          @keydown.enter.prevent="handleEnter(index, $event)"
+          @keydown.backspace="handleBackspace(index, $event)"
+          @keydown.up="moveFocus(index, -1, $event)"
+          @keydown.down="moveFocus(index, 1, $event)"
+          @keydown="handleKeydown(index, $event)"
+          @keydown.ctrl.a.prevent="handleSelectAll(index, $event)"
+          @keydown.meta.a.prevent="handleSelectAll(index, $event)"
+          @mouseup="handleMouseUp(index, $event)"
+        />
+      </template>
       <div
+        v-else
         :ref="el => setBlockRef(el, index)"
         class="block-content"
         :data-type="block.type"
@@ -211,7 +292,13 @@
               <el-dropdown-item divided command="paragraph">
                 <el-icon><Document /></el-icon> 正文 <span class="shortcut">Ctrl+0</span>
               </el-dropdown-item>
-              <el-dropdown-item command="delete" class="delete-item">
+              <el-dropdown-item command="moveUp" :disabled="!canMoveUpForToolbar(index)">
+                <el-icon><ArrowUp /></el-icon> 上移 <span class="shortcut">Ctrl+Shift+↑</span>
+              </el-dropdown-item>
+              <el-dropdown-item command="moveDown" :disabled="!canMoveDownForToolbar(index)">
+                <el-icon><ArrowDown /></el-icon> 下移 <span class="shortcut">Ctrl+Shift+↓</span>
+              </el-dropdown-item>
+              <el-dropdown-item divided command="delete" class="delete-item">
                 <el-icon><Delete /></el-icon> 删除
               </el-dropdown-item>
             </el-dropdown-menu>
@@ -308,6 +395,29 @@
           </div>
           <div class="context-menu-divider" />
           <div class="context-menu-section">
+            <button
+              type="button"
+              class="context-item"
+              :disabled="!canMoveUpForToolbar(contextMenu.blockIndex)"
+              @click="handleContextAction('moveUp')"
+            >
+              <el-icon><ArrowUp /></el-icon>
+              <span>上移块</span>
+              <span class="shortcut">Ctrl+Shift+↑</span>
+            </button>
+            <button
+              type="button"
+              class="context-item"
+              :disabled="!canMoveDownForToolbar(contextMenu.blockIndex)"
+              @click="handleContextAction('moveDown')"
+            >
+              <el-icon><ArrowDown /></el-icon>
+              <span>下移块</span>
+              <span class="shortcut">Ctrl+Shift+↓</span>
+            </button>
+          </div>
+          <div class="context-menu-divider" />
+          <div class="context-menu-section">
             <button type="button" class="context-item" @click="handleContextAction('insertAbove')">
               <el-icon><Plus /></el-icon>
               <span>在上方插入块</span>
@@ -339,7 +449,7 @@
         <el-icon><EditPen /></el-icon>
       </div>
       <span>点击开始写作，记录您的灵感...</span>
-      <span class="shortcut-hint">Ctrl+1~6 切换块 · Ctrl+B/I/U 格式 · Ctrl+Z/Y 撤销 · Ctrl+↑↓ 导航 · / 斜杠命令 · Ctrl+点击多选 · Ctrl+C/X/V 复制剪切粘贴</span>
+      <span class="shortcut-hint">Ctrl+1~6 切换块 · Ctrl+B/I/U 格式 · Ctrl+Z/Y 撤销 · Ctrl+↑↓ 导航 · Ctrl+Shift+↑↓ 移动块 · / 斜杠命令 · Ctrl+点击多选 · Ctrl+C/X/V 复制剪切粘贴</span>
     </div>
   </div>
 </template>
@@ -348,7 +458,7 @@
 import { ref, computed, nextTick, onMounted, onUnmounted, watch } from 'vue'
 import type { Block } from '@/stores/project'
 import { ElMessage } from 'element-plus'
-import { Plus, MoreFilled, Top, ChatDotRound, List, Document, Delete, EditPen, Brush, Rank, Operation, Minus, RefreshLeft, RefreshRight, DocumentCopy, Scissor, Close, MagicStick } from '@element-plus/icons-vue'
+import { Plus, MoreFilled, Top, ChatDotRound, List, Document, Delete, EditPen, Brush, Rank, Operation, Minus, RefreshLeft, RefreshRight, DocumentCopy, Scissor, Close, MagicStick, Picture, ArrowUp, ArrowDown } from '@element-plus/icons-vue'
 
 const props = defineProps<{
   modelValue: Block[]
@@ -361,6 +471,7 @@ const emit = defineEmits<{
   (e: 'polish-selected', payload: { indices: number[]; text: string }): void
   (e: 'revise-selected', payload: { indices: number[]; text: string }): void
   (e: 'expand-selected', payload: { indices: number[]; text: string }): void
+  (e: 'generate-image-for-selection', payload: { indices: number[]; text: string }): void
   (e: 'toggleFocusMode'): void
   (e: 'replace', payload: { index: number; oldText: string; newText: string }): void
 }>()
@@ -522,6 +633,156 @@ function applySlashCommand(commandIndex: number, blockIndex?: number) {
 // ========== 多选块功能 ==========
 const selectedBlocks = ref<Set<number>>(new Set())
 const isMultiSelectMode = ref(false)
+
+/** 多选工具栏「上移/下移」用的锚点下标（多选时任意成员均可，内部按整体选区处理） */
+const multiToolbarAnchorIndex = computed(() => {
+  if (selectedBlocks.value.size === 0) return 0
+  return Math.min(...Array.from(selectedBlocks.value))
+})
+
+const selectedContiguousMeta = computed(() => {
+  const sorted = Array.from(selectedBlocks.value).sort((a, b) => a - b)
+  if (sorted.length === 0) {
+    return { contiguous: true, sorted: [] as number[], start: 0, end: 0 }
+  }
+  if (sorted.length === 1) {
+    return { contiguous: true, sorted, start: sorted[0], end: sorted[0] }
+  }
+  let contiguous = true
+  for (let i = 1; i < sorted.length; i++) {
+    if (sorted[i] !== sorted[i - 1] + 1) {
+      contiguous = false
+      break
+    }
+  }
+  return { contiguous, sorted, start: sorted[0], end: sorted[sorted.length - 1] }
+})
+
+const canMoveUpMultiToolbar = computed(() => {
+  if (selectedBlocks.value.size < 2) return false
+  const { contiguous, start } = selectedContiguousMeta.value
+  if (!contiguous) return false
+  return start > 0
+})
+
+const canMoveDownMultiToolbar = computed(() => {
+  if (selectedBlocks.value.size < 2) return false
+  const n = props.modelValue.length
+  const { contiguous, end } = selectedContiguousMeta.value
+  if (!contiguous) return false
+  return end < n - 1
+})
+
+function isSelectionContiguous(): boolean {
+  const sorted = Array.from(selectedBlocks.value).sort((a, b) => a - b)
+  if (sorted.length <= 1) return true
+  for (let i = 1; i < sorted.length; i++) {
+    if (sorted[i] !== sorted[i - 1] + 1) return false
+  }
+  return true
+}
+
+function canMoveUpForToolbar(index: number): boolean {
+  const n = props.modelValue.length
+  if (n <= 1) return false
+  if (selectedBlocks.value.size > 1) {
+    if (!isSelectionContiguous()) return false
+    const sorted = Array.from(selectedBlocks.value).sort((a, b) => a - b)
+    return sorted[0] > 0
+  }
+  if (selectedBlocks.value.size === 1) {
+    const i = Array.from(selectedBlocks.value)[0]
+    return i > 0
+  }
+  return index > 0
+}
+
+function canMoveDownForToolbar(index: number): boolean {
+  const n = props.modelValue.length
+  if (n <= 1) return false
+  if (selectedBlocks.value.size > 1) {
+    if (!isSelectionContiguous()) return false
+    const sorted = Array.from(selectedBlocks.value).sort((a, b) => a - b)
+    return sorted[sorted.length - 1] < n - 1
+  }
+  if (selectedBlocks.value.size === 1) {
+    const i = Array.from(selectedBlocks.value)[0]
+    return i < n - 1
+  }
+  return index < n - 1
+}
+
+/**
+ * 移动块：无多选或单选时移动当前块；多选连续区间时整体移动。
+ * @param keydownIndex 单块移动时的下标（工具栏点击或光标所在块）
+ */
+function tryMoveBlocks(delta: -1 | 1, keydownIndex: number) {
+  const n = props.modelValue.length
+  if (n <= 1) return
+
+  const sel = selectedBlocks.value
+  if (sel.size > 1) {
+    const sorted = Array.from(sel).sort((a, b) => a - b)
+    for (let i = 1; i < sorted.length; i++) {
+      if (sorted[i] !== sorted[i - 1] + 1) {
+        ElMessage.warning('请先选中连续的块再整体移动')
+        return
+      }
+    }
+    const start = sorted[0]
+    const end = sorted[sorted.length - 1]
+    if (delta === -1 && start === 0) return
+    if (delta === 1 && end >= n - 1) return
+    const newBlocks = [...props.modelValue]
+    const chunk = newBlocks.splice(start, end - start + 1)
+    if (delta === -1) {
+      newBlocks.splice(start - 1, 0, ...chunk)
+    } else {
+      newBlocks.splice(start + 1, 0, ...chunk)
+    }
+    emit('update:modelValue', newBlocks)
+    saveHistory()
+    const newStart = delta === -1 ? start - 1 : start + 1
+    const newEnd = delta === -1 ? end - 1 : end + 1
+    selectedBlocks.value.clear()
+    for (let i = newStart; i <= newEnd; i++) {
+      selectedBlocks.value.add(i)
+    }
+    isMultiSelectMode.value = true
+    focusedIndex.value = newStart
+    nextTick(() => {
+      const el = blockRefs.value.get(newStart)
+      if (el) {
+        el.focus({ preventScroll: true })
+        scrollElementIntoView(el)
+      }
+    })
+    return
+  }
+
+  const idx = sel.size === 1 ? Array.from(sel)[0] : keydownIndex
+  if (idx < 0 || idx >= n) return
+  const newIdx = idx + delta
+  if (newIdx < 0 || newIdx >= n) return
+
+  const newBlocks = [...props.modelValue]
+  const [item] = newBlocks.splice(idx, 1)
+  newBlocks.splice(newIdx, 0, item)
+  emit('update:modelValue', newBlocks)
+  saveHistory()
+  focusedIndex.value = newIdx
+  if (sel.size === 1) {
+    selectedBlocks.value.clear()
+    selectedBlocks.value.add(newIdx)
+  }
+  nextTick(() => {
+    const el = blockRefs.value.get(newIdx)
+    if (el) {
+      el.focus({ preventScroll: true })
+      scrollElementIntoView(el)
+    }
+  })
+}
 
 function toggleBlockSelection(index: number, event?: MouseEvent) {
   if (event) {
@@ -752,6 +1013,12 @@ function handleContextAction(action: string) {
     case 'formatUnderline':
       applyFormat(idx, 'underline')
       break
+    case 'moveUp':
+      tryMoveBlocks(-1, idx)
+      break
+    case 'moveDown':
+      tryMoveBlocks(1, idx)
+      break
     case 'insertAbove':
       addBlock(idx - 1)
       nextTick(() => {
@@ -883,6 +1150,18 @@ function generateId() {
   return Date.now().toString(36) + Math.random().toString(36).substr(2)
 }
 
+/** 后端返回的 /static/... 需拼 API 根地址，便于跨端口开发加载图片 */
+function resolveImageUrl(src: string): string {
+  if (!src) return ''
+  if (src.startsWith('http://') || src.startsWith('https://')) return src
+  if (src.startsWith('/')) {
+    const base = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+    const origin = String(base).replace(/\/api\/?$/, '')
+    return origin + src
+  }
+  return src
+}
+
 function addBlock(index: number, type = 'paragraph') {
   const newBlock: Block = {
     id: generateId(),
@@ -1010,17 +1289,41 @@ function handleBackspace(index: number, event: Event) {
   const target = event.target as HTMLElement
   const text = target.textContent || ''
   const cursorPosition = getCursorPosition(target)
+  const currentBlock = props.modelValue[index]
 
   // 如果在斜杠命令菜单中，隐藏菜单
   if (slashMenuVisible.value) {
     hideSlashMenu()
   }
 
+  // 图片块：段首退格不与上一块合并（避免丢失插图）；空说明则删除整块
+  if (currentBlock?.type === 'image' && index > 0 && cursorPosition === 0) {
+    event.preventDefault()
+    if (text === '') {
+      const newBlocks = props.modelValue.filter((_, i) => i !== index)
+      emit('update:modelValue', newBlocks)
+      saveHistory()
+      nextTick(() => {
+        const el = blockRefs.value.get(index - 1)
+        if (el) {
+          el.focus({ preventScroll: true })
+          setCursorToEnd(el)
+        }
+      })
+    } else {
+      const el = blockRefs.value.get(index - 1)
+      if (el) {
+        el.focus({ preventScroll: true })
+        setCursorToEnd(el)
+      }
+    }
+    return
+  }
+
   // 在块的最开始位置按 Backspace，且不是第一个块
   if (index > 0 && cursorPosition === 0) {
     event.preventDefault()
 
-    const currentBlock = props.modelValue[index]
     const prevBlock = props.modelValue[index - 1]
 
     // 将当前块内容合并到上一个块
@@ -1064,6 +1367,10 @@ function handleBackspace(index: number, event: Event) {
 }
 
 function moveFocus(index: number, direction: number, event: Event) {
+  const ke = event as KeyboardEvent
+  if (ke.ctrlKey || ke.metaKey || ke.altKey || ke.shiftKey) {
+    return
+  }
   const newIndex = index + direction
   if (newIndex >= 0 && newIndex < props.modelValue.length) {
     event.preventDefault()
@@ -1143,6 +1450,14 @@ function handleKeydown(index: number, event: KeyboardEvent) {
   const isMod = event.ctrlKey || event.metaKey
   if (!isMod) return
   const key = event.key.toLowerCase()
+
+  // Ctrl/Cmd+Shift+↑↓ 移动块（单块或连续多选整体）
+  if (event.shiftKey && (event.key === 'ArrowUp' || event.key === 'ArrowDown')) {
+    event.preventDefault()
+    const delta = event.key === 'ArrowUp' ? -1 : 1
+    tryMoveBlocks(delta, index)
+    return
+  }
 
   // 撤销 Ctrl+Z
   if (key === 'z' && !event.shiftKey) {
@@ -1360,6 +1675,28 @@ function emitExpandSelected() {
   emitRewriteSelected('expand')
 }
 
+/** 仅根据多选块中的文字生成插图（跳过插图块） */
+function emitGenerateImageForSelection() {
+  const indices = Array.from(selectedBlocks.value).sort((a, b) => a - b)
+  if (indices.length === 0) return
+
+  const parts: string[] = []
+  for (const i of indices) {
+    const b = props.modelValue[i]
+    if (!b || b.type === 'image') continue
+    const c = b.content ? stripHtml(b.content).trim() : ''
+    if (c) parts.push(c)
+  }
+  const text = parts.join('\n\n')
+  if (!text.trim()) {
+    ElMessage.warning('选中的块没有可用文字（插图块已跳过）')
+    return
+  }
+
+  clearBlockSelection()
+  emit('generate-image-for-selection', { indices, text })
+}
+
 function emitRewriteSelected(action: 'polish' | 'revise' | 'expand') {
   const indices = Array.from(selectedBlocks.value).sort((a, b) => a - b)
   if (indices.length === 0) return
@@ -1415,6 +1752,14 @@ function isFormatActive(index: number, command: 'bold' | 'italic' | 'underline')
 }
 
 function handleCommand(command: string, index: number) {
+  if (command === 'moveUp') {
+    tryMoveBlocks(-1, index)
+    return
+  }
+  if (command === 'moveDown') {
+    tryMoveBlocks(1, index)
+    return
+  }
   if (command === 'delete') {
     if (props.modelValue.length <= 1) return
     const newBlocks = props.modelValue.filter((_, i) => i !== index)
@@ -1422,7 +1767,12 @@ function handleCommand(command: string, index: number) {
     saveHistory()
   } else {
     const newBlocks = [...props.modelValue]
-    newBlocks[index] = { ...newBlocks[index], type: command }
+    const prev = newBlocks[index]
+    let next: Block = { ...prev, type: command as Block['type'] }
+    if (prev.type === 'image' && command !== 'image') {
+      next = { ...next, props: {} }
+    }
+    newBlocks[index] = next
     emit('update:modelValue', newBlocks)
     saveHistory()
 
@@ -1522,6 +1872,24 @@ function getTextNodes(element: Node): Text[] {
   }
   return textNodes
 }
+
+/**
+ * 供父组件插入图片等块时定位：多选时取最大下标，否则取当前焦点块，否则文末最后一块。
+ * 空文档返回 -1（在父组件 splice 到开头）。
+ */
+function getImageInsertAfterIndex(): number {
+  const n = props.modelValue.length
+  if (n === 0) return -1
+  if (selectedBlocks.value.size > 0) {
+    return Math.max(...Array.from(selectedBlocks.value))
+  }
+  if (focusedIndex.value >= 0 && focusedIndex.value < n) {
+    return focusedIndex.value
+  }
+  return n - 1
+}
+
+defineExpose({ getImageInsertAfterIndex })
 </script>
 
 <style scoped lang="scss">
@@ -2222,5 +2590,27 @@ function getTextNodes(element: Node): Text[] {
 .multi-select-toolbar-leave-to {
   opacity: 0;
   transform: translateX(-50%) translateY(20px);
+}
+
+/* 插图块 */
+.block-image-section {
+  margin: 8px 0 12px;
+  text-align: center;
+}
+.block-image-el {
+  max-width: 100%;
+  height: auto;
+  border-radius: 8px;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
+}
+.block-image-placeholder {
+  padding: 24px;
+  color: var(--coffee-text-light);
+  background: var(--coffee-bg-warm);
+  border-radius: 8px;
+  border: 1px dashed var(--coffee-border);
+}
+.block-type-image-caption {
+  min-height: 1.5em;
 }
 </style>

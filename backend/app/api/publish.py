@@ -206,7 +206,20 @@ def _build_html_content(blocks: list) -> str:
     for block in blocks:
         block_type = block.get("type", "paragraph")
         content = block.get("content", "")
-        
+        props = block.get("props") or {}
+
+        if block_type == "image":
+            src = props.get("src") or ""
+            if src:
+                html_parts.append(
+                    f'<p><img src="{src}" style="max-width:100%;height:auto;"/></p>'
+                )
+            if content and str(content).strip():
+                for para in str(content).split("\n"):
+                    if para.strip():
+                        html_parts.append(f"<p>{para.strip()}</p>")
+            continue
+
         if not content:
             continue
         

@@ -27,6 +27,29 @@
           <el-icon><Check /></el-icon>
           <span>保存</span>
         </el-button>
+        <el-dropdown trigger="click" @command="handleImageMenuCommand">
+          <el-button class="article-image-btn" :loading="generatingImage || uploadingImage">
+            <el-icon><Picture /></el-icon>
+            <span>图片</span>
+            <el-icon class="arrow-icon"><ArrowDown /></el-icon>
+          </el-button>
+          <template #dropdown>
+            <el-dropdown-menu>
+              <el-dropdown-item command="full-image" :disabled="!content.length">
+                <el-icon><Picture /></el-icon>
+                AI 插图（全文）
+              </el-dropdown-item>
+              <el-dropdown-item command="url-image">
+                <el-icon><Link /></el-icon>
+                插入网络图片…
+              </el-dropdown-item>
+              <el-dropdown-item command="upload-image">
+                <el-icon><Upload /></el-icon>
+                上传本地图片…
+              </el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
         <el-button 
           class="chat-toggle" 
           :type="showChatPanel ? 'primary' : 'default'"
@@ -44,7 +67,16 @@
           <template #dropdown>
             <el-dropdown-menu>
               <el-dropdown-item command="extract">
-                <el-icon><Aim /></el-icon> AI 智能提取
+              <el-icon><Aim /></el-icon> AI 智能扩展
+              </el-dropdown-item>
+              <el-dropdown-item command="image-full" :disabled="!content.length">
+                <el-icon><Picture /></el-icon> AI 插图（全文）
+              </el-dropdown-item>
+              <el-dropdown-item command="image-url">
+                <el-icon><Link /></el-icon> 插入网络图片…
+              </el-dropdown-item>
+              <el-dropdown-item command="image-upload">
+                <el-icon><Upload /></el-icon> 上传本地图片…
               </el-dropdown-item>
               <el-dropdown-item command="generate">
                 <el-icon><MagicStick /></el-icon> 根据设定生成
@@ -77,8 +109,31 @@
         <template v-if="headerExpanded">
           <el-button class="extract-btn" @click="showExtractDrawer = true">
             <el-icon><Aim /></el-icon>
-            <span>AI 智能提取</span>
+          <span>AI 智能扩展</span>
           </el-button>
+          <el-dropdown trigger="click" @command="handleImageMenuCommand">
+            <el-button class="extract-btn" :loading="generatingImage || uploadingImage">
+              <el-icon><Picture /></el-icon>
+              <span>图片</span>
+              <el-icon class="arrow-icon"><ArrowDown /></el-icon>
+            </el-button>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item command="full-image" :disabled="!content.length">
+                  <el-icon><Picture /></el-icon>
+                  AI 插图（全文）
+                </el-dropdown-item>
+                <el-dropdown-item command="url-image">
+                  <el-icon><Link /></el-icon>
+                  插入网络图片…
+                </el-dropdown-item>
+                <el-dropdown-item command="upload-image">
+                  <el-icon><Upload /></el-icon>
+                  上传本地图片…
+                </el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
           <el-button class="generate-btn" @click="showGenerateDrawer = true">
             <el-icon><MagicStick /></el-icon>
             <span>根据设定生成</span>
@@ -155,12 +210,14 @@
       <div class="editor-main" :class="{ 'with-chat': showChatPanel }">
         <div class="editor-content">
           <BlockEditor 
+            ref="blockEditorRef"
             v-model="content" 
             @update:modelValue="onContentChange"
             @polish="onPolish"
             @polish-selected="onPolishSelected"
             @revise-selected="onReviseSelected"
             @expand-selected="onExpandSelected"
+            @generate-image-for-selection="onGenerateImageForSelection"
           />
         </div>
       </div>
@@ -180,7 +237,7 @@
 
     <el-drawer
       v-model="showExtractDrawer"
-      title="AI 智能提取"
+      title="AI 扩展为长篇项目"
       size="520px"
       direction="rtl"
       class="extract-drawer"
@@ -190,8 +247,9 @@
         v-if="document?.project_id"
         :document-id="Number(documentId)"
         :project-id="document.project_id"
+        :document-title="documentTitle"
         :content="content"
-        @applied="onExtractApplied"
+        @project-created="onProjectFromArticleCreated"
       />
     </el-drawer>
 
@@ -216,6 +274,14 @@
       v-model="showPublishDialog"
       :document-id="Number(documentId)"
     />
+
+    <input
+      ref="documentImageUploadRef"
+      type="file"
+      accept="image/jpeg,image/jpg,image/png,image/gif,image/webp"
+      class="doc-hidden-file-input"
+      @change="onDocumentImageFileChange"
+    />
   </div>
 </template>
 
@@ -232,7 +298,8 @@ import ExportMenu from '@/components/ExportMenu.vue'
 import PublishDialog from '@/components/PublishDialog.vue'
 import { parseFormattedTextToBlocks } from '@/utils/formatToBlocks'
 import { ElMessageBox } from 'element-plus'
-import { ArrowLeft, ArrowRight, ArrowDown, ArrowUp, ChatDotRound, Check, Loading, CircleCheck, MoreFilled, Edit, Delete, Aim, MagicStick, Document, Collection, Files, Promotion, Download } from '@element-plus/icons-vue'
+import { aiApi } from '@/api'
+import { ArrowLeft, ArrowRight, ArrowDown, ArrowUp, ChatDotRound, Check, Loading, CircleCheck, MoreFilled, Edit, Delete, Aim, MagicStick, Document, Collection, Files, Promotion, Download, Picture, Link, Upload } from '@element-plus/icons-vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -260,8 +327,13 @@ const aiChatRef = ref<{
   expandWithSelectedText: (text: string, blockIndices: number[]) => Promise<void>
 } | null>(null)
 const exportMenuRef = ref<{ triggerExport: (command: string) => void } | null>(null)
-const headerExpanded = ref(true)
+const blockEditorRef = ref<{ getImageInsertAfterIndex: () => number } | null>(null)
+// 默认先折叠：只展示“保存、AI 助手、更多”
+const headerExpanded = ref(false)
 const showPublishDialog = ref(false)
+const generatingImage = ref(false)
+const uploadingImage = ref(false)
+const documentImageUploadRef = ref<HTMLInputElement | null>(null)
 
 let autoSaveInterval: number | null = null
 
@@ -328,11 +400,10 @@ async function saveDocument() {
   }
 }
 
-async function onExtractApplied() {
+async function onProjectFromArticleCreated(projectId: number, documentId: number) {
   showExtractDrawer.value = false
-  if (document.value?.project_id) {
-    await store.fetchMemory(document.value.project_id)
-  }
+  ElMessage.success('项目创建成功，正在导入原文并进入新文档...')
+  router.push(`/document/${documentId}`)
 }
 
 function goBack() {
@@ -346,6 +417,12 @@ function goBack() {
 function handleMoreCommand(command: string) {
   if (command === 'extract') {
     showExtractDrawer.value = true
+  } else if (command === 'image-full') {
+    void generateAndInsertArticleImage()
+  } else if (command === 'image-url') {
+    void promptInsertImageUrl()
+  } else if (command === 'image-upload') {
+    triggerDocumentImageUpload()
   } else if (command === 'generate') {
     showGenerateDrawer.value = true
   } else if (command === 'export-markdown') {
@@ -420,6 +497,169 @@ function insertText(text: string) {
     })
   }
   hasChanges.value = true
+}
+
+function getImageInsertAfterIndexFromEditor(): number {
+  const fn = blockEditorRef.value?.getImageInsertAfterIndex
+  if (typeof fn === 'function') return fn()
+  const n = content.value.length
+  if (n === 0) return -1
+  return n - 1
+}
+
+function handleImageMenuCommand(cmd: string) {
+  if (cmd === 'full-image') void generateAndInsertArticleImage()
+  else if (cmd === 'url-image') void promptInsertImageUrl()
+  else if (cmd === 'upload-image') triggerDocumentImageUpload()
+}
+
+function triggerDocumentImageUpload() {
+  documentImageUploadRef.value?.click()
+}
+
+async function onDocumentImageFileChange(ev: Event) {
+  const input = ev.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ''
+  if (!file) return
+  if (!file.type.startsWith('image/')) {
+    ElMessage.warning('请选择图片文件')
+    return
+  }
+  uploadingImage.value = true
+  try {
+    const res = await aiApi.uploadDocumentImage(Number(documentId.value), file)
+    const data = res.data as { url?: string }
+    if (!data?.url) {
+      ElMessage.warning('上传失败')
+      return
+    }
+    const after = getImageInsertAfterIndexFromEditor()
+    insertBlocksAfterIndex(after, [{ id: '', type: 'image', content: '', props: { src: data.url, alt: '' } }])
+    ElMessage.success('图片已插入到当前位置之后，记得保存')
+  } catch (e) {
+    console.error(e)
+  } finally {
+    uploadingImage.value = false
+  }
+}
+
+async function promptInsertImageUrl() {
+  try {
+    const res = await ElMessageBox.prompt('请输入图片地址（http/https）', '插入网络图片', {
+      confirmButtonText: '插入',
+      cancelButtonText: '取消',
+      inputPlaceholder: 'https://example.com/image.png',
+      inputPattern: /^https?:\/\/.+/i,
+      inputErrorMessage: '请输入以 http:// 或 https:// 开头的地址',
+    })
+    const url = String((res as { value?: string }).value ?? '').trim()
+    if (!url) return
+    const after = getImageInsertAfterIndexFromEditor()
+    insertBlocksAfterIndex(after, [{ id: '', type: 'image', content: '', props: { src: url, alt: '' } }])
+    ElMessage.success('图片已插入到当前位置之后，记得保存')
+  } catch {
+    // 取消
+  }
+}
+
+function blocksSnapshotForImageApi(): Block[] {
+  try {
+    return JSON.parse(JSON.stringify(content.value)) as Block[]
+  } catch {
+    return [...content.value]
+  }
+}
+
+function messageFromAxiosError(e: unknown, fallback: string): string {
+  const ax = e as { response?: { data?: { detail?: unknown } } }
+  const d = ax.response?.data?.detail
+  if (typeof d === 'string') return d
+  if (Array.isArray(d) && d.length && typeof (d[0] as { msg?: string }).msg === 'string') {
+    return (d[0] as { msg: string }).msg
+  }
+  return fallback
+}
+
+async function onGenerateImageForSelection(payload: { indices: number[]; text: string }) {
+  const { indices, text } = payload
+  if (!indices.length || !text.trim()) return
+  generatingImage.value = true
+  try {
+    const res = await aiApi.generateArticleImage({
+      document_id: Number(documentId.value),
+      context_text: text,
+      style: '',
+      extra_hint: '',
+      blocks: blocksSnapshotForImageApi(),
+    })
+    const data = res.data as {
+      success?: boolean
+      block?: Block
+    }
+    if (data?.block) {
+      const after = Math.max(...indices)
+      insertBlocksAfterIndex(after, [data.block])
+      ElMessage.success('插图已插入到选中段落之后，记得保存')
+    } else {
+      ElMessage.warning('未返回插图数据')
+    }
+  } catch (e) {
+    console.error(e)
+    ElMessage.error(messageFromAxiosError(e, '生成插图失败'))
+  } finally {
+    generatingImage.value = false
+  }
+}
+
+function insertBlocksAfterIndex(afterIndex: number, blocks: Block[]) {
+  if (!blocks?.length) return
+  const normalize = (b: Block): Block => ({
+    id: b.id && String(b.id).length ? String(b.id) : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`,
+    type: b.type || 'paragraph',
+    content: typeof b.content === 'string' ? b.content : '',
+    props: b.props && typeof b.props === 'object' ? { ...b.props } : {},
+  })
+  const normalized = blocks.map(normalize)
+  const next = [...content.value]
+  const at = Math.max(0, Math.min(afterIndex + 1, next.length))
+  next.splice(at, 0, ...normalized)
+  content.value = next
+  hasChanges.value = true
+}
+
+/** 根据当前文档正文调用后端文生图，插入 image 块到文末 */
+async function generateAndInsertArticleImage() {
+  if (!content.value.length) {
+    ElMessage.warning('请先撰写一些正文，再生成插图')
+    return
+  }
+  generatingImage.value = true
+  try {
+    const res = await aiApi.generateArticleImage({
+      document_id: Number(documentId.value),
+      style: '',
+      extra_hint: '',
+      blocks: blocksSnapshotForImageApi(),
+    })
+    const data = res.data as {
+      success?: boolean
+      block?: Block
+      prompt?: string
+      image_url?: string
+    }
+    if (data?.block) {
+      insertBlocksFromAi([data.block])
+      ElMessage.success('插图已插入到文档末尾，记得保存')
+    } else {
+      ElMessage.warning('未返回插图数据')
+    }
+  } catch (e: unknown) {
+    console.error(e)
+    ElMessage.error(messageFromAxiosError(e, '生成插图失败'))
+  } finally {
+    generatingImage.value = false
+  }
 }
 
 /** AI 助手返回的 blocks（与后端 / 脑洞写作解析一致）直接插入文档末尾 */
@@ -877,6 +1117,15 @@ onUnmounted(() => {
   .save-status span {
     display: none;
   }
+}
+
+.doc-hidden-file-input {
+  position: absolute;
+  width: 0;
+  height: 0;
+  opacity: 0;
+  pointer-events: none;
+  overflow: hidden;
 }
 
 </style>

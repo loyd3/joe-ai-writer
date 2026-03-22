@@ -116,6 +116,7 @@
       <div v-if="generatingOutline" class="generating-hint">
         <el-progress type="circle" :percentage="outlineProgress" />
         <p>AI正在分析热点并生成大纲...</p>
+        <pre v-if="outlineStreamPreview" class="streaming-outline">{{ outlineStreamPreview }}</pre>
       </div>
     </div>
 
@@ -363,6 +364,77 @@ const searchQuery = ref('')
 const selectedTopic = ref<any>(null)
 const generatingOutline = ref(false)
 const outlineProgress = ref(0)
+const outlineStreamText = ref('')
+const outlineStreamPreview = computed(() => {
+  const text = outlineStreamText.value || ''
+  const trimmed = text.trim()
+  if (!trimmed) return ''
+
+  const prettifyJsonLike = (input: string) => {
+    // 把“JSON 原文”尽量变成可读的分段文本（只用于流式中临时展示）
+    return input
+      .replace(/([{}[\]])/g, '$1\n')
+      .replace(/,\s*(?=")/g, ',\n')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim()
+  }
+
+  // 如果流式内容刚好拼成了一个可解析的 JSON，就尝试“更友好”地抽取关键字段展示。
+  const tryFormatHotOutline = (): string | null => {
+    if (!trimmed.includes('structure') && !trimmed.includes('title_options') && !trimmed.includes('keywords')) return null
+    const first = trimmed.indexOf('{')
+    const last = trimmed.lastIndexOf('}')
+    if (first < 0 || last <= first) return null
+
+    const candidate = trimmed.slice(first, last + 1)
+    if (candidate.length > 20000) return null
+
+    try {
+      const obj = JSON.parse(candidate) as any
+      const titleOptions = Array.isArray(obj?.title_options) ? obj.title_options : []
+      const angle = obj?.angle
+      const targetAudience = obj?.target_audience
+      const introduction = obj?.introduction
+      const conclusion = obj?.conclusion
+      const style = obj?.style
+      const keywords = Array.isArray(obj?.keywords) ? obj.keywords : []
+      const structure = Array.isArray(obj?.structure) ? obj.structure : []
+
+      const lines: string[] = []
+      if (titleOptions.length) {
+        lines.push(`## 标题选项：${titleOptions.slice(0, 3).join(' / ')}${titleOptions.length > 3 ? ' ...' : ''}`)
+      }
+      if (angle) lines.push(`> 切入角度：${angle}`)
+      if (targetAudience) lines.push(`> 目标受众：${targetAudience}`)
+      if (introduction) lines.push(`\n## 导语\n${introduction}`)
+
+      if (structure.length) {
+        lines.push('\n## 文章结构')
+        structure.slice(0, 8).forEach((s: any, idx: number) => {
+          const section = s?.section || s?.name || `段落${idx + 1}`
+          lines.push(`\n${idx + 1}. ${section}`)
+          const points = Array.isArray(s?.key_points) ? s.key_points : []
+          for (const p of points) {
+            if (p) lines.push(`- ${p}`)
+          }
+          if (s?.writing_tips) lines.push(`💡 ${s.writing_tips}`)
+        })
+        if (structure.length > 8) lines.push('\n（预览：仅显示前 8 段结构要点）')
+      }
+
+      if (conclusion) lines.push(`\n## 结尾建议\n${conclusion}`)
+      if (style) lines.push(`\n## 写作风格\n${style}`)
+      if (keywords.length) lines.push(`\n关键词：${keywords.join('、')}`)
+
+      const rendered = lines.join('\n').replace(/\n{3,}/g, '\n\n').trim()
+      return rendered || null
+    } catch {
+      return null
+    }
+  }
+
+  return tryFormatHotOutline() ?? prettifyJsonLike(trimmed)
+})
 const generatedOutline = ref<any>(null)
 const selectedTitle = ref('')
 const generatingArticle = ref(false)
@@ -479,15 +551,10 @@ const generateOutline = async () => {
   generatingOutline.value = true
   outlineProgress.value = 0
   
-  // 模拟进度
-  const progressInterval = setInterval(() => {
-    if (outlineProgress.value < 90) {
-      outlineProgress.value += 10
-    }
-  }, 500)
+  outlineStreamText.value = ''
   
   try {
-    const response = await fetch(`${API_BASE}/api/hot-topics/generate-outline`, {
+    const response = await fetch(`${API_BASE}/api/hot-topics/generate-outline/stream`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -501,23 +568,65 @@ const generateOutline = async () => {
         style: outlineConfig.value.style
       })
     })
-    
-    clearInterval(progressInterval)
+
+    if (!response.ok || !response.body) throw new Error('生成大纲失败')
+
+    const reader = response.body.getReader()
+    if (!reader) throw new Error('无法读取响应')
+
+    const decoder = new TextDecoder()
+    let sseBuffer = ''
+    let done = false
+    let receivedOutlineMeta = false
+
+    while (!done) {
+      const { done: isDone, value } = await reader.read()
+      if (isDone) break
+
+      sseBuffer += decoder.decode(value, { stream: true })
+      const lines = sseBuffer.split('\n')
+      sseBuffer = lines.pop() || ''
+
+      for (const rawLine of lines) {
+        const line = rawLine.trim()
+        if (!line.startsWith('data: ')) continue
+
+        const data = line.slice(6).trim()
+        if (!data) continue
+
+        if (data === '[DONE]') {
+          done = true
+          break
+        }
+
+        if (data.startsWith('[ERROR]')) {
+          throw new Error(data.slice('[ERROR]'.length).trim() || '生成大纲失败')
+        }
+
+        if (data.startsWith('[OUTLINE_META]')) {
+          const metaStr = data.slice('[OUTLINE_META]'.length).trim()
+          const meta = JSON.parse(metaStr) as { outline?: any }
+          generatedOutline.value = meta.outline || {}
+          selectedTitle.value = (meta.outline?.title_options || [])[0] || selectedTopic.value?.title || ''
+          receivedOutlineMeta = true
+          continue
+        }
+
+        if (!receivedOutlineMeta) {
+          // 展示生成过程文本（JSON 原文也可帮助用户确认进度）
+          outlineStreamText.value += data
+          if (outlineStreamText.value.length > 6000) {
+            outlineStreamText.value = outlineStreamText.value.slice(-6000)
+          }
+          outlineProgress.value = Math.min(outlineProgress.value + 2, 95)
+        }
+      }
+    }
+
     outlineProgress.value = 100
-    
-    if (!response.ok) throw new Error('生成大纲失败')
-    const data = await response.json()
-    console.log('[热点写作] 大纲返回:', JSON.stringify(data.outline, null, 2))
-    
-    generatedOutline.value = data.outline || {}
-    selectedTitle.value = (data.outline?.title_options || [])[0] || selectedTopic.value?.title || ''
-    
-    setTimeout(() => {
-      currentStep.value = 2
-      generatingOutline.value = false
-    }, 500)
+    currentStep.value = 2
+    generatingOutline.value = false
   } catch (error) {
-    clearInterval(progressInterval)
     ElMessage.error('生成大纲失败')
     console.error(error)
     generatingOutline.value = false
@@ -549,26 +658,44 @@ const generateArticle = async () => {
       })
     })
     
+    if (!response.ok || !response.body) {
+      throw new Error('生成文章失败')
+    }
+
     const reader = response.body?.getReader()
     if (!reader) throw new Error('无法读取响应')
+
+    const decoder = new TextDecoder()
+    let sseBuffer = ''
+    let done = false
     
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) break
-      
-      const text = new TextDecoder().decode(value)
-      const lines = text.split('\n')
-      
-      for (const line of lines) {
-        if (line.startsWith('data: ')) {
-          const data = line.slice(6)
-          if (data === '[DONE]') {
-            articleProgress.value = 100
-          } else if (!data.startsWith('[ERROR]')) {
-            generatedArticle.value += data
-            articleProgress.value = Math.min(articleProgress.value + 2, 95)
-          }
+    while (!done) {
+      const { done: isDone, value } = await reader.read()
+      if (isDone) break
+
+      sseBuffer += decoder.decode(value, { stream: true })
+      const lines = sseBuffer.split('\n')
+      sseBuffer = lines.pop() || ''
+
+      for (const rawLine of lines) {
+        const line = rawLine.trim()
+        if (!line.startsWith('data: ')) continue
+
+        const data = line.slice(6).trim()
+        if (!data) continue
+
+        if (data === '[DONE]') {
+          articleProgress.value = 100
+          done = true
+          break
         }
+
+        if (data.startsWith('[ERROR]')) {
+          throw new Error(data.slice('[ERROR]'.length).trim() || '生成文章失败')
+        }
+
+        generatedArticle.value += data
+        articleProgress.value = Math.min(articleProgress.value + 2, 95)
       }
     }
     
@@ -931,6 +1058,25 @@ onMounted(() => {
     margin-top: 20px;
     color: #666;
   }
+}
+
+.streaming-outline {
+  margin-top: 18px;
+  text-align: left;
+  width: 100%;
+  max-width: 720px;
+  margin-left: auto;
+  margin-right: auto;
+  background: #f5f7fa;
+  border: 1px solid #e4e7ed;
+  border-radius: 8px;
+  padding: 16px;
+  max-height: 260px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
 }
 
 .section {

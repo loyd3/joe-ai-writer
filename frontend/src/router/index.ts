@@ -52,6 +52,12 @@ const router = createRouter({
           name: 'brainstorm-writing',
           component: () => import('@/views/BrainstormWriting.vue'),
           meta: { title: '脑洞写作' }
+        },
+        {
+          path: 'copywriting-writing',
+          name: 'copywriting-writing',
+          component: () => import('@/views/CopywritingWriter.vue'),
+          meta: { title: '文案写作' }
         }
       ]
     }

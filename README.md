@@ -29,6 +29,18 @@
 - **快捷键支持** - `/` 快速命令、`Ctrl+Enter` 发送
 - **实时保存** - 自动保存到数据库
 - **AI 辅助** - 润色、续写、改写、头脑风暴
+- **AI 插图（根据正文）** - 在文档编辑页点击「AI 插图」，根据当前正文生成一张配图并插入为图片块（需配置文生图 API，见下方环境变量）
+
+#### 文生图环境变量（`.env`）
+与「对话模型」可分开配置；使用 OpenAI 兼容的 `POST /v1/images/generations`（如 OpenAI `dall-e-3`）。
+
+| 变量 | 说明 | 默认 |
+|------|------|------|
+| `IMAGE_API_KEY` | 文生图专用 Key；不填且 `AI_PROVIDER=openai` 时回退使用 `OPENAI_API_KEY` | 空 |
+| `IMAGE_BASE_URL` | 图片 API 根地址 | `https://api.openai.com/v1` |
+| `IMAGE_MODEL` | 模型名 | `dall-e-3` |
+
+生成结果保存在后端 `static/generated_images/`，通过 `/static/generated_images/xxx.png` 访问。
 
 ### 🔥 热点写作
 | 功能 | 说明 |

@@ -2,7 +2,7 @@ import axios, { AxiosError, AxiosRequestConfig } from 'axios'
 import type {
   User, UserCreate, UserProfile, ProfileUpdate, PasswordChange,
   Project, ProjectCreate, ProjectUpdate,
-  Document, DocumentCreate, DocumentUpdate,
+  Document, DocumentCreate, DocumentUpdate, Block,
   AIMemory, AIMemoryUpdate,
   AIRequest, AIAssistResponse, AIChatRequest, AIGenerateRequest, AIBatchGenerateRequest,
   LiteraryAnalysisRequest, LiteraryAnalysisResult, CreateProjectFromLiteratureRequest,
@@ -340,7 +340,36 @@ export const aiApi = {
     api.post<LiteraryAnalysisResult>('/ai/analyze-literature', data, { timeout: 180000 }),
   /** 从文学作品创建项目 */
   createProjectFromLiterature: (data: CreateProjectFromLiteratureRequest) =>
-    api.post<CreateProjectFromLiteratureResponse>('/ai/create-project-from-literature', data)
+    api.post<CreateProjectFromLiteratureResponse>('/ai/create-project-from-literature', data),
+  /** 将文学作品分析应用到已有项目（覆盖项目设定） */
+  applyProjectFromLiterature: (data: any) =>
+    api.post('/ai/apply-project-from-literature', data),
+
+  /** 根据文档正文生成 AI 插图（插入 image 块），耗时较长 */
+  generateArticleImage: (data: {
+    document_id: number
+    style?: string
+    extra_hint?: string
+    /** 非空时仅用选中段落等文本作为上下文 */
+    context_text?: string | null
+    /** 当前编辑器块（与未保存内容一致）；不传则服务端仅用数据库正文 */
+    blocks?: Block[] | null
+  }) =>
+    api.post<{ success: boolean; image_url: string; prompt: string; block: Block }>(
+      '/ai/generate-article-image',
+      data,
+      { timeout: 180000 }
+    ),
+
+  /** 上传本地图片到服务器 static，返回 /static/... URL */
+  uploadDocumentImage: (documentId: number, file: File) => {
+    const fd = new FormData()
+    fd.append('document_id', String(documentId))
+    fd.append('file', file)
+    return api.post<{ success: boolean; url: string }>('/ai/upload-document-image', fd, {
+      timeout: 120000,
+    })
+  },
 }
 
 // ========== 系统 / AI 配置 API ==========
