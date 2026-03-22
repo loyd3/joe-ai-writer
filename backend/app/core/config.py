@@ -60,6 +60,11 @@ class Settings(BaseSettings):
     ai_temperature: float = 0.7
     ai_max_tokens: int = 16384
 
+    # 文生图（OpenAI 兼容 /images/generations，可与对话模型使用不同 Key）
+    image_api_key: str = ""
+    image_base_url: str = "https://api.openai.com/v1"
+    image_model: str = "dall-e-3"
+
     # JWT - 自动生成的安全密钥，或在 .env 中设置
     secret_key: str = Field(default_factory=_generate_or_load_secret)
     algorithm: str = "HS256"

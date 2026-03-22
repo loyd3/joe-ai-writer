@@ -61,7 +61,7 @@ export interface ProjectUpdate {
 // 文档相关
 export interface Block {
   id: string
-  type: 'paragraph' | 'heading' | 'subheading' | 'quote' | 'list' | 'code' | 'divider'
+  type: 'paragraph' | 'heading' | 'subheading' | 'quote' | 'list' | 'code' | 'divider' | 'image'
   content: string
   props?: Record<string, any>
 }

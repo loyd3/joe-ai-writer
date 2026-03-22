@@ -192,6 +192,11 @@
             </button>
           </div>
 
+          <div v-if="generatingOutline" class="outline-streaming">
+            <h3>📋 大纲生成中...</h3>
+            <pre v-if="outlineStreamPreview" class="outline-raw">{{ outlineStreamPreview }}</pre>
+          </div>
+
           <!-- 大纲展示 -->
           <div v-if="outline" class="outline-section">
             <h3>📋 文章大纲</h3>
@@ -343,7 +348,7 @@ import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 import PublishDialog from '@/components/PublishDialog.vue'
 import { useAuthStore } from '@/stores/auth'
-import api, { projectApi, documentApi } from '@/api'
+import api, { projectApi, documentApi, API_BASE_URL } from '@/api'
 import type { Block } from '@/api/types'
 
 marked.setOptions({ breaks: false, gfm: true })
@@ -364,6 +369,70 @@ const outline = ref(null)
 const article = ref(null)
 const generatingOutline = ref(false)
 const generatingArticle = ref(false)
+const outlineStreamText = ref('')
+const outlineStreamPreview = computed(() => {
+  const text = outlineStreamText.value || ''
+  const trimmed = text.trim()
+  if (!trimmed) return ''
+
+  const prettifyJsonLike = (input: string) => {
+    // 把“JSON 原文”尽量变成可读的分段文本（只用于流式中临时展示）
+    return input
+      .replace(/([{}[\]])/g, '$1\n')
+      .replace(/,\s*(?=")/g, ',\n')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim()
+  }
+
+  const tryRenderOutline = (): string | null => {
+    // 尝试在流式到达足够内容时解析 JSON 并“更友好”渲染成要点文本
+    if (!trimmed.includes('"sections"') && !trimmed.includes('"keywords"') && !trimmed.includes('sections')) return null
+    const first = trimmed.indexOf('{')
+    const last = trimmed.lastIndexOf('}')
+    if (first < 0 || last <= first) return null
+
+    const candidate = trimmed.slice(first, last + 1)
+    if (candidate.length > 20000) return null
+
+    try {
+      const obj = JSON.parse(candidate) as any
+      const title = obj?.title
+      const angle = obj?.angle
+      const keywords = Array.isArray(obj?.keywords) ? obj.keywords : []
+      const sections = Array.isArray(obj?.sections) ? obj.sections : []
+
+      const lines: string[] = []
+      if (title) lines.push(`## 标题：${title}`)
+      if (angle) lines.push(`> 写作角度：${angle}`)
+
+      if (sections.length) {
+        lines.push('')
+        lines.push('## 章节要点')
+        sections.forEach((s: any, idx: number) => {
+          const name = s?.name || s?.title || `章节${idx + 1}`
+          lines.push('')
+          lines.push(`${idx + 1}. ${name}`)
+          const points = Array.isArray(s?.points) ? s.points : []
+          for (const p of points) {
+            if (p) lines.push(`- ${p}`)
+          }
+        })
+      }
+
+      if (keywords.length) {
+        lines.push('')
+        lines.push(`关键词：${keywords.join('、')}`)
+      }
+
+      const rendered = lines.join('\n')
+      return rendered.trim() ? rendered : null
+    } catch {
+      return null
+    }
+  }
+
+  return tryRenderOutline() ?? prettifyJsonLike(trimmed)
+})
 
 // 保存对话框状态
 const saveDialogVisible = ref(false)
@@ -507,15 +576,77 @@ const generateOutline = async () => {
   if (!selectedBrainstorm.value) return
 
   generatingOutline.value = true
+  outline.value = null
+  outlineStreamText.value = ''
   try {
-    const res = await api.post('/brainstorm/generate-outline', {
-      title: selectedBrainstorm.value.title,
-      category: selectedBrainstorm.value.category,
-      concept: selectedBrainstorm.value.concept,
-      style: writingStyle.value,
-      word_count: wordCount.value
-    }, { timeout: 180000 })
-    outline.value = res.data.outline
+    const response = await fetch(`${API_BASE_URL}/api/brainstorm/generate-outline/stream`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('token')}`,
+      },
+      body: JSON.stringify({
+        title: selectedBrainstorm.value.title,
+        category: selectedBrainstorm.value.category,
+        concept: selectedBrainstorm.value.concept,
+        style: writingStyle.value,
+        word_count: wordCount.value,
+      }),
+    })
+
+    if (!response.ok || !response.body) {
+      throw new Error('生成大纲失败')
+    }
+
+    const reader = response.body.getReader()
+    const decoder = new TextDecoder()
+    let sseBuffer = ''
+    let receivedMeta = false
+
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+
+      sseBuffer += decoder.decode(value, { stream: true })
+      const lines = sseBuffer.split('\n')
+      sseBuffer = lines.pop() || ''
+
+      for (const rawLine of lines) {
+        const line = rawLine.trim()
+        if (!line.startsWith('data: ')) continue
+
+        const data = line.slice(6).trim()
+        if (!data) continue
+
+        if (data === '[DONE]') {
+          // 等价于结束标记，外层 while 也会自然结束
+          receivedMeta = receivedMeta || !!outline.value
+          break
+        }
+
+        if (data.startsWith('[ERROR]')) {
+          throw new Error(data.slice('[ERROR]'.length).trim() || '生成大纲失败')
+        }
+
+        if (data.startsWith('[OUTLINE_META]')) {
+          const metaStr = data.slice('[OUTLINE_META]'.length).trim()
+          const meta = JSON.parse(metaStr) as { outline?: any }
+          outline.value = meta?.outline ?? meta
+          receivedMeta = true
+          continue
+        }
+
+        // 只在没拿到结构化大纲前展示生成过程文本
+        if (!receivedMeta) {
+          outlineStreamText.value += data
+          // 避免太长影响性能
+          if (outlineStreamText.value.length > 6000) {
+            outlineStreamText.value = outlineStreamText.value.slice(-6000)
+          }
+        }
+      }
+    }
+
     ElMessage.success('大纲生成成功')
   } catch (error) {
     console.error('生成大纲失败:', error)
@@ -531,15 +662,66 @@ const generateArticle = async () => {
 
   generatingArticle.value = true
   try {
-    const res = await api.post('/brainstorm/generate-article', {
+    // 先初始化文章对象，让页面在流式过程中就能渲染
+    article.value = {
       title: selectedBrainstorm.value.title,
-      category: selectedBrainstorm.value.category,
-      concept: selectedBrainstorm.value.concept,
+      content: '',
       style: writingStyle.value,
-      word_count: wordCount.value,
-      outline: outline.value
-    }, { timeout: 180000 })
-    article.value = res.data.article
+      word_count: 0,
+    }
+
+    const response = await fetch(`${API_BASE_URL}/api/brainstorm/generate-article/stream`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('token')}`,
+      },
+      body: JSON.stringify({
+        title: selectedBrainstorm.value.title,
+        category: selectedBrainstorm.value.category,
+        concept: selectedBrainstorm.value.concept,
+        style: writingStyle.value,
+        word_count: wordCount.value,
+        outline: outline.value,
+      }),
+    })
+
+    if (!response.ok || !response.body) {
+      throw new Error('生成文章失败')
+    }
+
+    const reader = response.body.getReader()
+    const decoder = new TextDecoder()
+    let sseBuffer = ''
+    let done = false
+
+    while (!done) {
+      const { done: isDone, value } = await reader.read()
+      if (isDone) break
+
+      sseBuffer += decoder.decode(value, { stream: true })
+      const lines = sseBuffer.split('\n')
+      sseBuffer = lines.pop() || ''
+
+      for (const rawLine of lines) {
+        const line = rawLine.trim()
+        if (!line.startsWith('data: ')) continue
+
+        const data = line.slice(6)
+        if (data === '[DONE]') {
+          done = true
+          break
+        }
+        if (data.startsWith('[ERROR]')) {
+          throw new Error(data.slice('[ERROR]'.length).trim() || '生成文章失败')
+        }
+        if (data) {
+          article.value.content += data
+        }
+      }
+    }
+
+    article.value.word_count = article.value.content.length
     ElMessage.success('文章生成成功')
   } catch (error) {
     console.error('生成文章失败:', error)
@@ -1144,6 +1326,20 @@ onMounted(() => {
   word-break: break-word;
   max-height: 400px;
   overflow-y: auto;
+}
+
+.outline-streaming {
+  margin-top: 16px;
+  padding: 16px;
+  background: #fafafa;
+  border: 1px solid #e8e8e8;
+  border-radius: 8px;
+
+  h3 {
+    font-size: 16px;
+    color: #333;
+    margin: 0 0 12px;
+  }
 }
 
 @media (max-width: 1024px) {

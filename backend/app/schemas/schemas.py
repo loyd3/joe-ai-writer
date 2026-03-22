@@ -250,6 +250,20 @@ class CreateProjectFromLiteratureResponse(BaseModel):
     analysis: LiteraryAnalysisResult
     message: str
 
+
+class ApplyProjectFromLiteratureRequest(BaseModel):
+    """将文学作品分析结果应用到指定项目（覆盖项目设定）"""
+    project_id: int
+    analysis: LiteraryAnalysisResult
+
+
+class ApplyProjectFromLiteratureResponse(BaseModel):
+    """应用完成响应"""
+    success: bool
+    project_id: int
+    analysis: LiteraryAnalysisResult
+    message: str
+
 # ========== Template Schemas ==========
 class TemplateCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=100)

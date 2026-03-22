@@ -3,31 +3,28 @@
     <div class="extract-header">
       <h3>
         <el-icon><MagicStick /></el-icon>
-        AI 智能提取
+        AI 智能扩展
       </h3>
-      <p class="subtitle">自动分析文档，提取角色、大纲等信息</p>
+      <p class="subtitle">分析当前文章并扩展成长篇项目（生成大纲/项目设定）</p>
+    </div>
+
+    <div class="extend-mode">
+      <el-radio-group v-model="extendMode" size="large">
+        <el-radio-button label="new">新建项目</el-radio-button>
+        <el-radio-button label="overwrite">覆盖当前项目设定</el-radio-button>
+      </el-radio-group>
     </div>
 
     <div class="extract-actions">
       <el-button
         type="primary"
         size="large"
-        @click="extractInfo"
-        :loading="extracting"
+        @click="expandToProject"
+        :loading="expanding"
         :disabled="contentLength < 100"
       >
         <el-icon><Aim /></el-icon>
-        {{ extracting ? '分析中...' : '开始提取' }}
-      </el-button>
-
-      <el-button
-        size="large"
-        @click="analyzeStoryline"
-        :loading="analyzingStory"
-        :disabled="contentLength < 200"
-      >
-        <el-icon><TrendCharts /></el-icon>
-        分析故事线
+        {{ expanding ? '生成项目中...' : '开始扩展' }}
       </el-button>
     </div>
 
@@ -37,7 +34,7 @@
       :closable="false"
       show-icon
     >
-      文档内容需要至少 100 字才能进行 AI 提取
+      文档内容需要至少 100 字才能扩展生成长篇项目
     </el-alert>
 
     <!-- 提取结果 -->
@@ -123,25 +120,26 @@
       </div>
 
       <div class="apply-actions" v-if="hasExtractedContent">
-        <el-button type="primary" size="large" @click="applyToMemory" :loading="applying">
+        <el-button
+          type="primary"
+          size="large"
+          @click="goToProject"
+          :loading="createdProjectLoading"
+          v-if="createdProject?.project_id && createdDocumentId"
+        >
           <el-icon><Check /></el-icon>
-          应用到项目设定
+          {{ extendMode === 'new' ? '进入新项目文档' : '进入文档' }}
         </el-button>
-        <el-button size="large" @click="extractedData = null">
-          重新提取
+        <el-button size="large" @click="resetAll" v-else>
+          重新生成
         </el-button>
       </div>
     </div>
 
-    <!-- 故事线分析结果 -->
-    <div v-if="storyline" class="storyline-result">
-      <h4>故事线分析</h4>
-      <div class="storyline-content">{{ storyline }}</div>
-      <div class="apply-actions">
-        <el-button type="primary" @click="applyStoryline">
-          应用到故事线
-        </el-button>
-      </div>
+    <!-- 故事主线（可选） -->
+    <div v-if="extractedData?.storyline" class="storyline-result">
+      <h4>故事主线</h4>
+      <div class="storyline-content">{{ extractedData.storyline }}</div>
     </div>
   </div>
 </template>
@@ -149,20 +147,22 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import { ElMessage } from 'element-plus'
-import { extractApi } from '@/api/extract'
-import { MagicStick, Aim, TrendCharts, User, List, Star, MapLocation, EditPen, Check } from '@element-plus/icons-vue'
+import { aiApi, documentApi } from '@/api'
+import { MagicStick, Aim, User, List, Star, MapLocation, EditPen, Check } from '@element-plus/icons-vue'
 
 const props = defineProps<{
   documentId: number
   projectId: number
+  documentTitle?: string
   content: any[]
 }>()
 
-const extracting = ref(false)
-const analyzingStory = ref(false)
-const applying = ref(false)
 const extractedData = ref<any>(null)
-const storyline = ref('')
+const createdProject = ref<any>(null)
+const createdDocumentId = ref<number | null>(null)
+const extendMode = ref<'new' | 'overwrite'>('new')
+const expanding = ref(false)
+const createdProjectLoading = ref(false)
 
 const contentLength = computed(() => {
   return props.content.reduce((acc, block) => acc + (block.content?.length || 0), 0)
@@ -170,64 +170,124 @@ const contentLength = computed(() => {
 
 const hasExtractedContent = computed(() => {
   if (!extractedData.value) return false
-  const d = extractedData.value
-  return d.characters?.length || d.outline?.length || d.key_points?.length ||
-         (d.world_building && Object.keys(d.world_building).length) || d.writing_style
+  return true
 })
 
-async function extractInfo() {
-  extracting.value = true
+async function expandToProject() {
+  expanding.value = true
+  createdProject.value = null
+  createdDocumentId.value = null
   try {
-    const res = await extractApi.extract(props.documentId)
-    extractedData.value = res.data.extracted
-    ElMessage.success('提取完成')
-  } catch (error) {
-    ElMessage.error('提取失败')
-  } finally {
-    extracting.value = false
-  }
-}
+    const contentText = (props.content || [])
+      .map(b => b?.content)
+      .filter(Boolean)
+      .join('\n')
 
-async function analyzeStoryline() {
-  analyzingStory.value = true
-  try {
-    const res = await extractApi.analyzeStoryline(props.documentId)
-    storyline.value = res.data.storyline
-    ElMessage.success('分析完成')
-  } catch (error) {
-    ElMessage.error('分析失败')
-  } finally {
-    analyzingStory.value = false
-  }
-}
-
-async function applyToMemory() {
-  applying.value = true
-  try {
-    await extractApi.apply(props.documentId, {
-      extracted: extractedData.value
+    const analysisRes = await aiApi.analyzeLiterature({
+      content: contentText,
+      title: props.documentTitle || undefined,
+      category: 'novel',
     })
-    ElMessage.success('已应用到项目设定')
-    emit('applied')
+
+    extractedData.value = analysisRes.data
+    const baseTitle = (props.documentTitle || '').trim() || '未命名文章'
+    const markerHeading = `【原文】${baseTitle}`
+    const newDocTitle = extendMode.value === 'overwrite'
+      ? `【原文】${baseTitle}（覆盖设定）`
+      : `【原文】${baseTitle}`
+
+    let targetProjectId = props.projectId
+
+    if (extendMode.value === 'new') {
+      const createRes = await aiApi.createProjectFromLiterature({
+        analysis: extractedData.value
+      })
+
+      createdProject.value = createRes.data
+      extractedData.value = createdProject.value?.analysis || extractedData.value
+      targetProjectId = createdProject.value.project_id
+    } else {
+      const applyRes = await aiApi.applyProjectFromLiterature({
+        project_id: props.projectId,
+        analysis: extractedData.value
+      })
+
+      createdProject.value = { project_id: props.projectId }
+      // 后端会兜底生成长篇 outline，这里尽量用返回的 analysis 刷新展示
+      extractedData.value = applyRes?.data?.analysis || extractedData.value
+      targetProjectId = props.projectId
+    }
+
+    const normalizeBlock = (b: any) => {
+      const id = b?.id ? String(b.id) : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`
+      return {
+        id: crypto.randomUUID ? crypto.randomUUID() : id,
+        type: b?.type || 'paragraph',
+        content: typeof b?.content === 'string' ? b.content : '',
+        props: b?.props && typeof b.props === 'object' ? { ...b.props } : {},
+      }
+    }
+
+    const originalBlocks = (props.content || []).map(normalizeBlock)
+
+    // 只在开头标识“原文”，避免影响后续“续写当前文档”的上下文（上下文取末尾 2000 字）。
+    const markerBlocks = [
+      {
+        id: crypto.randomUUID ? crypto.randomUUID() : `${Date.now().toString(36)}-marker-start`,
+        type: 'heading',
+        content: markerHeading,
+        props: {},
+      },
+      {
+        id: crypto.randomUUID ? crypto.randomUUID() : `${Date.now().toString(36)}-marker-desc`,
+        type: 'paragraph',
+        content: '以下为从当前文章导入的原文内容，可基于此继续扩写成长篇项目。',
+        props: {},
+      },
+      {
+        id: crypto.randomUUID ? crypto.randomUUID() : `${Date.now().toString(36)}-marker-divider`,
+        type: 'divider',
+        content: '',
+        props: {},
+      },
+    ]
+
+    const createdDoc = await documentApi.create(targetProjectId, {
+      title: newDocTitle,
+      content: [...markerBlocks, ...originalBlocks],
+    })
+
+    createdDocumentId.value = createdDoc.data?.id ?? createdDoc.id ?? null
+    ElMessage.success(
+      extendMode.value === 'new'
+        ? '长篇项目已创建，并已导入原文到新文档'
+        : '已覆盖项目设定，并已导入原文到新文档'
+    )
   } catch (error) {
-    ElMessage.error('应用失败')
+    ElMessage.error('扩展生成失败')
   } finally {
-    applying.value = false
+    expanding.value = false
   }
 }
 
-async function applyStoryline() {
-  try {
-    await extractApi.analyzeStoryline(props.documentId)
-    ElMessage.success('故事线已保存')
-    emit('applied')
-  } catch (error) {
-    ElMessage.error('保存失败')
-  }
+function goToProject() {
+  if (!createdProject.value?.project_id || !createdDocumentId.value) return
+  createdProjectLoading.value = true
+  emit('project-created', createdProject.value.project_id, createdDocumentId.value)
+  // 让父组件路由跳转时销毁该抽屉；这里不阻塞
+  setTimeout(() => {
+    createdProjectLoading.value = false
+  }, 300)
+}
+
+function resetAll() {
+  extractedData.value = null
+  createdProject.value = null
+  createdDocumentId.value = null
 }
 
 const emit = defineEmits<{
-  (e: 'applied'): void
+  (e: 'project-created', projectId: number, documentId: number): void
 }>()
 </script>
 
@@ -265,6 +325,16 @@ const emit = defineEmits<{
   gap: 12px;
   justify-content: center;
   margin-bottom: 20px;
+}
+
+.extend-mode {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 18px;
+
+  :deep(.el-radio-button__inner) {
+    padding: 10px 16px;
+  }
 }
 
 .extract-results {
