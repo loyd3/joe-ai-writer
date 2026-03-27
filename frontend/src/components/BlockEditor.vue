@@ -1,5 +1,9 @@
 <template>
-  <div class="block-editor" :class="{ 'focus-mode': isFocusMode, 'multi-select': isMultiSelectMode }" @click="handleEditorClick">
+  <div
+    class="block-editor"
+    :class="{ 'focus-mode': isFocusMode, 'multi-select': isMultiSelectMode, 'preview-mode': previewMode }"
+    @click="handleEditorClick"
+  >
     <!-- 多选块工具栏 -->
     <Teleport to="body">
       <Transition name="multi-select-toolbar">
@@ -13,6 +17,61 @@
             <el-icon><Scissor /></el-icon>
             <span>剪切</span>
           </button>
+          <el-dropdown
+            trigger="click"
+            class="multi-batch-style-dropdown"
+            popper-class="multi-batch-style-popper"
+            @command="onMultiBatchStyleCommand"
+          >
+            <button type="button" class="toolbar-btn toolbar-btn-dropdown" title="批量：文体、整段字体、移动（预览模式下仅可移动）">
+              <el-icon><Operation /></el-icon>
+              <span>批量样式</span>
+              <el-icon class="batch-dd-caret"><ArrowDown /></el-icon>
+            </button>
+            <template #dropdown>
+              <el-dropdown-menu class="multi-batch-style-menu">
+                <el-dropdown-item disabled class="batch-menu-section-title" command="__h1">文体</el-dropdown-item>
+                <el-dropdown-item command="type:paragraph" :disabled="previewMode">
+                  <el-icon><Document /></el-icon> 正文
+                </el-dropdown-item>
+                <el-dropdown-item command="type:heading" :disabled="previewMode">
+                  <el-icon><Top /></el-icon> 大标题
+                </el-dropdown-item>
+                <el-dropdown-item command="type:subheading" :disabled="previewMode">
+                  <el-icon><Rank /></el-icon> 小标题
+                </el-dropdown-item>
+                <el-dropdown-item command="type:quote" :disabled="previewMode">
+                  <el-icon><ChatDotRound /></el-icon> 引用
+                </el-dropdown-item>
+                <el-dropdown-item command="type:list" :disabled="previewMode">
+                  <el-icon><List /></el-icon> 列表
+                </el-dropdown-item>
+                <el-dropdown-item command="type:code" :disabled="previewMode">
+                  <el-icon><Operation /></el-icon> 代码块
+                </el-dropdown-item>
+                <el-dropdown-item command="type:divider" divided :disabled="previewMode">
+                  <el-icon><Minus /></el-icon> 分割线
+                </el-dropdown-item>
+                <el-dropdown-item disabled class="batch-menu-section-title" command="__h2">整段字体</el-dropdown-item>
+                <el-dropdown-item command="fmt:bold" :disabled="previewMode">
+                  <span class="fmt-bold">B</span> 全文加粗
+                </el-dropdown-item>
+                <el-dropdown-item command="fmt:italic" :disabled="previewMode">
+                  <span class="fmt-italic">I</span> 全文斜体
+                </el-dropdown-item>
+                <el-dropdown-item command="fmt:underline" divided :disabled="previewMode">
+                  <span class="fmt-underline">U</span> 全文下划线
+                </el-dropdown-item>
+                <el-dropdown-item disabled class="batch-menu-section-title" command="__h3">移动</el-dropdown-item>
+                <el-dropdown-item command="move:up" :disabled="!canMoveUpMultiToolbar">
+                  <el-icon><ArrowUp /></el-icon> 整体上移
+                </el-dropdown-item>
+                <el-dropdown-item command="move:down" :disabled="!canMoveDownMultiToolbar">
+                  <el-icon><ArrowDown /></el-icon> 整体下移
+                </el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
           <button
             type="button"
             class="toolbar-btn ai-btn"
@@ -117,22 +176,48 @@
     </Teleport>
 
     <div
-      v-for="(block, index) in modelValue"
-      :key="block.id"
-      class="block-wrapper"
-      :class="{
-        'is-focused': focusedIndex === index,
-        'is-toolbar-visible': toolbarVisibleIndex === index,
-        'is-selected': selectedBlocks.has(index),
-        [`type-${block.type}`]: true
-      }"
-      @mouseenter="onBlockMouseEnter(index)"
-      @mouseleave="onBlockMouseLeave"
-      @mousedown="handleBlockMouseDown(index, $event)"
+      v-if="!modelValue.length"
+      class="empty-state"
+      @click="addBlock(-1)"
+      @contextmenu.prevent="onEmptyAreaContextMenu($event)"
     >
+      <div class="empty-icon">
+        <el-icon><EditPen /></el-icon>
+      </div>
+      <span>点击开始写作，记录您的灵感...</span>
+      <span class="shortcut-hint">Ctrl+1~6 切换块 · Ctrl+B/I/U 格式 · Ctrl+Z/Y 撤销 · Ctrl+↑↓ 导航 · Ctrl+Shift+↑↓ 移动块 · / 斜杠命令 · Ctrl+点击多选 · Ctrl+C/X/V 复制剪切粘贴</span>
+    </div>
+
+    <div
+      v-else
+      :ref="bindScrollEl"
+      class="block-list-scroll"
+      @scroll.passive="onBlockListScroll"
+    >
+      <div
+        v-if="virtualListReady"
+        class="virtual-pad virtual-pad-top"
+        :style="{ height: virtualTopPad + 'px' }"
+        aria-hidden="true"
+      />
+      <div
+        v-for="row in displayedRows"
+        :key="row.block.id"
+        :ref="el => setBlockWrapperRef(el, row.index)"
+        class="block-wrapper"
+        :class="{
+          'is-focused': focusedIndex === row.index,
+          'is-toolbar-visible': toolbarVisibleIndex === row.index,
+          'is-selected': selectedBlocks.has(row.index),
+          [`type-${row.block.type}`]: true
+        }"
+        @mouseenter="onBlockMouseEnter(row.index)"
+        @mouseleave="onBlockMouseLeave"
+        @mousedown="handleBlockMouseDown(row.index, $event)"
+      >
       <!-- 快捷操作栏：悬停 3s 或选中内容 3s 后显示 -->
       <Transition name="toolbar">
-        <div v-show="toolbarVisibleIndex === index" class="quick-toolbar" @mousedown.prevent>
+        <div v-show="toolbarVisibleIndex === row.index" class="quick-toolbar" @mousedown.prevent>
           <button type="button" class="toolbar-btn" :disabled="!canUndo" @click.stop="undo()" title="撤销 (Ctrl+Z)">
             <el-icon><RefreshLeft /></el-icon>
             <span>撤销</span>
@@ -142,55 +227,55 @@
             <span>重做</span>
           </button>
           <span class="toolbar-divider" />
-          <button type="button" class="toolbar-btn" :class="{ active: block.type === 'heading' }" @click.stop="handleCommand('heading', index)" title="标题 (Ctrl+1)">
+          <button type="button" class="toolbar-btn" :disabled="previewMode" :class="{ active: row.block.type === 'heading' }" @click.stop="handleCommand('heading', row.index)" title="标题 (Ctrl+1)">
             <el-icon><Top /></el-icon>
             <span>标题</span>
           </button>
-          <button type="button" class="toolbar-btn" :class="{ active: block.type === 'subheading' }" @click.stop="handleCommand('subheading', index)" title="小标题 (Ctrl+2)">
+          <button type="button" class="toolbar-btn" :disabled="previewMode" :class="{ active: row.block.type === 'subheading' }" @click.stop="handleCommand('subheading', row.index)" title="小标题 (Ctrl+2)">
             <el-icon><Rank /></el-icon>
             <span>小标题</span>
           </button>
-          <button type="button" class="toolbar-btn" :class="{ active: block.type === 'quote' }" @click.stop="handleCommand('quote', index)" title="引用 (Ctrl+3)">
+          <button type="button" class="toolbar-btn" :disabled="previewMode" :class="{ active: row.block.type === 'quote' }" @click.stop="handleCommand('quote', row.index)" title="引用 (Ctrl+3)">
             <el-icon><ChatDotRound /></el-icon>
             <span>引用</span>
           </button>
-          <button type="button" class="toolbar-btn" :class="{ active: block.type === 'list' }" @click.stop="handleCommand('list', index)" title="列表 (Ctrl+4)">
+          <button type="button" class="toolbar-btn" :disabled="previewMode" :class="{ active: row.block.type === 'list' }" @click.stop="handleCommand('list', row.index)" title="列表 (Ctrl+4)">
             <el-icon><List /></el-icon>
             <span>列表</span>
           </button>
-          <button type="button" class="toolbar-btn" :class="{ active: block.type === 'code' }" @click.stop="handleCommand('code', index)" title="代码块 (Ctrl+5)">
+          <button type="button" class="toolbar-btn" :disabled="previewMode" :class="{ active: row.block.type === 'code' }" @click.stop="handleCommand('code', row.index)" title="代码块 (Ctrl+5)">
             <el-icon><Operation /></el-icon>
             <span>代码</span>
           </button>
-          <button type="button" class="toolbar-btn" :class="{ active: block.type === 'divider' }" @click.stop="handleCommand('divider', index)" title="分割线 (Ctrl+6)">
+          <button type="button" class="toolbar-btn" :disabled="previewMode" :class="{ active: row.block.type === 'divider' }" @click.stop="handleCommand('divider', row.index)" title="分割线 (Ctrl+6)">
             <el-icon><Minus /></el-icon>
             <span>分割线</span>
           </button>
-          <button type="button" class="toolbar-btn" :class="{ active: block.type === 'paragraph' }" @click.stop="handleCommand('paragraph', index)" title="正文 (Ctrl+0)">
+          <button type="button" class="toolbar-btn" :disabled="previewMode" :class="{ active: row.block.type === 'paragraph' }" @click.stop="handleCommand('paragraph', row.index)" title="正文 (Ctrl+0)">
             <el-icon><Document /></el-icon>
             <span>正文</span>
           </button>
           <span class="toolbar-divider" />
-          <button type="button" class="toolbar-btn ai-btn" @click.stop="emitPolish(index)" title="AI 润色">
+          <button type="button" class="toolbar-btn ai-btn" @click.stop="emitPolish(row.index)" title="AI 润色">
             <el-icon><Brush /></el-icon>
             <span>AI 润色</span>
           </button>
           <span class="toolbar-divider" />
-          <button type="button" class="toolbar-btn format-btn" :class="{ active: isFormatActive(index, 'bold') }" @click.stop="applyFormat(index, 'bold')" title="加粗 (Ctrl+B)">
+          <button type="button" class="toolbar-btn format-btn" :disabled="previewMode" :class="{ active: isFormatActive(row.index, 'bold') }" @click.stop="applyFormat(row.index, 'bold')" title="加粗 (Ctrl+B)">
             <span class="fmt-bold">B</span>
           </button>
-          <button type="button" class="toolbar-btn format-btn" :class="{ active: isFormatActive(index, 'italic') }" @click.stop="applyFormat(index, 'italic')" title="斜体 (Ctrl+I)">
+          <button type="button" class="toolbar-btn format-btn" :disabled="previewMode" :class="{ active: isFormatActive(row.index, 'italic') }" @click.stop="applyFormat(row.index, 'italic')" title="斜体 (Ctrl+I)">
             <span class="fmt-italic">I</span>
           </button>
-          <button type="button" class="toolbar-btn format-btn" :class="{ active: isFormatActive(index, 'underline') }" @click.stop="applyFormat(index, 'underline')" title="下划线 (Ctrl+U)">
+          <button type="button" class="toolbar-btn format-btn" :disabled="previewMode" :class="{ active: isFormatActive(row.index, 'underline') }" @click.stop="applyFormat(row.index, 'underline')" title="下划线 (Ctrl+U)">
             <span class="fmt-underline">U</span>
           </button>
           <span class="toolbar-divider" />
           <button
             type="button"
             class="toolbar-btn"
-            :disabled="!canMoveUpForToolbar(index)"
-            @click.stop="tryMoveBlocks(-1, index)"
+            :disabled="!canMoveUpForToolbar(row.index)"
+            @click.stop="tryMoveBlocks(-1, row.index)"
             title="上移块 (Ctrl+Shift+↑)"
           >
             <el-icon><ArrowUp /></el-icon>
@@ -199,28 +284,28 @@
           <button
             type="button"
             class="toolbar-btn"
-            :disabled="!canMoveDownForToolbar(index)"
-            @click.stop="tryMoveBlocks(1, index)"
+            :disabled="!canMoveDownForToolbar(row.index)"
+            @click.stop="tryMoveBlocks(1, row.index)"
             title="下移块 (Ctrl+Shift+↓)"
           >
             <el-icon><ArrowDown /></el-icon>
             <span>下移</span>
           </button>
           <span class="toolbar-divider" />
-          <button type="button" class="toolbar-btn delete" :disabled="modelValue.length <= 1" @click.stop="handleCommand('delete', index)" title="删除块 (Ctrl+Shift+D)">
+          <button type="button" class="toolbar-btn delete" :disabled="modelValue.length <= 1" @click.stop="handleCommand('delete', row.index)" title="删除块 (Ctrl+Shift+D)">
             <el-icon><Delete /></el-icon>
           </button>
         </div>
       </Transition>
-      <div class="block-handle" @click.stop="addBlock(index)">
+      <div class="block-handle" @click.stop="addBlock(row.index)">
         <el-icon><Plus /></el-icon>
       </div>
       
-      <template v-if="block.type === 'image'">
+      <template v-if="row.block.type === 'image'">
         <div class="block-image-section">
           <img
-            v-if="block.props?.src"
-            :src="resolveImageUrl(String(block.props.src))"
+            v-if="row.block.props?.src"
+            :src="resolveImageUrl(String(row.block.props.src))"
             class="block-image-el"
             alt=""
             draggable="false"
@@ -228,74 +313,74 @@
           <div v-else class="block-image-placeholder">暂无图片地址</div>
         </div>
         <div
-          :ref="el => setBlockRef(el, index)"
+          :ref="el => setBlockRef(el, row.index)"
           class="block-content block-type-image-caption"
-          :data-type="block.type"
-          contenteditable="true"
-          @input="updateBlock(index)"
-          @focus="onBlockFocus(index)"
+          :data-type="row.block.type"
+          :contenteditable="!previewMode"
+          @input="updateBlock(row.index)"
+          @focus="onBlockFocus(row.index)"
           @blur="handleBlur"
-          @contextmenu.prevent="onBlockContextMenu(index, $event)"
-          @keydown.enter.prevent="handleEnter(index, $event)"
-          @keydown.backspace="handleBackspace(index, $event)"
-          @keydown.up="moveFocus(index, -1, $event)"
-          @keydown.down="moveFocus(index, 1, $event)"
-          @keydown="handleKeydown(index, $event)"
-          @keydown.ctrl.a.prevent="handleSelectAll(index, $event)"
-          @keydown.meta.a.prevent="handleSelectAll(index, $event)"
-          @mouseup="handleMouseUp(index, $event)"
+          @contextmenu.prevent="onBlockContextMenu(row.index, $event)"
+          @keydown.enter.prevent="handleEnter(row.index, $event)"
+          @keydown.backspace="handleBackspace(row.index, $event)"
+          @keydown.up="moveFocus(row.index, -1, $event)"
+          @keydown.down="moveFocus(row.index, 1, $event)"
+          @keydown="handleKeydown(row.index, $event)"
+          @keydown.ctrl.a.prevent="handleSelectAll(row.index, $event)"
+          @keydown.meta.a.prevent="handleSelectAll(row.index, $event)"
+          @mouseup="handleMouseUp(row.index, $event)"
         />
       </template>
       <div
         v-else
-        :ref="el => setBlockRef(el, index)"
+        :ref="el => setBlockRef(el, row.index)"
         class="block-content"
-        :data-type="block.type"
-        contenteditable="true"
-        @input="updateBlock(index)"
-        @focus="onBlockFocus(index)"
+        :data-type="row.block.type"
+        :contenteditable="!previewMode"
+        @input="updateBlock(row.index)"
+        @focus="onBlockFocus(row.index)"
         @blur="handleBlur"
-        @contextmenu.prevent="onBlockContextMenu(index, $event)"
-        @keydown.enter.prevent="handleEnter(index, $event)"
-        @keydown.backspace="handleBackspace(index, $event)"
-        @keydown.up="moveFocus(index, -1, $event)"
-        @keydown.down="moveFocus(index, 1, $event)"
-        @keydown="handleKeydown(index, $event)"
-        @keydown.ctrl.a.prevent="handleSelectAll(index, $event)"
-        @keydown.meta.a.prevent="handleSelectAll(index, $event)"
-        @mouseup="handleMouseUp(index, $event)"
+        @contextmenu.prevent="onBlockContextMenu(row.index, $event)"
+        @keydown.enter.prevent="handleEnter(row.index, $event)"
+        @keydown.backspace="handleBackspace(row.index, $event)"
+        @keydown.up="moveFocus(row.index, -1, $event)"
+        @keydown.down="moveFocus(row.index, 1, $event)"
+        @keydown="handleKeydown(row.index, $event)"
+        @keydown.ctrl.a.prevent="handleSelectAll(row.index, $event)"
+        @keydown.meta.a.prevent="handleSelectAll(row.index, $event)"
+        @mouseup="handleMouseUp(row.index, $event)"
       />
       
       <div class="block-actions">
-        <el-dropdown trigger="click" @command="(cmd: string) => handleCommand(cmd, index)">
+        <el-dropdown trigger="click" @command="(cmd: string) => handleCommand(cmd, row.index)">
           <el-icon class="action-icon" @click.stop><MoreFilled /></el-icon>
           <template #dropdown>
             <el-dropdown-menu>
-              <el-dropdown-item command="heading">
+              <el-dropdown-item command="heading" :disabled="previewMode">
                 <el-icon><Top /></el-icon> 大标题 <span class="shortcut">Ctrl+1</span>
               </el-dropdown-item>
-              <el-dropdown-item command="subheading">
+              <el-dropdown-item command="subheading" :disabled="previewMode">
                 <el-icon><Rank /></el-icon> 小标题 <span class="shortcut">Ctrl+2</span>
               </el-dropdown-item>
-              <el-dropdown-item command="quote">
+              <el-dropdown-item command="quote" :disabled="previewMode">
                 <el-icon><ChatDotRound /></el-icon> 引用 <span class="shortcut">Ctrl+3</span>
               </el-dropdown-item>
-              <el-dropdown-item command="list">
+              <el-dropdown-item command="list" :disabled="previewMode">
                 <el-icon><List /></el-icon> 列表 <span class="shortcut">Ctrl+4</span>
               </el-dropdown-item>
-              <el-dropdown-item command="code">
+              <el-dropdown-item command="code" :disabled="previewMode">
                 <el-icon><Operation /></el-icon> 代码块 <span class="shortcut">Ctrl+5</span>
               </el-dropdown-item>
-              <el-dropdown-item command="divider">
+              <el-dropdown-item command="divider" :disabled="previewMode">
                 <el-icon><Minus /></el-icon> 分割线 <span class="shortcut">Ctrl+6</span>
               </el-dropdown-item>
-              <el-dropdown-item divided command="paragraph">
+              <el-dropdown-item divided command="paragraph" :disabled="previewMode">
                 <el-icon><Document /></el-icon> 正文 <span class="shortcut">Ctrl+0</span>
               </el-dropdown-item>
-              <el-dropdown-item command="moveUp" :disabled="!canMoveUpForToolbar(index)">
+              <el-dropdown-item command="moveUp" :disabled="!canMoveUpForToolbar(row.index)">
                 <el-icon><ArrowUp /></el-icon> 上移 <span class="shortcut">Ctrl+Shift+↑</span>
               </el-dropdown-item>
-              <el-dropdown-item command="moveDown" :disabled="!canMoveDownForToolbar(index)">
+              <el-dropdown-item command="moveDown" :disabled="!canMoveDownForToolbar(row.index)">
                 <el-icon><ArrowDown /></el-icon> 下移 <span class="shortcut">Ctrl+Shift+↓</span>
               </el-dropdown-item>
               <el-dropdown-item divided command="delete" class="delete-item">
@@ -305,6 +390,14 @@
           </template>
         </el-dropdown>
       </div>
+    </div>
+
+      <div
+        v-if="virtualListReady"
+        class="virtual-pad virtual-pad-bottom"
+        :style="{ height: virtualBottomPad + 'px' }"
+        aria-hidden="true"
+      />
     </div>
     
     <!-- 右键快捷菜单 -->
@@ -330,8 +423,8 @@
               <span class="shortcut">Ctrl+Y</span>
             </button>
           </div>
-          <div class="context-menu-divider" />
-          <div class="context-menu-section">
+          <div v-if="!previewMode" class="context-menu-divider" />
+          <div v-if="!previewMode" class="context-menu-section">
             <button type="button" class="context-item" :class="{ active: contextBlock && modelValue[contextMenu.blockIndex]?.type === 'heading' }" @click="handleContextAction('heading')">
               <el-icon><Top /></el-icon>
               <span>大标题</span>
@@ -375,8 +468,8 @@
               <span>AI 润色</span>
             </button>
           </div>
-          <div class="context-menu-divider" />
-          <div class="context-menu-section">
+          <div v-if="!previewMode" class="context-menu-divider" />
+          <div v-if="!previewMode" class="context-menu-section">
             <button type="button" class="context-item" :class="{ active: contextBlock && isFormatActive(contextMenu.blockIndex, 'bold') }" @click="handleContextAction('formatBold')">
               <span class="fmt-bold">B</span>
               <span>加粗</span>
@@ -416,6 +509,14 @@
               <span class="shortcut">Ctrl+Shift+↓</span>
             </button>
           </div>
+          <div v-if="previewMode" class="context-menu-divider" />
+          <div v-if="previewMode" class="context-menu-section">
+            <button type="button" class="context-item" :disabled="contextMenu.blockIndex < 0" @click="handleContextAction('editText')">
+              <el-icon><EditPen /></el-icon>
+              <span>编辑文字…</span>
+              <span class="shortcut">E</span>
+            </button>
+          </div>
           <div class="context-menu-divider" />
           <div class="context-menu-section">
             <button type="button" class="context-item" @click="handleContextAction('insertAbove')">
@@ -439,18 +540,19 @@
       </Transition>
     </Teleport>
 
-    <div
-      v-if="!modelValue.length"
-      class="empty-state"
-      @click="addBlock(-1)"
-      @contextmenu.prevent="onEmptyAreaContextMenu($event)"
-    >
-      <div class="empty-icon">
-        <el-icon><EditPen /></el-icon>
-      </div>
-      <span>点击开始写作，记录您的灵感...</span>
-      <span class="shortcut-hint">Ctrl+1~6 切换块 · Ctrl+B/I/U 格式 · Ctrl+Z/Y 撤销 · Ctrl+↑↓ 导航 · Ctrl+Shift+↑↓ 移动块 · / 斜杠命令 · Ctrl+点击多选 · Ctrl+C/X/V 复制剪切粘贴</span>
-    </div>
+    <!-- 预览模式：弹窗编辑文字（不进入 contenteditable） -->
+    <el-dialog v-model="previewEditDialogVisible" title="编辑文字" width="640px" append-to-body>
+      <el-input
+        v-model="previewEditDialogText"
+        type="textarea"
+        :autosize="{ minRows: 6, maxRows: 18 }"
+        placeholder="在预览模式下修改当前块的文本…"
+      />
+      <template #footer>
+        <el-button @click="previewEditDialogVisible = false">取消</el-button>
+        <el-button type="primary" @click="applyPreviewTextEdit">确定</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -463,6 +565,8 @@ import { Plus, MoreFilled, Top, ChatDotRound, List, Document, Delete, EditPen, B
 const props = defineProps<{
   modelValue: Block[]
   focusMode?: boolean
+  /** 预览：不可在块内直接编辑；可调整结构（插入/移动/删除块）、撤销重做、多选复制剪切、AI 等 */
+  previewMode?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -474,10 +578,330 @@ const emit = defineEmits<{
   (e: 'generate-image-for-selection', payload: { indices: number[]; text: string }): void
   (e: 'toggleFocusMode'): void
   (e: 'replace', payload: { index: number; oldText: string; newText: string }): void
+  /** 用户正在编辑（不等待防抖后的 v-model 同步），用于立即标记未保存 */
+  (e: 'content-dirty'): void
 }>()
+
+/** 输入同步到父组件：防抖，减少整页与侧栏随每次按键重绘 */
+let contentEmitTimer: ReturnType<typeof setTimeout> | null = null
+const CONTENT_EMIT_DEBOUNCE_MS = 100
+/** 块数较少时每次输入从 DOM 拉全量，避免防抖窗口内多块不同步 */
+const FULL_DOM_SNAPSHOT_MAX_BLOCKS = 96
+
+function clearContentEmitTimer() {
+  if (contentEmitTimer) {
+    clearTimeout(contentEmitTimer)
+    contentEmitTimer = null
+  }
+}
+
+/** 结构变更、撤销重做等须立即同步 */
+function emitContentUpdateNow(blocks: Block[]) {
+  clearContentEmitTimer()
+  emit('update:modelValue', blocks)
+}
+
+/** 纯文本输入：防抖后同步 */
+function scheduleContentUpdate(blocks: Block[]) {
+  clearContentEmitTimer()
+  contentEmitTimer = setTimeout(() => {
+    contentEmitTimer = null
+    emit('update:modelValue', blocks)
+  }, CONTENT_EMIT_DEBOUNCE_MS)
+}
+
+// ---------- 虚拟列表：块数较多时只挂载可视区域 + 上下缓冲 ----------
+const VIRTUAL_THRESHOLD = 28
+const VIRTUAL_OVERSCAN = 8
+const virtualEnabled = computed(() => props.modelValue.length >= VIRTUAL_THRESHOLD)
+
+const scrollEl = ref<HTMLElement | null>(null)
+const virtualStart = ref(0)
+const virtualEnd = ref(0)
+/** 与 modelValue 对齐；0 表示尚未测量，用 estimate */
+const measuredHeights = ref<number[]>([])
+const blockOffsets = ref<number[]>([])
+const wrapperResizeObservers = new Map<number, ResizeObserver>()
+let scrollViewportRo: ResizeObserver | null = null
+let virtualScrollRaf: number | null = null
+/** 上一帧 scrollTop，用于快速滚动时加大 overscan */
+const lastScrollTopForVirtual = ref(0)
+
+function vnodeRefToHTMLElement(el: unknown): HTMLElement | null {
+  if (el == null) return null
+  if (el instanceof HTMLElement) return el
+  if (typeof el === 'object' && el !== null && '$el' in el) {
+    const inner = (el as { $el?: unknown }).$el
+    return inner instanceof HTMLElement ? inner : null
+  }
+  return null
+}
+
+function estimateBlockHeight(block: Block): number {
+  const len = (block.content || '').length
+  // 提高长文估计高度，避免 offset 总长远小于真实 scrollHeight 时虚拟窗口严重错位、快速滚动长时间空白
+  const lineSoft = Math.min(2400, Math.max(0, len) * 0.38 + Math.sqrt(Math.max(0, len)) * 3)
+  const lineTight = Math.min(400, Math.max(0, len) * 0.2)
+  switch (block.type) {
+    case 'heading':
+      return Math.round(52 + lineTight)
+    case 'subheading':
+      return Math.round(46 + lineTight)
+    case 'code':
+      return Math.round(64 + Math.min(480, len * 0.35))
+    case 'quote':
+      return Math.round(48 + lineSoft)
+    case 'list':
+      return Math.round(44 + lineSoft)
+    case 'image':
+      return block.props?.src ? 228 : 88
+    case 'divider':
+      return 36
+    default:
+      return Math.round(44 + lineSoft)
+  }
+}
+
+function getHeightForIndex(i: number): number {
+  const m = measuredHeights.value[i]
+  if (m != null && m > 0) return m
+  const b = props.modelValue[i]
+  return b ? estimateBlockHeight(b) : 48
+}
+
+function rebuildBlockOffsets() {
+  const n = props.modelValue.length
+  const arr = new Array<number>(n + 1)
+  arr[0] = 0
+  for (let i = 0; i < n; i++) {
+    arr[i + 1] = arr[i] + getHeightForIndex(i)
+  }
+  blockOffsets.value = arr
+}
+
+/** 第一个满足 offsets[i+1] > st 的 i；若全部在上方则为 n */
+function virtualFirstRowAfterScroll(offsets: number[], n: number, st: number): number {
+  let lo = 0
+  let hi = n
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1
+    if (offsets[mid + 1] <= st) lo = mid + 1
+    else hi = mid
+  }
+  return lo
+}
+
+/** 最后一个满足 offsets[i] < bottom 的索引，且 i >= start */
+function virtualLastVisibleRow(offsets: number[], n: number, start: number, bottom: number): number {
+  let lo = start
+  let hi = n
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1
+    if (offsets[mid] < bottom) lo = mid + 1
+    else hi = mid
+  }
+  return Math.max(start, lo - 1)
+}
+
+function updateVirtualWindow() {
+  if (!virtualEnabled.value || !scrollEl.value) return
+  const el = scrollEl.value
+  const stRaw = el.scrollTop
+  const vh = el.clientHeight || 1
+  const n = props.modelValue.length
+  const offsets = blockOffsets.value
+  if (n === 0 || offsets.length !== n + 1) {
+    virtualStart.value = 0
+    virtualEnd.value = -1
+    return
+  }
+  const modelTotal = offsets[n] ?? 0
+  const scrollRange = Math.max(1, el.scrollHeight - vh)
+  const modelScrollRange = Math.max(1, modelTotal - vh)
+  // DOM 总高与估计 offset 不一致时（常见于未测量块低估），按滚动比例映射到模型坐标，避免窗口卡在错误区间
+  const stModel = (stRaw / scrollRange) * modelScrollRange
+  const bottomModel = stModel + vh
+
+  let start = virtualFirstRowAfterScroll(offsets, n, stModel)
+  if (start >= n) start = Math.max(0, n - 1)
+  let end = virtualLastVisibleRow(offsets, n, start, bottomModel)
+  if (end >= n) end = n - 1
+
+  let overscan = VIRTUAL_OVERSCAN
+  const delta = stRaw - lastScrollTopForVirtual.value
+  lastScrollTopForVirtual.value = stRaw
+  if (Math.abs(delta) > vh * 0.35) {
+    overscan += Math.min(28, Math.floor(Math.abs(delta) / Math.max(40, vh * 0.2)))
+  }
+
+  start = Math.max(0, start - overscan)
+  end = Math.min(n - 1, end + overscan)
+
+  // 正在编辑的块必须始终在挂载范围内，否则 contenteditable 被卸载会导致焦点乱跳、无法输入
+  const fi = focusedIndex.value
+  if (fi >= 0 && fi < n) {
+    if (fi < start) start = Math.max(0, fi - overscan)
+    if (fi > end) end = Math.min(n - 1, fi + overscan)
+  }
+
+  virtualStart.value = start
+  virtualEnd.value = end
+}
+
+function scheduleVirtualScrollUpdate() {
+  if (virtualScrollRaf != null) return
+  virtualScrollRaf = requestAnimationFrame(() => {
+    virtualScrollRaf = null
+    updateVirtualWindow()
+  })
+}
+
+function onBlockListScroll() {
+  if (!virtualEnabled.value) return
+  // 同步更新窗口，避免仅依赖 RAF 时快速惯性滚动多帧落在错误区间、迟迟不出现块
+  updateVirtualWindow()
+}
+
+const virtualListReady = computed(() => {
+  if (!virtualEnabled.value) return false
+  const n = props.modelValue.length
+  return scrollEl.value != null && blockOffsets.value.length === n + 1 && n > 0
+})
+
+function bindScrollEl(el: unknown) {
+  scrollViewportRo?.disconnect()
+  scrollViewportRo = null
+  scrollEl.value = vnodeRefToHTMLElement(el)
+  if (!scrollEl.value) return
+  lastScrollTopForVirtual.value = scrollEl.value.scrollTop
+  scrollViewportRo = new ResizeObserver(() => {
+    if (virtualEnabled.value) {
+      rebuildBlockOffsets()
+      updateVirtualWindow()
+    }
+  })
+  scrollViewportRo.observe(scrollEl.value)
+  if (virtualEnabled.value && props.modelValue.length > 0) {
+    syncMeasuredHeightsLength()
+    rebuildBlockOffsets()
+    requestAnimationFrame(() => {
+      updateVirtualWindow()
+      initBlockContents()
+    })
+  }
+}
+
+watch(virtualEnabled, (enabled) => {
+  if (!enabled || !scrollEl.value || props.modelValue.length === 0) return
+  syncMeasuredHeightsLength()
+  rebuildBlockOffsets()
+  nextTick(() => {
+    updateVirtualWindow()
+    initBlockContents()
+  })
+})
+
+const virtualTopPad = computed(() => {
+  if (!virtualListReady.value) return 0
+  const o = blockOffsets.value
+  return o[virtualStart.value] ?? 0
+})
+
+const virtualBottomPad = computed(() => {
+  if (!virtualListReady.value) return 0
+  const n = props.modelValue.length
+  const o = blockOffsets.value
+  if (!n || o.length !== n + 1) return 0
+  const total = o[n] ?? 0
+  const after = o[virtualEnd.value + 1] ?? total
+  return Math.max(0, total - after)
+})
+
+const displayedRows = computed(() => {
+  const blocks = props.modelValue
+  if (!blocks.length) return [] as { block: Block; index: number }[]
+  if (!virtualEnabled.value) {
+    return blocks.map((block, index) => ({ block, index }))
+  }
+  if (!virtualListReady.value) {
+    const cap = Math.min(blocks.length, 40)
+    const out: { block: Block; index: number }[] = []
+    for (let i = 0; i < cap; i++) {
+      const b = blocks[i]
+      if (!b) continue
+      out.push({ block: b, index: i })
+    }
+    return out
+  }
+  const s = virtualStart.value
+  const e = virtualEnd.value
+  if (e < s) return []
+  const out: { block: Block; index: number }[] = []
+  for (let i = s; i <= e; i++) {
+    const b = blocks[i]
+    if (!b) continue
+    out.push({ block: b, index: i })
+  }
+  return out
+})
+
+function syncMeasuredHeightsLength() {
+  const n = props.modelValue.length
+  const cur = measuredHeights.value
+  if (cur.length === n) return
+  const next = cur.slice(0, n)
+  while (next.length < n) next.push(0)
+  measuredHeights.value = next
+}
+
+function scrollToBlockIndex(index: number, align: 'start' | 'nearest' = 'nearest', behavior: ScrollBehavior = 'auto') {
+  if (!virtualEnabled.value || !scrollEl.value) return
+  rebuildBlockOffsets()
+  const el = scrollEl.value
+  const offsets = blockOffsets.value
+  const n = props.modelValue.length
+  if (index < 0 || index >= n || offsets.length !== n + 1) return
+  const top = offsets[index]
+  const h = getHeightForIndex(index)
+  const vh = el.clientHeight
+  let st = el.scrollTop
+  if (align === 'start') {
+    st = Math.max(0, top - 12)
+  } else {
+    if (top < st) st = Math.max(0, top - 12)
+    else if (top + h > st + vh) st = Math.max(0, top + h - vh + 12)
+  }
+  if (behavior === 'smooth') el.scrollTo({ top: st, behavior })
+  else el.scrollTop = st
+  updateVirtualWindow()
+}
+
+function setBlockWrapperRef(el: unknown, index: number) {
+  const htmlEl = vnodeRefToHTMLElement(el)
+  if (!htmlEl) {
+    wrapperResizeObservers.get(index)?.disconnect()
+    wrapperResizeObservers.delete(index)
+    return
+  }
+  const ro = new ResizeObserver(() => {
+    const h = Math.ceil(htmlEl.getBoundingClientRect().height)
+    if (h < 8) return
+    const cur = measuredHeights.value[index]
+    if (cur === h) return
+    const copy = [...measuredHeights.value]
+    while (copy.length <= index) copy.push(0)
+    copy[index] = h
+    measuredHeights.value = copy
+    rebuildBlockOffsets()
+    scheduleVirtualScrollUpdate()
+  })
+  ro.observe(htmlEl)
+  wrapperResizeObservers.set(index, ro)
+}
 
 const focusedIndex = ref(-1)
 const blockRefs = ref<Map<number, HTMLElement>>(new Map())
+let focusBlurTimer: ReturnType<typeof setTimeout> | null = null
 /** 当前显示快捷栏的块索引，-1 为不显示。悬停 3s 或选中 3s 后赋值 */
 const toolbarVisibleIndex = ref(-1)
 /** 右键快捷菜单状态 */
@@ -740,7 +1164,7 @@ function tryMoveBlocks(delta: -1 | 1, keydownIndex: number) {
     } else {
       newBlocks.splice(start + 1, 0, ...chunk)
     }
-    emit('update:modelValue', newBlocks)
+    emitContentUpdateNow(newBlocks)
     saveHistory()
     const newStart = delta === -1 ? start - 1 : start + 1
     const newEnd = delta === -1 ? end - 1 : end + 1
@@ -768,7 +1192,7 @@ function tryMoveBlocks(delta: -1 | 1, keydownIndex: number) {
   const newBlocks = [...props.modelValue]
   const [item] = newBlocks.splice(idx, 1)
   newBlocks.splice(newIdx, 0, item)
-  emit('update:modelValue', newBlocks)
+  emitContentUpdateNow(newBlocks)
   saveHistory()
   focusedIndex.value = newIdx
   if (sel.size === 1) {
@@ -830,6 +1254,11 @@ function selectAllBlocks() {
 }
 
 function handleSelectAll(index: number, event: Event) {
+  if (props.previewMode) {
+    event.preventDefault()
+    selectAllBlocks()
+    return
+  }
   const el = blockRefs.value.get(index)
   if (!el) return
 
@@ -913,7 +1342,7 @@ function undo() {
     isUndoing = true
     historyIndex.value--
     const snapshot = history.value[historyIndex.value]
-    emit('update:modelValue', JSON.parse(JSON.stringify(snapshot)))
+    emitContentUpdateNow(JSON.parse(JSON.stringify(snapshot)))
     nextTick(() => {
       initBlockContents()
       isUndoing = false
@@ -927,7 +1356,7 @@ function redo() {
     isUndoing = true
     historyIndex.value++
     const snapshot = history.value[historyIndex.value]
-    emit('update:modelValue', JSON.parse(JSON.stringify(snapshot)))
+    emitContentUpdateNow(JSON.parse(JSON.stringify(snapshot)))
     nextTick(() => {
       initBlockContents()
       isUndoing = false
@@ -941,7 +1370,7 @@ function debouncedSaveHistory() {
   if (historyTimer) clearTimeout(historyTimer)
   historyTimer = setTimeout(() => {
     saveHistory()
-  }, 500)
+  }, 750)
 }
 
 // 初始化历史
@@ -1019,9 +1448,13 @@ function handleContextAction(action: string) {
     case 'moveDown':
       tryMoveBlocks(1, idx)
       break
+    case 'editText':
+      openPreviewTextEdit(idx)
+      break
     case 'insertAbove':
       addBlock(idx - 1)
       nextTick(() => {
+        if (props.previewMode) return
         const el = blockRefs.value.get(idx)
         if (el) el.focus()
       })
@@ -1045,11 +1478,19 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  if (focusBlurTimer) {
+    clearTimeout(focusBlurTimer)
+    focusBlurTimer = null
+  }
   document.removeEventListener('selectionchange', onSelectionChange)
   document.removeEventListener('click', closeContextMenu)
   if (hoverTimer) clearTimeout(hoverTimer)
   if (selectionTimer) clearTimeout(selectionTimer)
   if (leaveTimer) clearTimeout(leaveTimer)
+  scrollViewportRo?.disconnect()
+  scrollViewportRo = null
+  wrapperResizeObservers.forEach((ro) => ro.disconnect())
+  wrapperResizeObservers.clear()
 })
 
 function onBlockMouseEnter(index: number) {
@@ -1119,16 +1560,56 @@ function onSelectionChange() {
   }, TOOLBAR_DELAY_MS)
 }
 
-// 监听数据变化，只在块数量变化时更新
-watch(() => props.modelValue.length, () => {
-  nextTick(() => {
-    initBlockContents()
-  })
+watch(
+  () => props.previewMode,
+  (on) => {
+    if (on) {
+      hideSlashMenu()
+      nextTick(() => {
+        const ae = document.activeElement
+        if (ae instanceof HTMLElement) {
+          for (const el of blockRefs.value.values()) {
+            if (el === ae) {
+              ae.blur()
+              break
+            }
+          }
+        }
+        focusedIndex.value = -1
+      })
+    } else {
+      nextTick(() => initBlockContents())
+    }
+  }
+)
+
+watch(
+  () => props.modelValue.length,
+  (n, prev) => {
+    syncMeasuredHeightsLength()
+    if (prev != null && n < prev) {
+      for (let i = n; i < prev; i++) {
+        wrapperResizeObservers.get(i)?.disconnect()
+        wrapperResizeObservers.delete(i)
+      }
+    }
+    nextTick(() => {
+      rebuildBlockOffsets()
+      updateVirtualWindow()
+      initBlockContents()
+    })
+  }
+)
+
+watch([virtualStart, virtualEnd], () => {
+  nextTick(() => initBlockContents())
 })
 
-function setBlockRef(el: any, index: number) {
+function setBlockRef(el: unknown, index: number) {
   if (el) {
     blockRefs.value.set(index, el as HTMLElement)
+  } else {
+    blockRefs.value.delete(index)
   }
 }
 
@@ -1136,6 +1617,8 @@ function initBlockContents() {
   props.modelValue.forEach((block, index) => {
     const el = blockRefs.value.get(index)
     if (!el) return
+    // v-model 防抖期间父级 props 可能落后于 DOM，勿用旧 model 覆盖正在编辑的节点
+    if (document.activeElement === el) return
     const raw = block.content || ''
     const hasHtml = /<(b|i|u|strong|em)\b/i.test(raw)
     if (!hasHtml) {
@@ -1155,14 +1638,15 @@ function resolveImageUrl(src: string): string {
   if (!src) return ''
   if (src.startsWith('http://') || src.startsWith('https://')) return src
   if (src.startsWith('/')) {
-    const base = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+    // 避免 ImportMetaEnv 类型缺失导致的 TS 报错
+    const base = (import.meta as any).env?.VITE_API_URL || 'http://localhost:8000'
     const origin = String(base).replace(/\/api\/?$/, '')
     return origin + src
   }
   return src
 }
 
-function addBlock(index: number, type = 'paragraph') {
+function addBlock(index: number, type: Block['type'] = 'paragraph') {
   const newBlock: Block = {
     id: generateId(),
     type,
@@ -1171,17 +1655,21 @@ function addBlock(index: number, type = 'paragraph') {
   }
   const newBlocks = [...props.modelValue]
   newBlocks.splice(index + 1, 0, newBlock)
-  emit('update:modelValue', newBlocks)
+  emitContentUpdateNow(newBlocks)
   saveHistory()
 
-  nextTick(() => {
-    const newIndex = index + 1
-    const el = blockRefs.value.get(newIndex)
-    if (el) {
-      el.focus({ preventScroll: true })
-      scrollElementIntoView(el)
-    }
-  })
+  if (!props.previewMode) {
+    nextTick(() => {
+      const newIndex = index + 1
+      let el = blockRefs.value.get(newIndex)
+      nextTick(() => {
+        el = blockRefs.value.get(newIndex)
+        if (el) {
+          el.focus({ preventScroll: true })
+        }
+      })
+    })
+  }
 }
 
 function sanitizeBlockContent(html: string): string {
@@ -1190,29 +1678,73 @@ function sanitizeBlockContent(html: string): string {
   return trimmed
 }
 
+function buildEmitPayloadForInput(index: number): Block[] {
+  const n = props.modelValue.length
+  const allowFullDomSnapshot = !virtualEnabled.value && n <= FULL_DOM_SNAPSHOT_MAX_BLOCKS
+  if (allowFullDomSnapshot) {
+    return props.modelValue.map((block, i) => {
+      const el = blockRefs.value.get(i)
+      if (!el) return { ...block }
+      const html = sanitizeBlockContent(el.innerHTML || '')
+      return { ...block, content: html }
+    })
+  }
+  const newBlocks = [...props.modelValue]
+  const el = blockRefs.value.get(index)
+  if (!el) return newBlocks
+  newBlocks[index] = { ...newBlocks[index], content: sanitizeBlockContent(el.innerHTML || '') }
+  return newBlocks
+}
+
+/** 保存或离开编辑页前调用：取消防抖并从 DOM 拉齐内容，避免未刷新的防抖丢字 */
+function flushPendingSync() {
+  clearContentEmitTimer()
+  const blocks = props.modelValue.map((block, index) => {
+    const el = blockRefs.value.get(index)
+    if (!el) return { ...block }
+    return { ...block, content: sanitizeBlockContent(el.innerHTML || '') }
+  })
+  emit('update:modelValue', blocks)
+}
+
 function updateBlock(index: number) {
+  if (props.previewMode) return
   const el = blockRefs.value.get(index)
   if (!el) return
-  const content = sanitizeBlockContent(el.innerHTML || '')
-  const newBlocks = [...props.modelValue]
-  newBlocks[index] = { ...newBlocks[index], content }
-  emit('update:modelValue', newBlocks)
+  emit('content-dirty')
+  scheduleContentUpdate(buildEmitPayloadForInput(index))
   debouncedSaveHistory()
 }
 
 function onBlockFocus(index: number) {
+  if (focusBlurTimer) {
+    clearTimeout(focusBlurTimer)
+    focusBlurTimer = null
+  }
   focusedIndex.value = index
   toolbarVisibleIndex.value = index
 }
 
 function handleBlur() {
-  // 延迟清除焦点状态，避免下拉菜单点击时失去焦点
-  setTimeout(() => {
+  // 延迟判断，只有真正离开编辑器时才清空，避免块间切换时把新焦点误清掉
+  if (focusBlurTimer) clearTimeout(focusBlurTimer)
+  focusBlurTimer = setTimeout(() => {
+    focusBlurTimer = null
+    const ae = document.activeElement
+    if (ae instanceof HTMLElement) {
+      for (const el of blockRefs.value.values()) {
+        if (el === ae) return
+      }
+    }
     focusedIndex.value = -1
-  }, 200)
+  }, 150)
 }
 
 function handleEnter(index: number, event: Event) {
+  if (props.previewMode) {
+    event.preventDefault()
+    return
+  }
   const target = event.target as HTMLElement
   const selection = window.getSelection()
   if (!selection || selection.rangeCount === 0) return
@@ -1252,30 +1784,26 @@ function handleEnter(index: number, event: Event) {
     props: {}
   }
   newBlocks.splice(index + 1, 0, newBlock)
-  emit('update:modelValue', newBlocks)
+  emitContentUpdateNow(newBlocks)
   saveHistory()
   nextTick(() => {
-    const el = blockRefs.value.get(index + 1)
-    if (el) {
-      // 使用 preventScroll 选项阻止自动滚动，页面保持不动
-      el.focus({ preventScroll: true })
-      setCursorToStart(el)
-    }
+    const ni = index + 1
+    let el = blockRefs.value.get(ni)
+    nextTick(() => {
+      el = blockRefs.value.get(ni)
+      if (el) {
+        el.focus({ preventScroll: true })
+        setCursorToStart(el)
+      }
+    })
   })
 }
 
 // 滚动元素到可视区域，但避免跳转到页面底部
 function scrollElementIntoView(element: HTMLElement) {
-  const rect = element.getBoundingClientRect()
-  const viewportHeight = window.innerHeight
-  const headerOffset = 100 // 预留头部空间
-
-  // 只有当元素在可视区域外时才滚动
-  if (rect.bottom > viewportHeight - headerOffset) {
-    element.scrollIntoView({ behavior: 'smooth', block: 'center' })
-  } else if (rect.top < headerOffset) {
-    element.scrollIntoView({ behavior: 'smooth', block: 'center' })
-  }
+  // 禁用编辑器自动滚动：避免光标/段落类型切换导致视口跳动。
+  // 让浏览器/用户手动滚动保持可控；我们在 focus 时通常使用 preventScroll=true。
+  void element
 }
 
 function rangeToHtml(range: Range): string {
@@ -1286,6 +1814,10 @@ function rangeToHtml(range: Range): string {
 }
 
 function handleBackspace(index: number, event: Event) {
+  if (props.previewMode) {
+    event.preventDefault()
+    return
+  }
   const target = event.target as HTMLElement
   const text = target.textContent || ''
   const cursorPosition = getCursorPosition(target)
@@ -1301,7 +1833,7 @@ function handleBackspace(index: number, event: Event) {
     event.preventDefault()
     if (text === '') {
       const newBlocks = props.modelValue.filter((_, i) => i !== index)
-      emit('update:modelValue', newBlocks)
+      emitContentUpdateNow(newBlocks)
       saveHistory()
       nextTick(() => {
         const el = blockRefs.value.get(index - 1)
@@ -1332,7 +1864,7 @@ function handleBackspace(index: number, event: Event) {
     newBlocks[index - 1] = { ...prevBlock, content: newContent }
     newBlocks.splice(index, 1)
 
-    emit('update:modelValue', newBlocks)
+    emitContentUpdateNow(newBlocks)
     saveHistory()
 
     nextTick(() => {
@@ -1350,7 +1882,7 @@ function handleBackspace(index: number, event: Event) {
   if (text === '' && props.modelValue.length > 1) {
     event.preventDefault()
     const newBlocks = props.modelValue.filter((_, i) => i !== index)
-    emit('update:modelValue', newBlocks)
+    emitContentUpdateNow(newBlocks)
     saveHistory()
 
     nextTick(() => {
@@ -1374,15 +1906,97 @@ function moveFocus(index: number, direction: number, event: Event) {
   const newIndex = index + direction
   if (newIndex >= 0 && newIndex < props.modelValue.length) {
     event.preventDefault()
-    const el = blockRefs.value.get(newIndex)
-    if (el) {
-      el.focus({ preventScroll: true })
-      scrollElementIntoView(el)
+    if (virtualEnabled.value && !blockRefs.value.get(newIndex)) {
+      scrollToBlockIndex(newIndex, 'nearest')
     }
+    nextTick(() => {
+      const el = blockRefs.value.get(newIndex)
+      if (el) {
+        el.focus({ preventScroll: true })
+        scrollElementIntoView(el)
+      }
+    })
   }
 }
 
 function handleKeydown(index: number, event: KeyboardEvent) {
+  if (props.previewMode) {
+    if (slashMenuVisible.value) {
+      hideSlashMenu()
+      event.preventDefault()
+      return
+    }
+    if (event.key === 'Escape') {
+      clearBlockSelection()
+      return
+    }
+    const isMod = event.ctrlKey || event.metaKey
+    const key = event.key.toLowerCase()
+    if (isMod && (key === 's' || key === 'p' || key === 'r')) {
+      return
+    }
+    if (isMod && event.shiftKey && (event.key === 'ArrowUp' || event.key === 'ArrowDown')) {
+      event.preventDefault()
+      tryMoveBlocks(event.key === 'ArrowUp' ? -1 : 1, index)
+      return
+    }
+    if (isMod && key === 'z' && !event.shiftKey) {
+      event.preventDefault()
+      undo()
+      return
+    }
+    if (isMod && (key === 'y' || (key === 'z' && event.shiftKey))) {
+      event.preventDefault()
+      redo()
+      return
+    }
+    if (isMod && key === 'd' && event.shiftKey) {
+      event.preventDefault()
+      if (props.modelValue.length > 1) handleCommand('delete', index)
+      return
+    }
+    if (isMod && key === 'a') {
+      event.preventDefault()
+      selectAllBlocks()
+      return
+    }
+    if (isMod && key === 'v') {
+      event.preventDefault()
+      return
+    }
+    if (selectedBlocks.value.size > 0 && isMod) {
+      if (key === 'c') {
+        event.preventDefault()
+        copySelectedBlocks()
+        return
+      }
+      if (key === 'x') {
+        event.preventDefault()
+        cutSelectedBlocks()
+        return
+      }
+      if (key === 'delete' || key === 'backspace') {
+        event.preventDefault()
+        deleteSelectedBlocks()
+        return
+      }
+    }
+    if (isMod && ['1', '2', '3', '4', '5', '6', '0', 'b', 'i', 'u', 'f'].includes(key)) {
+      event.preventDefault()
+      return
+    }
+    if (!isMod) {
+      if (event.key === 'Tab') return
+      if (event.key === 'ArrowUp' || event.key === 'ArrowDown') return
+      const k = event.key
+      if (k === 'Enter' || k === 'Backspace' || k === 'Delete' || k.length === 1) {
+        event.preventDefault()
+      }
+      return
+    }
+    return
+  }
+
   // 斜杠命令菜单导航
   if (slashMenuVisible.value) {
     switch (event.key) {
@@ -1617,10 +2231,101 @@ function deleteSelectedBlocks() {
     }]
   }
 
-  emit('update:modelValue', newBlocks)
+  emitContentUpdateNow(newBlocks)
   saveHistory()
   clearBlockSelection()
   ElMessage.success('已删除选中的块')
+}
+
+function onMultiBatchStyleCommand(cmd: string) {
+  if (!cmd || cmd.startsWith('__')) return
+  if (selectedBlocks.value.size === 0) return
+  if (props.previewMode) {
+    if (cmd === 'move:up') tryMoveBlocks(-1, multiToolbarAnchorIndex.value)
+    else if (cmd === 'move:down') tryMoveBlocks(1, multiToolbarAnchorIndex.value)
+    return
+  }
+
+  if (cmd.startsWith('type:')) {
+    const t = cmd.slice(5) as Block['type']
+    batchSetBlockType(t)
+    return
+  }
+  if (cmd.startsWith('fmt:')) {
+    const f = cmd.slice(4) as 'bold' | 'italic' | 'underline'
+    batchApplyFormat(f)
+    return
+  }
+  if (cmd === 'move:up') {
+    tryMoveBlocks(-1, multiToolbarAnchorIndex.value)
+    return
+  }
+  if (cmd === 'move:down') {
+    tryMoveBlocks(1, multiToolbarAnchorIndex.value)
+  }
+}
+
+function batchSetBlockType(type: Block['type']) {
+  if (type === 'image') return
+  const indices = Array.from(selectedBlocks.value).sort((a, b) => a - b)
+  if (indices.length === 0) return
+
+  const newBlocks = [...props.modelValue]
+  for (const i of indices) {
+    const prev = newBlocks[i]
+    if (!prev) continue
+    let next: Block = { ...prev, type }
+    if (prev.type === 'image') {
+      next = { ...next, props: {} }
+    }
+    newBlocks[i] = next
+  }
+
+  emitContentUpdateNow(newBlocks)
+  saveHistory()
+  nextTick(() => initBlockContents())
+  ElMessage.success(`已更新 ${indices.length} 个块的文体`)
+}
+
+function wrapEntireRichText(html: string, cmd: 'bold' | 'italic' | 'underline'): string {
+  const tag = cmd === 'bold' ? 'b' : cmd === 'italic' ? 'i' : 'u'
+  const trimmed = html.trim()
+  if (!trimmed) return html
+  const re = new RegExp(`^<${tag}\\b[^>]*>[\\s\\S]*</${tag}>$`, 'i')
+  if (re.test(trimmed)) return html
+  return `<${tag}>${trimmed}</${tag}>`
+}
+
+function batchApplyFormat(cmd: 'bold' | 'italic' | 'underline') {
+  const indices = Array.from(selectedBlocks.value).sort((a, b) => a - b)
+  if (indices.length === 0) return
+
+  const newBlocks = props.modelValue.map((b) => ({ ...b }))
+
+  for (const i of indices) {
+    const el = blockRefs.value.get(i)
+    if (el) {
+      el.focus()
+      const sel = window.getSelection()
+      if (sel) {
+        const range = document.createRange()
+        range.selectNodeContents(el)
+        sel.removeAllRanges()
+        sel.addRange(range)
+        document.execCommand(cmd, false)
+      }
+      newBlocks[i] = { ...newBlocks[i], content: sanitizeBlockContent(el.innerHTML || '') }
+    } else {
+      const prev = newBlocks[i].content || ''
+      if (!sanitizeBlockContent(prev)) continue
+      newBlocks[i] = { ...newBlocks[i], content: wrapEntireRichText(prev, cmd) }
+    }
+  }
+
+  emitContentUpdateNow(newBlocks)
+  saveHistory()
+  nextTick(() => initBlockContents())
+  ElMessage.success(`已为 ${indices.length} 个块应用${cmd === 'bold' ? '加粗' : cmd === 'italic' ? '斜体' : '下划线'}`)
 }
 
 function pasteBlocks(afterIndex: number): boolean {
@@ -1630,7 +2335,7 @@ function pasteBlocks(afterIndex: number): boolean {
   const blocksToInsert = copiedBlocks.value.map(b => ({ ...b, id: generateId() }))
 
   newBlocks.splice(afterIndex + 1, 0, ...blocksToInsert)
-  emit('update:modelValue', newBlocks)
+  emitContentUpdateNow(newBlocks)
   saveHistory()
 
   nextTick(() => {
@@ -1737,7 +2442,46 @@ function stripHtml(html: string): string {
   return div.textContent || ''
 }
 
+function plainTextToHtml(text: string): string {
+  const div = document.createElement('div')
+  div.textContent = text ?? ''
+  return div.innerHTML.replace(/\n/g, '<br>')
+}
+
+const previewEditDialogVisible = ref(false)
+const previewEditDialogIndex = ref<number | null>(null)
+const previewEditDialogText = ref('')
+
+function openPreviewTextEdit(index: number) {
+  if (!props.previewMode) return
+  if (index < 0 || index >= props.modelValue.length) return
+  previewEditDialogIndex.value = index
+  previewEditDialogText.value = stripHtml(props.modelValue[index]?.content || '')
+  previewEditDialogVisible.value = true
+}
+
+function applyPreviewTextEdit() {
+  const idx = previewEditDialogIndex.value
+  if (idx == null || idx < 0 || idx >= props.modelValue.length) {
+    previewEditDialogVisible.value = false
+    return
+  }
+  const prev = props.modelValue[idx]
+  if (!prev) {
+    previewEditDialogVisible.value = false
+    return
+  }
+  const newBlocks = [...props.modelValue]
+  const nextHtml = sanitizeBlockContent(plainTextToHtml(previewEditDialogText.value || ''))
+  newBlocks[idx] = { ...prev, content: nextHtml }
+  emitContentUpdateNow(newBlocks)
+  saveHistory()
+  nextTick(() => initBlockContents())
+  previewEditDialogVisible.value = false
+}
+
 function applyFormat(index: number, command: 'bold' | 'italic' | 'underline') {
+  if (props.previewMode) return
   const el = blockRefs.value.get(index)
   if (!el) return
   el.focus()
@@ -1752,6 +2496,10 @@ function isFormatActive(index: number, command: 'bold' | 'italic' | 'underline')
 }
 
 function handleCommand(command: string, index: number) {
+  if (props.previewMode) {
+    const allowed = command === 'moveUp' || command === 'moveDown' || command === 'delete'
+    if (!allowed) return
+  }
   if (command === 'moveUp') {
     tryMoveBlocks(-1, index)
     return
@@ -1763,7 +2511,7 @@ function handleCommand(command: string, index: number) {
   if (command === 'delete') {
     if (props.modelValue.length <= 1) return
     const newBlocks = props.modelValue.filter((_, i) => i !== index)
-    emit('update:modelValue', newBlocks)
+    emitContentUpdateNow(newBlocks)
     saveHistory()
   } else {
     const newBlocks = [...props.modelValue]
@@ -1773,7 +2521,7 @@ function handleCommand(command: string, index: number) {
       next = { ...next, props: {} }
     }
     newBlocks[index] = next
-    emit('update:modelValue', newBlocks)
+    emitContentUpdateNow(newBlocks)
     saveHistory()
 
     // 保持焦点
@@ -1889,12 +2637,43 @@ function getImageInsertAfterIndex(): number {
   return n - 1
 }
 
-defineExpose({ getImageInsertAfterIndex })
+function focusBlock(index: number, opts?: { cursor?: 'start' | 'end'; align?: 'start' | 'nearest'; behavior?: ScrollBehavior; focus?: boolean }) {
+  const n = props.modelValue.length
+  if (index < 0 || index >= n) return
+  const shouldFocus = opts?.focus ?? !props.previewMode
+  if (shouldFocus) {
+    if (focusBlurTimer) {
+      clearTimeout(focusBlurTimer)
+      focusBlurTimer = null
+    }
+    focusedIndex.value = index
+    toolbarVisibleIndex.value = index
+  }
+  if (virtualEnabled.value) {
+    scrollToBlockIndex(index, opts?.align ?? 'nearest', opts?.behavior ?? 'auto')
+  }
+  nextTick(() => {
+    const el = blockRefs.value.get(index)
+    if (!el) return
+    if (!virtualEnabled.value) {
+      el.scrollIntoView({ block: opts?.align === 'start' ? 'start' : 'nearest', behavior: opts?.behavior ?? 'auto' })
+    }
+    if (!shouldFocus) return
+    el.focus({ preventScroll: true })
+    if (opts?.cursor === 'start') setCursorToStart(el)
+    else setCursorToEnd(el)
+  })
+}
+
+defineExpose({ getImageInsertAfterIndex, flushPendingSync, focusBlock })
 </script>
 
 <style scoped lang="scss">
 .block-editor {
-  min-height: 400px;
+  min-height: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
   padding: 20px 0;
   transition: all 0.3s ease;
   
@@ -1909,6 +2688,27 @@ defineExpose({ getImageInsertAfterIndex })
       transition: all 0.3s ease;
     }
   }
+
+  &.preview-mode {
+    .block-content {
+      cursor: default;
+      user-select: text;
+    }
+  }
+}
+
+.block-list-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+}
+
+.virtual-pad {
+  width: 100%;
+  flex-shrink: 0;
+  pointer-events: none;
 }
 
 .block-wrapper {
@@ -2270,6 +3070,8 @@ defineExpose({ getImageInsertAfterIndex })
 }
 
 .empty-state {
+  flex: 1;
+  min-height: 240px;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -2577,6 +3379,16 @@ defineExpose({ getImageInsertAfterIndex })
   color: #f56c6c;
 }
 
+.multi-batch-style-dropdown {
+  display: inline-flex;
+}
+
+.multi-select-toolbar .toolbar-btn-dropdown .batch-dd-caret {
+  font-size: 11px;
+  margin-left: 2px;
+  opacity: 0.75;
+}
+
 .multi-select-toolbar .toolbar-btn .el-icon {
   font-size: 16px;
 }
@@ -2612,5 +3424,21 @@ defineExpose({ getImageInsertAfterIndex })
 }
 .block-type-image-caption {
   min-height: 1.5em;
+}
+</style>
+
+<style lang="scss">
+/* 下拉挂在 body，需非 scoped */
+.multi-batch-style-popper.el-popper {
+  .batch-menu-section-title {
+    font-size: 12px;
+    color: var(--el-text-color-secondary);
+    cursor: default;
+    background: transparent !important;
+  }
+  .batch-menu-section-title:hover {
+    background: transparent !important;
+    color: var(--el-text-color-secondary);
+  }
 }
 </style>
