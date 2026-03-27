@@ -640,6 +640,10 @@ function markUserScrolling() {
     isUserScrolling.value = false
   }, 150)
 }
+/** 防止 updateVirtualWindow 重入锁 */
+let isUpdatingVirtualWindow = false
+/** 是否有待处理的虚拟窗口更新 */
+let pendingVirtualUpdate = false
 
 function vnodeRefToHTMLElement(el: unknown): HTMLElement | null {
   if (el == null) return null
@@ -719,47 +723,62 @@ function virtualLastVisibleRow(offsets: number[], n: number, start: number, bott
 
 function updateVirtualWindow() {
   if (!virtualEnabled.value || !scrollEl.value) return
-  const el = scrollEl.value
-  const stRaw = el.scrollTop
-  const vh = el.clientHeight || 1
-  const n = props.modelValue.length
-  const offsets = blockOffsets.value
-  if (n === 0 || offsets.length !== n + 1) {
-    virtualStart.value = 0
-    virtualEnd.value = -1
+  // 重入锁：防止循环触发
+  if (isUpdatingVirtualWindow) {
+    pendingVirtualUpdate = true
     return
   }
-  const modelTotal = offsets[n] ?? 0
-  const scrollRange = Math.max(1, el.scrollHeight - vh)
-  const modelScrollRange = Math.max(1, modelTotal - vh)
-  // DOM 总高与估计 offset 不一致时（常见于未测量块低估），按滚动比例映射到模型坐标，避免窗口卡在错误区间
-  const stModel = (stRaw / scrollRange) * modelScrollRange
-  const bottomModel = stModel + vh
+  isUpdatingVirtualWindow = true
+  try {
+    const el = scrollEl.value
+    const stRaw = el.scrollTop
+    const vh = el.clientHeight || 1
+    const n = props.modelValue.length
+    const offsets = blockOffsets.value
+    if (n === 0 || offsets.length !== n + 1) {
+      virtualStart.value = 0
+      virtualEnd.value = -1
+      return
+    }
+    const modelTotal = offsets[n] ?? 0
+    const scrollRange = Math.max(1, el.scrollHeight - vh)
+    const modelScrollRange = Math.max(1, modelTotal - vh)
+    // DOM 总高与估计 offset 不一致时（常见于未测量块低估），按滚动比例映射到模型坐标，避免窗口卡在错误区间
+    const stModel = (stRaw / scrollRange) * modelScrollRange
+    const bottomModel = stModel + vh
 
-  let start = virtualFirstRowAfterScroll(offsets, n, stModel)
-  if (start >= n) start = Math.max(0, n - 1)
-  let end = virtualLastVisibleRow(offsets, n, start, bottomModel)
-  if (end >= n) end = n - 1
+    let start = virtualFirstRowAfterScroll(offsets, n, stModel)
+    if (start >= n) start = Math.max(0, n - 1)
+    let end = virtualLastVisibleRow(offsets, n, start, bottomModel)
+    if (end >= n) end = n - 1
 
-  let overscan = VIRTUAL_OVERSCAN
-  const delta = stRaw - lastScrollTopForVirtual.value
-  lastScrollTopForVirtual.value = stRaw
-  if (Math.abs(delta) > vh * 0.35) {
-    overscan += Math.min(28, Math.floor(Math.abs(delta) / Math.max(40, vh * 0.2)))
+    let overscan = VIRTUAL_OVERSCAN
+    const delta = stRaw - lastScrollTopForVirtual.value
+    lastScrollTopForVirtual.value = stRaw
+    if (Math.abs(delta) > vh * 0.35) {
+      overscan += Math.min(28, Math.floor(Math.abs(delta) / Math.max(40, vh * 0.2)))
+    }
+
+    start = Math.max(0, start - overscan)
+    end = Math.min(n - 1, end + overscan)
+
+    // 正在编辑的块必须始终在挂载范围内，否则 contenteditable 被卸载会导致焦点乱跳、无法输入
+    const fi = focusedIndex.value
+    if (fi >= 0 && fi < n) {
+      if (fi < start) start = Math.max(0, fi - overscan)
+      if (fi > end) end = Math.min(n - 1, fi + overscan)
+    }
+
+    virtualStart.value = start
+    virtualEnd.value = end
+  } finally {
+    isUpdatingVirtualWindow = false
+    // 如果有待处理的更新，在下一个事件循环中执行
+    if (pendingVirtualUpdate) {
+      pendingVirtualUpdate = false
+      nextTick(updateVirtualWindow)
+    }
   }
-
-  start = Math.max(0, start - overscan)
-  end = Math.min(n - 1, end + overscan)
-
-  // 正在编辑的块必须始终在挂载范围内，否则 contenteditable 被卸载会导致焦点乱跳、无法输入
-  const fi = focusedIndex.value
-  if (fi >= 0 && fi < n) {
-    if (fi < start) start = Math.max(0, fi - overscan)
-    if (fi > end) end = Math.min(n - 1, fi + overscan)
-  }
-
-  virtualStart.value = start
-  virtualEnd.value = end
 }
 
 function scheduleVirtualScrollUpdate() {
@@ -876,10 +895,10 @@ function syncMeasuredHeightsLength() {
   measuredHeights.value = next
 }
 
-function scrollToBlockIndex(index: number, align: 'start' | 'nearest' = 'nearest', behavior: ScrollBehavior = 'auto') {
+function scrollToBlockIndex(index: number, align: 'start' | 'nearest' = 'nearest', behavior: ScrollBehavior = 'auto', force = false) {
   if (!virtualEnabled.value || !scrollEl.value) return
-  // 如果正在用户主动滚动，跳过程序滚动
-  if (isUserScrolling.value) return
+  // 如果正在用户主动滚动，且不是强制滚动，则跳过
+  if (!force && isUserScrolling.value) return
   rebuildBlockOffsets()
   const el = scrollEl.value
   const offsets = blockOffsets.value
@@ -900,6 +919,12 @@ function scrollToBlockIndex(index: number, align: 'start' | 'nearest' = 'nearest
   if (targetSt === st) {
     updateVirtualWindow()
     return
+  }
+  // 程序滚动前清除用户滚动标记，避免被自己的滚动事件阻塞
+  isUserScrolling.value = false
+  if (userScrollTimeout) {
+    window.clearTimeout(userScrollTimeout)
+    userScrollTimeout = null
   }
   if (behavior === 'smooth') el.scrollTo({ top: targetSt, behavior })
   else el.scrollTop = targetSt
@@ -1937,7 +1962,7 @@ function moveFocus(index: number, direction: number, event: Event) {
   if (newIndex >= 0 && newIndex < props.modelValue.length) {
     event.preventDefault()
     if (virtualEnabled.value && !blockRefs.value.get(newIndex)) {
-      scrollToBlockIndex(newIndex, 'nearest')
+      scrollToBlockIndex(newIndex, 'nearest', 'auto', true)
     }
     nextTick(() => {
       const el = blockRefs.value.get(newIndex)
@@ -2692,7 +2717,7 @@ function focusBlock(index: number, opts?: { cursor?: 'start' | 'end'; align?: 's
         const vh = el.clientHeight
         const isInViewport = top >= st - 12 && top + h <= st + vh + 12
         if (!isInViewport) {
-          scrollToBlockIndex(index, opts?.align ?? 'nearest', opts?.behavior ?? 'auto')
+          scrollToBlockIndex(index, opts?.align ?? 'nearest', opts?.behavior ?? 'auto', true)
         }
       }
     }
