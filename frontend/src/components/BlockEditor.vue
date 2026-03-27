@@ -9,11 +9,11 @@
       <Transition name="multi-select-toolbar">
         <div v-if="isMultiSelectMode && selectedBlocks.size > 0" class="multi-select-toolbar">
           <span class="selected-count">已选 {{ selectedBlocks.size }} 个块</span>
-          <button type="button" class="toolbar-btn" @click="copySelectedBlocks" title="复制 (Ctrl+C)">
+          <button type="button" class="toolbar-btn" @mousedown.prevent @click="copySelectedBlocks" title="复制 (Ctrl+C)">
             <el-icon><DocumentCopy /></el-icon>
             <span>复制</span>
           </button>
-          <button type="button" class="toolbar-btn" @click="cutSelectedBlocks" title="剪切 (Ctrl+X)">
+          <button type="button" class="toolbar-btn" @mousedown.prevent @click="cutSelectedBlocks" title="剪切 (Ctrl+X)">
             <el-icon><Scissor /></el-icon>
             <span>剪切</span>
           </button>
@@ -75,6 +75,7 @@
           <button
             type="button"
             class="toolbar-btn ai-btn"
+            @mousedown.prevent
             @click="emitPolishSelected"
             title="AI 润色（选中多个块）"
           >
@@ -84,6 +85,7 @@
           <button
             type="button"
             class="toolbar-btn ai-btn"
+            @mousedown.prevent
             @click="emitReviseSelected"
             title="AI 修改（选中多个块）"
           >
@@ -93,6 +95,7 @@
           <button
             type="button"
             class="toolbar-btn ai-btn"
+            @mousedown.prevent
             @click="emitExpandSelected"
             title="AI 扩展（选中多个块）"
           >
@@ -102,6 +105,7 @@
           <button
             type="button"
             class="toolbar-btn ai-btn"
+            @mousedown.prevent
             @click="emitGenerateImageForSelection"
             title="根据选中段落生成插图（Ctrl+点击多选）"
           >
@@ -112,6 +116,7 @@
             type="button"
             class="toolbar-btn"
             :disabled="!canMoveUpMultiToolbar"
+            @mousedown.prevent
             @click="tryMoveBlocks(-1, multiToolbarAnchorIndex)"
             title="整体上移 (Ctrl+Shift+↑)"
           >
@@ -122,17 +127,18 @@
             type="button"
             class="toolbar-btn"
             :disabled="!canMoveDownMultiToolbar"
+            @mousedown.prevent
             @click="tryMoveBlocks(1, multiToolbarAnchorIndex)"
             title="整体下移 (Ctrl+Shift+↓)"
           >
             <el-icon><ArrowDown /></el-icon>
             <span>下移</span>
           </button>
-          <button type="button" class="toolbar-btn delete" @click="deleteSelectedBlocks" title="删除 (Delete)">
+          <button type="button" class="toolbar-btn delete" @mousedown.prevent @click="deleteSelectedBlocks" title="删除 (Delete)">
             <el-icon><Delete /></el-icon>
             <span>删除</span>
           </button>
-          <button type="button" class="toolbar-btn" @click="clearBlockSelection" title="取消选择 (Esc)">
+          <button type="button" class="toolbar-btn" @mousedown.prevent @click="clearBlockSelection" title="取消选择 (Esc)">
             <el-icon><Close /></el-icon>
             <span>取消</span>
           </button>
@@ -2293,8 +2299,16 @@ function copySelectedBlocks() {
 function cutSelectedBlocks() {
   if (selectedBlocks.value.size === 0) return
 
+  const sortedIndices = Array.from(selectedBlocks.value).sort((a, b) => a - b)
+  const focusTarget = sortedIndices[0] ?? focusedIndex.value
+
   copySelectedBlocks()
   deleteSelectedBlocks()
+
+  // 恢复焦点（因为 copySelectedBlocks 和 deleteSelectedBlocks 都会清空选中状态）
+  if (focusTarget >= 0 && focusTarget < props.modelValue.length) {
+    nextTick(() => focusBlock(focusTarget, false))
+  }
 }
 
 function deleteSelectedBlocks() {
@@ -2483,15 +2497,84 @@ function emitPolish(index: number) {
 }
 
 function emitPolishSelected() {
-  emitRewriteSelected('polish')
+  const indices = Array.from(selectedBlocks.value).sort((a, b) => a - b)
+  if (indices.length === 0) return
+
+  const parts = indices
+    .map(i => {
+      const b = props.modelValue[i]
+      return b?.content ? stripHtml(b.content) : ''
+    })
+    .filter(t => t.trim())
+
+  const text = parts.join('\n\n')
+  if (!text.trim()) {
+    ElMessage.warning('请先输入要润色的内容')
+    return
+  }
+
+  // 保存焦点位置，在 AI 操作后恢复
+  const focusTarget = indices[0]
+  clearBlockSelection()
+  emit('polish-selected', { indices, text })
+  // 恢复焦点
+  if (focusTarget >= 0 && focusTarget < props.modelValue.length) {
+    nextTick(() => focusBlock(focusTarget, false))
+  }
 }
 
 function emitReviseSelected() {
-  emitRewriteSelected('revise')
+  const indices = Array.from(selectedBlocks.value).sort((a, b) => a - b)
+  if (indices.length === 0) return
+
+  const parts = indices
+    .map(i => {
+      const b = props.modelValue[i]
+      return b?.content ? stripHtml(b.content) : ''
+    })
+    .filter(t => t.trim())
+
+  const text = parts.join('\n\n')
+  if (!text.trim()) {
+    ElMessage.warning('请先输入要修改的内容')
+    return
+  }
+
+  // 保存焦点位置，在 AI 操作后恢复
+  const focusTarget = indices[0]
+  clearBlockSelection()
+  emit('revise-selected', { indices, text })
+  // 恢复焦点
+  if (focusTarget >= 0 && focusTarget < props.modelValue.length) {
+    nextTick(() => focusBlock(focusTarget, false))
+  }
 }
 
 function emitExpandSelected() {
-  emitRewriteSelected('expand')
+  const indices = Array.from(selectedBlocks.value).sort((a, b) => a - b)
+  if (indices.length === 0) return
+
+  const parts = indices
+    .map(i => {
+      const b = props.modelValue[i]
+      return b?.content ? stripHtml(b.content) : ''
+    })
+    .filter(t => t.trim())
+
+  const text = parts.join('\n\n')
+  if (!text.trim()) {
+    ElMessage.warning('请先输入要扩展的内容')
+    return
+  }
+
+  // 保存焦点位置，在 AI 操作后恢复
+  const focusTarget = indices[0]
+  clearBlockSelection()
+  emit('expand-selected', { indices, text })
+  // 恢复焦点
+  if (focusTarget >= 0 && focusTarget < props.modelValue.length) {
+    nextTick(() => focusBlock(focusTarget, false))
+  }
 }
 
 /** 仅根据多选块中的文字生成插图（跳过插图块） */
@@ -2512,41 +2595,13 @@ function emitGenerateImageForSelection() {
     return
   }
 
+  // 保存焦点位置，在操作后恢复
+  const focusTarget = indices[0]
   clearBlockSelection()
   emit('generate-image-for-selection', { indices, text })
-}
-
-function emitRewriteSelected(action: 'polish' | 'revise' | 'expand') {
-  const indices = Array.from(selectedBlocks.value).sort((a, b) => a - b)
-  if (indices.length === 0) return
-
-  const parts = indices
-    .map(i => {
-      const b = props.modelValue[i]
-      return b?.content ? stripHtml(b.content) : ''
-    })
-    .filter(t => t.trim())
-
-  const text = parts.join('\n\n')
-  if (!text.trim()) {
-    const msg = action === 'polish'
-      ? '请先输入要润色的内容'
-      : action === 'revise'
-        ? '请先输入要修改的内容'
-        : '请先输入要扩展的内容'
-    ElMessage.warning(msg)
-    return
-  }
-
-  // 启动 AI 前清空选择，避免替换后下标变化导致高亮错位
-  clearBlockSelection()
-
-  if (action === 'polish') {
-    emit('polish-selected', { indices, text })
-  } else if (action === 'revise') {
-    emit('revise-selected', { indices, text })
-  } else {
-    emit('expand-selected', { indices, text })
+  // 恢复焦点
+  if (focusTarget >= 0 && focusTarget < props.modelValue.length) {
+    nextTick(() => focusBlock(focusTarget, false))
   }
 }
 
