@@ -366,7 +366,7 @@ const aiChatRef = ref<{
   expandWithSelectedText: (text: string, blockIndices: number[]) => Promise<void>
 } | null>(null)
 const exportMenuRef = ref<{ triggerExport: (command: string) => void } | null>(null)
-const blockEditorRef = ref<{ getImageInsertAfterIndex: () => number; flushPendingSync: () => void; focusBlock: (index: number, opts?: { cursor?: 'start' | 'end'; align?: 'start' | 'nearest'; behavior?: ScrollBehavior; focus?: boolean }) => void } | null>(null)
+const blockEditorRef = ref<{ getImageInsertAfterIndex: () => number; flushPendingSync: () => void; focusBlock: (index: number, opts?: { cursor?: 'start' | 'end' | number; align?: 'start' | 'nearest'; behavior?: ScrollBehavior; focus?: boolean; preventScroll?: boolean; force?: boolean }) => void } | null>(null)
 // 默认先折叠：只展示“保存、AI 助手、更多”
 const headerExpanded = ref(false)
 const showPublishDialog = ref(false)
@@ -378,6 +378,7 @@ let autoSaveInterval: number | null = null
 const tocCollapsed = ref(true)
 const tocPinnedOpen = ref(false)
 let tocCollapseTimer: number | null = null
+let tocJumpRaf: number | null = null
 
 function stripHtmlToText(html: string): string {
   const div = globalThis.document.createElement('div')
@@ -398,12 +399,19 @@ const tocItems = computed(() => {
 })
 
 function jumpToTocItem(index: number) {
-  requestAnimationFrame(() => {
+  // 目录快速连点时，仅执行最后一次定位，提升“快速定位”手感并减少滚动抖动
+  if (tocJumpRaf != null) {
+    cancelAnimationFrame(tocJumpRaf)
+    tocJumpRaf = null
+  }
+  tocJumpRaf = requestAnimationFrame(() => {
+    tocJumpRaf = null
     blockEditorRef.value?.focusBlock(index, {
       align: 'start',
       behavior: 'auto',
       focus: !previewMode.value,
       cursor: 'start',
+      force: !previewMode.value,
     })
   })
 }
@@ -945,6 +953,10 @@ onMounted(() => {
 onUnmounted(() => {
   if (autoSaveInterval) {
     clearInterval(autoSaveInterval)
+  }
+  if (tocJumpRaf != null) {
+    cancelAnimationFrame(tocJumpRaf)
+    tocJumpRaf = null
   }
   clearTocCollapseTimer()
   window.document.removeEventListener('keydown', handleDocumentKeydown)
