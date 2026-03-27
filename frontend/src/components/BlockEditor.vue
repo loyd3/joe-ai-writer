@@ -627,6 +627,20 @@ let virtualScrollRaf: number | null = null
 /** 上一帧 scrollTop，用于快速滚动时加大 overscan */
 const lastScrollTopForVirtual = ref(0)
 
+// ---------- 滚动节流控制（~60fps） ----------
+let lastVirtualUpdateTime = 0
+const VIRTUAL_THROTTLE_MS = 16
+/** 用户主动滚动标记：区分用户滚动与程序滚动 */
+const isUserScrolling = ref(false)
+let userScrollTimeout: number | null = null
+function markUserScrolling() {
+  isUserScrolling.value = true
+  if (userScrollTimeout) window.clearTimeout(userScrollTimeout)
+  userScrollTimeout = window.setTimeout(() => {
+    isUserScrolling.value = false
+  }, 150)
+}
+
 function vnodeRefToHTMLElement(el: unknown): HTMLElement | null {
   if (el == null) return null
   if (el instanceof HTMLElement) return el
@@ -758,6 +772,14 @@ function scheduleVirtualScrollUpdate() {
 
 function onBlockListScroll() {
   if (!virtualEnabled.value) return
+  markUserScrolling()
+  // 节流控制：避免频繁更新
+  const now = performance.now()
+  if (now - lastVirtualUpdateTime < VIRTUAL_THROTTLE_MS) {
+    scheduleVirtualScrollUpdate()
+    return
+  }
+  lastVirtualUpdateTime = now
   // 同步更新窗口，避免仅依赖 RAF 时快速惯性滚动多帧落在错误区间、迟迟不出现块
   updateVirtualWindow()
 }
@@ -856,6 +878,8 @@ function syncMeasuredHeightsLength() {
 
 function scrollToBlockIndex(index: number, align: 'start' | 'nearest' = 'nearest', behavior: ScrollBehavior = 'auto') {
   if (!virtualEnabled.value || !scrollEl.value) return
+  // 如果正在用户主动滚动，跳过程序滚动
+  if (isUserScrolling.value) return
   rebuildBlockOffsets()
   const el = scrollEl.value
   const offsets = blockOffsets.value
@@ -864,15 +888,21 @@ function scrollToBlockIndex(index: number, align: 'start' | 'nearest' = 'nearest
   const top = offsets[index]
   const h = getHeightForIndex(index)
   const vh = el.clientHeight
-  let st = el.scrollTop
+  const st = el.scrollTop
+  let targetSt = st
   if (align === 'start') {
-    st = Math.max(0, top - 12)
+    targetSt = Math.max(0, top - 12)
   } else {
-    if (top < st) st = Math.max(0, top - 12)
-    else if (top + h > st + vh) st = Math.max(0, top + h - vh + 12)
+    if (top < st) targetSt = Math.max(0, top - 12)
+    else if (top + h > st + vh) targetSt = Math.max(0, top + h - vh + 12)
   }
-  if (behavior === 'smooth') el.scrollTo({ top: st, behavior })
-  else el.scrollTop = st
+  // 如果已经在视口内，不滚动
+  if (targetSt === st) {
+    updateVirtualWindow()
+    return
+  }
+  if (behavior === 'smooth') el.scrollTo({ top: targetSt, behavior })
+  else el.scrollTop = targetSt
   updateVirtualWindow()
 }
 
@@ -2649,8 +2679,23 @@ function focusBlock(index: number, opts?: { cursor?: 'start' | 'end'; align?: 's
     focusedIndex.value = index
     toolbarVisibleIndex.value = index
   }
+  // 虚拟滚动：确保目标块在渲染范围内
   if (virtualEnabled.value) {
-    scrollToBlockIndex(index, opts?.align ?? 'nearest', opts?.behavior ?? 'auto')
+    // 如果已经在视口内，不滚动
+    const el = scrollEl.value
+    if (el) {
+      const offsets = blockOffsets.value
+      if (offsets.length === n + 1) {
+        const top = offsets[index]
+        const h = getHeightForIndex(index)
+        const st = el.scrollTop
+        const vh = el.clientHeight
+        const isInViewport = top >= st - 12 && top + h <= st + vh + 12
+        if (!isInViewport) {
+          scrollToBlockIndex(index, opts?.align ?? 'nearest', opts?.behavior ?? 'auto')
+        }
+      }
+    }
   }
   nextTick(() => {
     const el = blockRefs.value.get(index)
@@ -2659,6 +2704,12 @@ function focusBlock(index: number, opts?: { cursor?: 'start' | 'end'; align?: 's
       el.scrollIntoView({ block: opts?.align === 'start' ? 'start' : 'nearest', behavior: opts?.behavior ?? 'auto' })
     }
     if (!shouldFocus) return
+    // 避免重复聚焦（如果已经是活动元素）
+    if (document.activeElement === el) {
+      if (opts?.cursor === 'start') setCursorToStart(el)
+      else setCursorToEnd(el)
+      return
+    }
     el.focus({ preventScroll: true })
     if (opts?.cursor === 'start') setCursorToStart(el)
     else setCursorToEnd(el)
