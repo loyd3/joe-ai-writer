@@ -23,6 +23,15 @@
           <span>已保存 {{ formatTime(lastSaved) }}</span>
         </div>
         <!-- 折叠时只显示 3 个：保存、AI 助手、更多 -->
+        <el-button
+          class="preview-mode-btn"
+          :type="previewMode ? 'primary' : 'default'"
+          @click="previewMode = !previewMode"
+          :title="previewMode ? '关闭预览，恢复正文编辑' : '预览：只读正文，可调整结构、AI 与撤销等'"
+        >
+          <el-icon><View /></el-icon>
+          <span>{{ previewMode ? '退出预览' : '预览' }}</span>
+        </el-button>
         <el-button class="save-btn" type="primary" @click="saveDocument" :loading="saving">
           <el-icon><Check /></el-icon>
           <span>保存</span>
@@ -208,11 +217,40 @@
 
     <div class="editor-container">
       <div class="editor-main" :class="{ 'with-chat': showChatPanel }">
+        <aside
+          v-if="tocItems.length > 0"
+          class="doc-outline"
+          :class="{ 'is-collapsed': tocCollapsed }"
+          @mouseenter="onTocMouseEnter"
+          @mouseleave="onTocMouseLeave"
+        >
+          <div class="outline-header">
+            <div v-show="!tocCollapsed" class="outline-title">目录</div>
+            <button type="button" class="outline-toggle" @click="toggleToc" :title="tocCollapsed ? '展开目录' : '收起目录'">
+              <el-icon v-if="tocCollapsed"><ArrowLeft /></el-icon>
+              <el-icon v-else><ArrowRight /></el-icon>
+            </button>
+          </div>
+          <div v-show="!tocCollapsed" class="outline-list">
+            <button
+              v-for="item in tocItems"
+              :key="`toc-${item.index}`"
+              type="button"
+              class="outline-item"
+              :class="{ 'is-sub': item.level === 2 }"
+              @click="jumpToTocItem(item.index)"
+            >
+              {{ item.text }}
+            </button>
+          </div>
+        </aside>
         <div class="editor-content">
           <BlockEditor 
             ref="blockEditorRef"
-            v-model="content" 
+            v-model="content"
+            :preview-mode="previewMode"
             @update:modelValue="onContentChange"
+            @content-dirty="onContentChange"
             @polish="onPolish"
             @polish-selected="onPolishSelected"
             @revise-selected="onReviseSelected"
@@ -226,7 +264,6 @@
         v-if="showChatPanel"
         ref="aiChatRef"
         :document-id="Number(documentId)"
-        :content="content"
         @insert="insertText"
         @insert-blocks="insertBlocksFromAi"
         @preview="onAiPreview"
@@ -299,7 +336,7 @@ import PublishDialog from '@/components/PublishDialog.vue'
 import { parseFormattedTextToBlocks } from '@/utils/formatToBlocks'
 import { ElMessageBox } from 'element-plus'
 import { aiApi } from '@/api'
-import { ArrowLeft, ArrowRight, ArrowDown, ArrowUp, ChatDotRound, Check, Loading, CircleCheck, MoreFilled, Edit, Delete, Aim, MagicStick, Document, Collection, Files, Promotion, Download, Picture, Link, Upload } from '@element-plus/icons-vue'
+import { ArrowLeft, ArrowRight, ArrowDown, ArrowUp, ChatDotRound, Check, Loading, CircleCheck, MoreFilled, Edit, Delete, Aim, MagicStick, Document, Collection, Files, Promotion, Download, Picture, Link, Upload, View } from '@element-plus/icons-vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -320,6 +357,8 @@ const hasChanges = ref(false)
 const aiPreviewId = ref<string | null>(null)
 const AI_PREVIEW_KEY = '__ai_preview_id'
 const lastSaved = ref<Date | null>(null)
+/** 预览模式：正文不可直接编辑，仍可调整块结构、AI、撤销等 */
+const previewMode = ref(false)
 const aiChatRef = ref<{
   polishWithText: (text: string, blockIndex?: number) => Promise<void>
   polishWithSelectedText: (text: string, blockIndices: number[]) => Promise<void>
@@ -327,7 +366,7 @@ const aiChatRef = ref<{
   expandWithSelectedText: (text: string, blockIndices: number[]) => Promise<void>
 } | null>(null)
 const exportMenuRef = ref<{ triggerExport: (command: string) => void } | null>(null)
-const blockEditorRef = ref<{ getImageInsertAfterIndex: () => number } | null>(null)
+const blockEditorRef = ref<{ getImageInsertAfterIndex: () => number; flushPendingSync: () => void; focusBlock: (index: number, opts?: { cursor?: 'start' | 'end'; align?: 'start' | 'nearest'; behavior?: ScrollBehavior; focus?: boolean }) => void } | null>(null)
 // 默认先折叠：只展示“保存、AI 助手、更多”
 const headerExpanded = ref(false)
 const showPublishDialog = ref(false)
@@ -336,6 +375,76 @@ const uploadingImage = ref(false)
 const documentImageUploadRef = ref<HTMLInputElement | null>(null)
 
 let autoSaveInterval: number | null = null
+const tocCollapsed = ref(true)
+const tocPinnedOpen = ref(false)
+let tocCollapseTimer: number | null = null
+
+function stripHtmlToText(html: string): string {
+  const div = globalThis.document.createElement('div')
+  div.innerHTML = html || ''
+  return (div.textContent || '').trim()
+}
+
+const tocItems = computed(() => {
+  const out: Array<{ index: number; text: string; level: 1 | 2 }> = []
+  for (let i = 0; i < content.value.length; i++) {
+    const b = content.value[i]
+    if (!b) continue
+    if (b.type !== 'heading' && b.type !== 'subheading') continue
+    const text = stripHtmlToText(b.content) || (b.type === 'heading' ? '未命名标题' : '未命名小标题')
+    out.push({ index: i, text, level: b.type === 'heading' ? 1 : 2 })
+  }
+  return out
+})
+
+function jumpToTocItem(index: number) {
+  requestAnimationFrame(() => {
+    blockEditorRef.value?.focusBlock(index, {
+      align: 'start',
+      behavior: 'auto',
+      focus: !previewMode.value,
+      cursor: 'start',
+    })
+  })
+}
+
+function clearTocCollapseTimer() {
+  if (tocCollapseTimer != null) {
+    clearTimeout(tocCollapseTimer)
+    tocCollapseTimer = null
+  }
+}
+
+function onTocMouseEnter() {
+  clearTocCollapseTimer()
+  if (!tocPinnedOpen.value) {
+    tocCollapsed.value = false
+  }
+}
+
+function onTocMouseLeave() {
+  clearTocCollapseTimer()
+  if (tocPinnedOpen.value) return
+  tocCollapseTimer = window.setTimeout(() => {
+    tocCollapsed.value = true
+    tocCollapseTimer = null
+  }, 320)
+}
+
+function toggleToc() {
+  const nextCollapsed = !tocCollapsed.value
+  tocCollapsed.value = nextCollapsed
+  tocPinnedOpen.value = !nextCollapsed
+  clearTocCollapseTimer()
+}
+
+watch(showChatPanel, (open) => {
+  if (open) {
+    tocCollapsed.value = true
+    tocPinnedOpen.value = false
+    clearTocCollapseTimer()
+  }
+})
 
 watch(documentId, () => {
   loadDocument()
@@ -386,7 +495,10 @@ function onExpandSelected(payload: { indices: number[]; text: string }) {
 
 async function saveDocument() {
   if (!hasChanges.value && !saving.value) return
-  
+
+  blockEditorRef.value?.flushPendingSync?.()
+  await nextTick()
+
   saving.value = true
   try {
     await store.updateDocument(Number(documentId.value), {
@@ -485,6 +597,7 @@ async function handleDocCommand(command: string) {
 }
 
 function insertText(text: string) {
+  const startIndex = content.value.length
   const blocks = parseFormattedTextToBlocks(text, 'doc')
   if (blocks.length) {
     content.value.push(...blocks)
@@ -497,6 +610,9 @@ function insertText(text: string) {
     })
   }
   hasChanges.value = true
+  nextTick(() => {
+    blockEditorRef.value?.focusBlock?.(startIndex, { cursor: 'end', align: 'nearest' })
+  })
 }
 
 function getImageInsertAfterIndexFromEditor(): number {
@@ -665,6 +781,7 @@ async function generateAndInsertArticleImage() {
 /** AI 助手返回的 blocks（与后端 / 脑洞写作解析一致）直接插入文档末尾 */
 function insertBlocksFromAi(blocks: Block[]) {
   if (!blocks?.length) return
+  const startIndex = content.value.length
   const normalize = (b: Block): Block => ({
     id: b.id && String(b.id).length ? String(b.id) : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`,
     type: b.type || 'paragraph',
@@ -673,6 +790,9 @@ function insertBlocksFromAi(blocks: Block[]) {
   })
   content.value.push(...blocks.map(normalize))
   hasChanges.value = true
+  nextTick(() => {
+    blockEditorRef.value?.focusBlock?.(startIndex, { cursor: 'end', align: 'nearest' })
+  })
 }
 
 function removeAiPreviewBlocks() {
@@ -744,6 +864,9 @@ function replaceText(
 
     hasChanges.value = true
     removeAiPreviewBlocks()
+    nextTick(() => {
+      blockEditorRef.value?.focusBlock?.(indices[0], { cursor: 'end', align: 'nearest' })
+    })
     return
   }
 
@@ -762,6 +885,9 @@ function replaceText(
       content.value.splice(blockIndex, 1, ...normalized)
       hasChanges.value = true
       removeAiPreviewBlocks()
+      nextTick(() => {
+        blockEditorRef.value?.focusBlock?.(blockIndex, { cursor: 'end', align: 'nearest' })
+      })
       return
     }
   }
@@ -811,7 +937,7 @@ onMounted(() => {
     if (hasChanges.value && documentId.value) {
       saveDocument()
     }
-  }, 30000)
+  }, 60000)
   // 添加键盘事件监听
   window.document.addEventListener('keydown', handleDocumentKeydown)
 })
@@ -820,6 +946,7 @@ onUnmounted(() => {
   if (autoSaveInterval) {
     clearInterval(autoSaveInterval)
   }
+  clearTocCollapseTimer()
   window.document.removeEventListener('keydown', handleDocumentKeydown)
 })
 </script>
@@ -1036,11 +1163,15 @@ onUnmounted(() => {
   flex: 1;
   display: flex;
   overflow: hidden;
+  min-height: 0;
 }
 
 .editor-main {
   flex: 1;
-  overflow-y: auto;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
   padding: 40px;
   position: relative;
   z-index: 2; /* 高于右侧 AI 面板，避免快捷栏被遮挡 */
@@ -1049,14 +1180,105 @@ onUnmounted(() => {
   }
 }
 
+.doc-outline {
+  position: absolute;
+  right: 16px;
+  top: 40px;
+  width: 220px;
+  max-height: calc(100% - 80px);
+  overflow: auto;
+  background: var(--coffee-bg-card);
+  border: 1px solid var(--coffee-border);
+  border-radius: 12px;
+  box-shadow: 0 4px 14px var(--coffee-shadow);
+  padding: 8px;
+  z-index: 3;
+  transition: width 0.2s ease;
+
+  &.is-collapsed {
+    width: 44px;
+    overflow: hidden;
+    padding: 8px 6px;
+  }
+}
+
+.outline-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.outline-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--coffee-text-muted);
+  margin: 2px 8px;
+}
+
+.outline-toggle {
+  border: none;
+  background: transparent;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  color: var(--coffee-text-muted);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+
+  &:hover {
+    background: var(--coffee-shadow);
+    color: var(--coffee-primary);
+  }
+}
+
+.outline-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.outline-item {
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: var(--coffee-text-secondary);
+  text-align: left;
+  font-size: 13px;
+  line-height: 1.35;
+  border-radius: 8px;
+  padding: 7px 8px;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+
+  &:hover {
+    background: var(--coffee-shadow);
+    color: var(--coffee-primary);
+  }
+
+  &.is-sub {
+    padding-left: 20px;
+    font-size: 12px;
+  }
+}
+
 .editor-content {
   max-width: 800px;
+  width: 100%;
   margin: 0 auto;
   background: var(--coffee-bg-card);
   border-radius: 16px;
   padding: 48px;
   box-shadow: 0 4px 20px var(--coffee-shadow);
-  min-height: calc(100vh - 180px);
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 @media (max-width: 1024px) {
@@ -1108,6 +1330,10 @@ onUnmounted(() => {
     &.with-chat {
       flex: 0 0 100%;
     }
+  }
+
+  .doc-outline {
+    display: none;
   }
 
   .editor-content {

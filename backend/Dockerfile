@@ -11,16 +11,19 @@ RUN apt-get update && apt-get install -y \
     gcc \
     && rm -rf /var/lib/apt/lists/*
 
-# 安装 Python 依赖（使用国内镜像源加速，使用CPU版本torch减小体积）
+# 安装 Python 依赖（使用国内镜像源加速，使用 CPU 版 torch 减小体积）
 COPY requirements.docker.txt requirements.txt
 
-# 先安装 torch CPU 版本（避免安装完整 CUDA 版本）
-# 使用 PyTorch 官方 CPU 仓库
-RUN pip install --no-cache-dir --default-timeout=300 \
-    torch==2.2.0+cpu --extra-index-url https://download.pytorch.org/whl/cpu
+# torch：仅用官方 CPU 索引（2.2.0+cpu 等 +cpu 版本已从索引移除，会装失败）
+RUN pip install --upgrade pip setuptools wheel \
+    && pip install --no-cache-dir --default-timeout=600 \
+    torch==2.4.1 --index-url https://download.pytorch.org/whl/cpu
 
-# 再安装其他依赖（使用清华镜像）
-RUN pip install --no-cache-dir --default-timeout=300 -i https://pypi.tuna.tsinghua.edu.cn/simple -r requirements.txt
+# 其余依赖：清华镜像 + PyTorch CPU 作额外索引，避免 sentence-transformers 等把 torch 换成 CUDA 大包
+RUN pip install --no-cache-dir --default-timeout=600 \
+    -i https://pypi.tuna.tsinghua.edu.cn/simple \
+    --extra-index-url https://download.pytorch.org/whl/cpu \
+    -r requirements.txt
 
 # 复制代码
 COPY . .

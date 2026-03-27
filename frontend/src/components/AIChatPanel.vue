@@ -159,7 +159,6 @@ function flushSse(acc: { buf: string }, onPayload: (data: string) => void) {
 
 const props = defineProps<{
   documentId: number
-  content: any[]
 }>()
 
 const emit = defineEmits<{
@@ -206,7 +205,12 @@ function showDiffForMessage(msg: AssistChatMessage) {
 function onDiffAccept(text: string) {
   const original = diffOriginalText.value
   const blockIndex = pendingReplaceBlockIndex.value
-  emit('replace', original, text, blockIndex, pendingReplaceBlocks.value, pendingReplaceBlockIndices.value)
+  try {
+    emit('replace', original, text, blockIndex, pendingReplaceBlocks.value, pendingReplaceBlockIndices.value)
+  } catch (e) {
+    console.error(e)
+    ElMessage.error('应用改写失败：请检查控制台错误')
+  }
   pendingReplaceBlockIndex.value = undefined
   pendingReplaceBlockIndices.value = undefined
   pendingReplaceBlocks.value = undefined
@@ -217,7 +221,12 @@ function onDiffReject() {
   pendingReplaceBlockIndex.value = undefined
   pendingReplaceBlockIndices.value = undefined
   pendingReplaceBlocks.value = undefined
-  emit('previewCancel')
+  try {
+    emit('previewCancel')
+  } catch (e) {
+    console.error(e)
+    ElMessage.error('拒绝修改失败：请检查控制台错误')
+  }
   ElMessage.info('已拒绝修改')
 }
 
