@@ -199,7 +199,7 @@ class AIClient:
         "deepseek": 8192,
         "openai": 16384,
         "siliconflow": 8192,
-        "custom": 16384,
+        "custom": 64000,  # 支持长文本润色，如 Claude 3.5 Sonnet 等
     }
 
     def _get_default_base_url(self, provider: str) -> str:

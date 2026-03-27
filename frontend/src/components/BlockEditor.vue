@@ -628,8 +628,10 @@ const virtualEnd = ref(0)
 const measuredHeights = ref<number[]>([])
 const blockOffsets = ref<number[]>([])
 const wrapperResizeObservers = new Map<number, ResizeObserver>()
+const wrapperRefEls = new Map<number, HTMLElement>()
 let scrollViewportRo: ResizeObserver | null = null
 let virtualScrollRaf: number | null = null
+let offsetRebuildRaf: number | null = null
 /** 上一帧 scrollTop，用于快速滚动时加大 overscan */
 const lastScrollTopForVirtual = ref(0)
 
@@ -653,6 +655,8 @@ let pendingVirtualUpdate = false
 /** 程序滚动中暂停虚拟渲染 */
 let isProgramScrolling = false
 let programScrollTimeout: number | null = null
+let pendingFocusRaf: number | null = null
+let offsetsDirty = true
 
 function vnodeRefToHTMLElement(el: unknown): HTMLElement | null {
   if (el == null) return null
@@ -696,14 +700,29 @@ function getHeightForIndex(i: number): number {
   return b ? estimateBlockHeight(b) : 48
 }
 
-function rebuildBlockOffsets() {
+function markOffsetsDirty() {
+  offsetsDirty = true
+}
+
+function rebuildBlockOffsets(force = false) {
   const n = props.modelValue.length
+  if (!force && !offsetsDirty && blockOffsets.value.length === n + 1) return
   const arr = new Array<number>(n + 1)
   arr[0] = 0
   for (let i = 0; i < n; i++) {
     arr[i + 1] = arr[i] + getHeightForIndex(i)
   }
   blockOffsets.value = arr
+  offsetsDirty = false
+}
+
+function scheduleOffsetsRebuild() {
+  if (offsetRebuildRaf != null) return
+  offsetRebuildRaf = requestAnimationFrame(() => {
+    offsetRebuildRaf = null
+    rebuildBlockOffsets()
+    updateVirtualWindow()
+  })
 }
 
 /** 第一个满足 offsets[i+1] > st 的 i；若全部在上方则为 n */
@@ -780,8 +799,8 @@ function updateVirtualWindow() {
       if (fi > end) end = Math.min(n - 1, fi + overscan)
     }
 
-    virtualStart.value = start
-    virtualEnd.value = end
+    if (virtualStart.value !== start) virtualStart.value = start
+    if (virtualEnd.value !== end) virtualEnd.value = end
   } finally {
     isUpdatingVirtualWindow = false
     // 如果有待处理的更新，在下一个事件循环中执行
@@ -830,8 +849,8 @@ function bindScrollEl(el: unknown) {
   lastScrollTopForVirtual.value = scrollEl.value.scrollTop
   scrollViewportRo = new ResizeObserver(() => {
     if (virtualEnabled.value) {
-      rebuildBlockOffsets()
-      updateVirtualWindow()
+      markOffsetsDirty()
+      scheduleOffsetsRebuild()
     }
   })
   scrollViewportRo.observe(scrollEl.value)
@@ -906,6 +925,7 @@ function syncMeasuredHeightsLength() {
   const next = cur.slice(0, n)
   while (next.length < n) next.push(0)
   measuredHeights.value = next
+  markOffsetsDirty()
 }
 
 function scrollToBlockIndex(index: number, align: 'start' | 'nearest' = 'nearest', behavior: ScrollBehavior = 'auto', force = false) {
@@ -962,18 +982,29 @@ function setBlockWrapperRef(el: unknown, index: number) {
   if (!htmlEl) {
     wrapperResizeObservers.get(index)?.disconnect()
     wrapperResizeObservers.delete(index)
+    wrapperRefEls.delete(index)
     return
   }
+  const prevEl = wrapperRefEls.get(index)
+  if (prevEl === htmlEl && wrapperResizeObservers.has(index)) return
+  wrapperResizeObservers.get(index)?.disconnect()
+  wrapperResizeObservers.delete(index)
+  wrapperRefEls.set(index, htmlEl)
   const ro = new ResizeObserver(() => {
     const h = Math.ceil(htmlEl.getBoundingClientRect().height)
     if (h < 8) return
-    const cur = measuredHeights.value[index]
+    const cur = measuredHeights.value[index] ?? 0
     if (cur === h) return
-    const copy = [...measuredHeights.value]
-    while (copy.length <= index) copy.push(0)
-    copy[index] = h
-    measuredHeights.value = copy
-    rebuildBlockOffsets()
+    if (measuredHeights.value.length <= index) {
+      const copy = measuredHeights.value.slice()
+      while (copy.length <= index) copy.push(0)
+      copy[index] = h
+      measuredHeights.value = copy
+    } else {
+      measuredHeights.value[index] = h
+    }
+    markOffsetsDirty()
+    scheduleOffsetsRebuild()
     scheduleVirtualScrollUpdate()
   })
   ro.observe(htmlEl)
@@ -1256,11 +1287,7 @@ function tryMoveBlocks(delta: -1 | 1, keydownIndex: number) {
     isMultiSelectMode.value = true
     focusedIndex.value = newStart
     nextTick(() => {
-      const el = blockRefs.value.get(newStart)
-      if (el) {
-        el.focus({ preventScroll: true })
-        scrollElementIntoView(el)
-      }
+      focusBlock(newStart, { cursor: 'start', align: 'nearest', behavior: 'auto', focus: true })
     })
     return
   }
@@ -1281,11 +1308,7 @@ function tryMoveBlocks(delta: -1 | 1, keydownIndex: number) {
     selectedBlocks.value.add(newIdx)
   }
   nextTick(() => {
-    const el = blockRefs.value.get(newIdx)
-    if (el) {
-      el.focus({ preventScroll: true })
-      scrollElementIntoView(el)
-    }
+    focusBlock(newIdx, { cursor: 'start', align: 'nearest', behavior: 'auto', focus: true })
   })
 }
 
@@ -1533,7 +1556,7 @@ function handleContextAction(action: string) {
       openPreviewTextEdit(idx)
       break
     case 'insertAbove':
-      addBlock(idx - 1)
+      addBlock(idx - 1, 'paragraph', { autoFocus: false })
       nextTick(() => {
         if (props.previewMode) return
         const el = blockRefs.value.get(idx)
@@ -1568,10 +1591,23 @@ onUnmounted(() => {
   if (hoverTimer) clearTimeout(hoverTimer)
   if (selectionTimer) clearTimeout(selectionTimer)
   if (leaveTimer) clearTimeout(leaveTimer)
+  if (pendingFocusRaf != null) {
+    cancelAnimationFrame(pendingFocusRaf)
+    pendingFocusRaf = null
+  }
+  if (offsetRebuildRaf != null) {
+    cancelAnimationFrame(offsetRebuildRaf)
+    offsetRebuildRaf = null
+  }
+  if (virtualScrollRaf != null) {
+    cancelAnimationFrame(virtualScrollRaf)
+    virtualScrollRaf = null
+  }
   scrollViewportRo?.disconnect()
   scrollViewportRo = null
   wrapperResizeObservers.forEach((ro) => ro.disconnect())
   wrapperResizeObservers.clear()
+  wrapperRefEls.clear()
 })
 
 function onBlockMouseEnter(index: number) {
@@ -1668,10 +1704,12 @@ watch(
   () => props.modelValue.length,
   (n, prev) => {
     syncMeasuredHeightsLength()
+    markOffsetsDirty()
     if (prev != null && n < prev) {
       for (let i = n; i < prev; i++) {
         wrapperResizeObservers.get(i)?.disconnect()
         wrapperResizeObservers.delete(i)
+        wrapperRefEls.delete(i)
       }
     }
     nextTick(() => {
@@ -1695,11 +1733,12 @@ function setBlockRef(el: unknown, index: number) {
 }
 
 function initBlockContents() {
-  props.modelValue.forEach((block, index) => {
-    const el = blockRefs.value.get(index)
-    if (!el) return
+  // 仅同步当前已挂载的块，避免长文档初始化/滚动时遍历全量 blocks 造成卡顿
+  for (const [index, el] of blockRefs.value) {
+    const block = props.modelValue[index]
+    if (!block || !el) continue
     // v-model 防抖期间父级 props 可能落后于 DOM，勿用旧 model 覆盖正在编辑的节点
-    if (document.activeElement === el) return
+    if (document.activeElement === el) continue
     const raw = block.content || ''
     const hasHtml = /<(b|i|u|strong|em)\b/i.test(raw)
     if (!hasHtml) {
@@ -1707,7 +1746,7 @@ function initBlockContents() {
     } else {
       if (el.innerHTML !== raw) el.innerHTML = raw
     }
-  })
+  }
 }
 
 function generateId() {
@@ -1727,7 +1766,11 @@ function resolveImageUrl(src: string): string {
   return src
 }
 
-function addBlock(index: number, type: Block['type'] = 'paragraph') {
+function addBlock(
+  index: number,
+  type: Block['type'] = 'paragraph',
+  options?: { autoFocus?: boolean }
+) {
   const newBlock: Block = {
     id: generateId(),
     type,
@@ -1739,16 +1782,11 @@ function addBlock(index: number, type: Block['type'] = 'paragraph') {
   emitContentUpdateNow(newBlocks)
   saveHistory()
 
-  if (!props.previewMode) {
+  const shouldAutoFocus = options?.autoFocus ?? true
+  if (!props.previewMode && shouldAutoFocus) {
     nextTick(() => {
       const newIndex = index + 1
-      let el = blockRefs.value.get(newIndex)
-      nextTick(() => {
-        el = blockRefs.value.get(newIndex)
-        if (el) {
-          el.focus({ preventScroll: true })
-        }
-      })
+      focusBlock(newIndex, { cursor: 'start', align: 'nearest', behavior: 'auto', focus: true })
     })
   }
 }
@@ -1798,6 +1836,8 @@ function updateBlock(index: number) {
 }
 
 function onBlockFocus(index: number) {
+  // 用户主动滚动期间，忽略自动聚焦事件，避免焦点跟随鼠标导致无法滚动
+  if (isUserScrolling.value) return
   if (focusBlurTimer) {
     clearTimeout(focusBlurTimer)
     focusBlurTimer = null
@@ -1871,14 +1911,7 @@ function handleEnter(index: number, event: Event) {
   saveHistory()
   nextTick(() => {
     const ni = index + 1
-    let el = blockRefs.value.get(ni)
-    nextTick(() => {
-      el = blockRefs.value.get(ni)
-      if (el) {
-        el.focus({ preventScroll: true })
-        setCursorToStart(el)
-      }
-    })
+    focusBlock(ni, { cursor: 'start', align: 'nearest', behavior: 'auto', focus: true })
   })
 }
 
@@ -1919,18 +1952,10 @@ function handleBackspace(index: number, event: Event) {
       emitContentUpdateNow(newBlocks)
       saveHistory()
       nextTick(() => {
-        const el = blockRefs.value.get(index - 1)
-        if (el) {
-          el.focus({ preventScroll: true })
-          setCursorToEnd(el)
-        }
+        focusBlock(index - 1, { cursor: 'end', align: 'nearest', behavior: 'auto', focus: true })
       })
     } else {
-      const el = blockRefs.value.get(index - 1)
-      if (el) {
-        el.focus({ preventScroll: true })
-        setCursorToEnd(el)
-      }
+      focusBlock(index - 1, { cursor: 'end', align: 'nearest', behavior: 'auto', focus: true })
     }
     return
   }
@@ -1951,12 +1976,7 @@ function handleBackspace(index: number, event: Event) {
     saveHistory()
 
     nextTick(() => {
-      const el = blockRefs.value.get(index - 1)
-      if (el) {
-        el.focus({ preventScroll: true })
-        // 将光标移到合并前的位置（即上一个块原来的末尾）
-        setCursorToPosition(el, prevBlock.content.length)
-      }
+      focusBlock(index - 1, { cursor: prevBlock.content.length, align: 'nearest', behavior: 'auto', focus: true })
     })
     return
   }
@@ -1969,14 +1989,7 @@ function handleBackspace(index: number, event: Event) {
     saveHistory()
 
     nextTick(() => {
-      const prevIndex = index - 1
-      const el = blockRefs.value.get(prevIndex)
-      if (el) {
-        el.focus({ preventScroll: true })
-        scrollElementIntoView(el)
-        // 将光标移到末尾
-        setCursorToEnd(el)
-      }
+      focusBlock(index - 1, { cursor: 'end', align: 'nearest', behavior: 'auto', focus: true })
     })
   }
 }
@@ -2292,7 +2305,7 @@ function copySelectedBlocks() {
   // 恢复焦点到第一个选中的块（或当前聚焦的块）
   const targetIndex = sortedIndices[0] ?? focusedIndex.value
   if (targetIndex >= 0 && targetIndex < props.modelValue.length) {
-    nextTick(() => focusBlock(targetIndex, false))
+    nextTick(() => focusBlock(targetIndex, { focus: false }))
   }
 }
 
@@ -2307,7 +2320,7 @@ function cutSelectedBlocks() {
 
   // 恢复焦点（因为 copySelectedBlocks 和 deleteSelectedBlocks 都会清空选中状态）
   if (focusTarget >= 0 && focusTarget < props.modelValue.length) {
-    nextTick(() => focusBlock(focusTarget, false))
+    nextTick(() => focusBlock(focusTarget, { focus: false }))
   }
 }
 
@@ -2351,7 +2364,7 @@ function deleteSelectedBlocks() {
   ElMessage.success('已删除选中的块')
   // 恢复焦点
   if (focusTarget >= 0 && focusTarget < newBlocks.length) {
-    nextTick(() => focusBlock(focusTarget, false))
+    nextTick(() => focusBlock(focusTarget, { focus: false }))
   }
 }
 
@@ -2406,7 +2419,7 @@ function batchSetBlockType(type: Block['type']) {
   // 恢复焦点到第一个选中的块
   const focusTarget = indices[0]
   if (focusTarget >= 0 && focusTarget < newBlocks.length) {
-    nextTick(() => focusBlock(focusTarget, false))
+    nextTick(() => focusBlock(focusTarget, { focus: false }))
   }
 }
 
@@ -2452,7 +2465,7 @@ function batchApplyFormat(cmd: 'bold' | 'italic' | 'underline') {
   // 恢复焦点到第一个选中的块
   const focusTarget = indices[0]
   if (focusTarget >= 0 && focusTarget < newBlocks.length) {
-    nextTick(() => focusBlock(focusTarget, false))
+    nextTick(() => focusBlock(focusTarget, { focus: false }))
   }
 }
 
@@ -2519,7 +2532,7 @@ function emitPolishSelected() {
   emit('polish-selected', { indices, text })
   // 恢复焦点
   if (focusTarget >= 0 && focusTarget < props.modelValue.length) {
-    nextTick(() => focusBlock(focusTarget, false))
+    nextTick(() => focusBlock(focusTarget, { focus: false }))
   }
 }
 
@@ -2546,7 +2559,7 @@ function emitReviseSelected() {
   emit('revise-selected', { indices, text })
   // 恢复焦点
   if (focusTarget >= 0 && focusTarget < props.modelValue.length) {
-    nextTick(() => focusBlock(focusTarget, false))
+    nextTick(() => focusBlock(focusTarget, { focus: false }))
   }
 }
 
@@ -2573,7 +2586,7 @@ function emitExpandSelected() {
   emit('expand-selected', { indices, text })
   // 恢复焦点
   if (focusTarget >= 0 && focusTarget < props.modelValue.length) {
-    nextTick(() => focusBlock(focusTarget, false))
+    nextTick(() => focusBlock(focusTarget, { focus: false }))
   }
 }
 
@@ -2601,7 +2614,7 @@ function emitGenerateImageForSelection() {
   emit('generate-image-for-selection', { indices, text })
   // 恢复焦点
   if (focusTarget >= 0 && focusTarget < props.modelValue.length) {
-    nextTick(() => focusBlock(focusTarget, false))
+    nextTick(() => focusBlock(focusTarget, { focus: false }))
   }
 }
 
@@ -2682,6 +2695,12 @@ function handleCommand(command: string, index: number) {
     const newBlocks = props.modelValue.filter((_, i) => i !== index)
     emitContentUpdateNow(newBlocks)
     saveHistory()
+    if (!props.previewMode && newBlocks.length > 0) {
+      const focusTarget = Math.min(index, newBlocks.length - 1)
+      nextTick(() => {
+        focusBlock(focusTarget, { cursor: 'start', align: 'nearest', behavior: 'auto', focus: true })
+      })
+    }
   } else {
     const newBlocks = [...props.modelValue]
     const prev = newBlocks[index]
@@ -2695,11 +2714,7 @@ function handleCommand(command: string, index: number) {
 
     // 保持焦点
     nextTick(() => {
-      const el = blockRefs.value.get(index)
-      if (el) {
-        el.focus({ preventScroll: true })
-        scrollElementIntoView(el)
-      }
+      focusBlock(index, { cursor: 'start', align: 'nearest', behavior: 'auto', focus: true })
     })
   }
 }
@@ -2806,10 +2821,21 @@ function getImageInsertAfterIndex(): number {
   return n - 1
 }
 
-function focusBlock(index: number, opts?: { cursor?: 'start' | 'end'; align?: 'start' | 'nearest'; behavior?: ScrollBehavior; focus?: boolean }) {
+function focusBlock(index: number, opts?: {
+  cursor?: 'start' | 'end' | number
+  align?: 'start' | 'nearest'
+  behavior?: ScrollBehavior
+  focus?: boolean
+  preventScroll?: boolean
+  force?: boolean
+}) {
   const n = props.modelValue.length
   if (index < 0 || index >= n) return
+
   const shouldFocus = opts?.focus ?? !props.previewMode
+  const preventScroll = opts?.preventScroll ?? false
+
+  // 更新焦点状态
   if (shouldFocus) {
     if (focusBlurTimer) {
       clearTimeout(focusBlurTimer)
@@ -2818,8 +2844,9 @@ function focusBlock(index: number, opts?: { cursor?: 'start' | 'end'; align?: 's
     focusedIndex.value = index
     toolbarVisibleIndex.value = index
   }
-  // 虚拟滚动：确保目标块在渲染范围内
-  if (virtualEnabled.value) {
+
+  // 虚拟滚动：确保目标块在渲染范围内（仅在非用户滚动时）
+  if (!preventScroll && !isUserScrolling.value && virtualEnabled.value) {
     // 如果已经在视口内，不滚动
     const el = scrollEl.value
     if (el) {
@@ -2836,22 +2863,70 @@ function focusBlock(index: number, opts?: { cursor?: 'start' | 'end'; align?: 's
       }
     }
   }
-  nextTick(() => {
-    const el = blockRefs.value.get(index)
-    if (!el) return
-    if (!virtualEnabled.value) {
+
+  const applyFocus = (el: HTMLElement) => {
+    // 非虚拟滚动模式下滚动到视图（仅在非用户滚动时）
+    if (!preventScroll && !isUserScrolling.value && !virtualEnabled.value) {
       el.scrollIntoView({ block: opts?.align === 'start' ? 'start' : 'nearest', behavior: opts?.behavior ?? 'auto' })
     }
-    if (!shouldFocus) return
-    // 避免重复聚焦（如果已经是活动元素）
-    if (document.activeElement === el) {
+
+    if (!shouldFocus) return true
+
+    // 检查元素是否已经有焦点，避免重复聚焦导致跳动
+    const activeElement = document.activeElement
+    if (activeElement === el) {
+      // 元素已经有焦点，只需设置光标位置
       if (opts?.cursor === 'start') setCursorToStart(el)
-      else setCursorToEnd(el)
-      return
+      else if (opts?.cursor === 'end' || opts?.cursor == null) setCursorToEnd(el)
+      else setCursorToPosition(el, opts.cursor)
+      return true
     }
+
+    // 检查焦点是否在当前编辑器内（用户正在编辑）
+    const editorEl = scrollEl.value
+    if (!opts?.force && editorEl && activeElement && editorEl.contains(activeElement)) {
+      // 用户正在编辑器内的其他位置编辑，不要抢夺焦点
+      // 但仍更新 focusedIndex 以同步状态
+      return true
+    }
+
+    // 安全地设置焦点
     el.focus({ preventScroll: true })
     if (opts?.cursor === 'start') setCursorToStart(el)
-    else setCursorToEnd(el)
+    else if (opts?.cursor === 'end' || opts?.cursor == null) setCursorToEnd(el)
+    else setCursorToPosition(el, opts.cursor)
+    return true
+  }
+
+  nextTick(() => {
+    const el = blockRefs.value.get(index)
+    if (el) {
+      applyFocus(el)
+      return
+    }
+    if (!shouldFocus) return
+    // 目录跳转等场景下，目标块可能尚未挂载（虚拟列表/程序滚动中），重试几帧直到挂载
+    if (pendingFocusRaf != null) {
+      cancelAnimationFrame(pendingFocusRaf)
+      pendingFocusRaf = null
+    }
+    let retries = 18
+    const retry = () => {
+      const target = blockRefs.value.get(index)
+      if (target) {
+        pendingFocusRaf = null
+        applyFocus(target)
+        return
+      }
+      if (retries <= 0) {
+        pendingFocusRaf = null
+        return
+      }
+      retries--
+      if (!isProgramScrolling) updateVirtualWindow()
+      pendingFocusRaf = requestAnimationFrame(retry)
+    }
+    pendingFocusRaf = requestAnimationFrame(retry)
   })
 }
 
