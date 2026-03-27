@@ -22,8 +22,7 @@ pytest-asyncio==0.23.5
 
 # RAG 向量检索 - 使用CPU版本减小镜像体积
 chromadb==0.4.22
-# torch 在 Dockerfile 中单独安装 CPU 版本
-# torch==2.2.0+cpu
+# torch 在 Dockerfile 中单独安装（CPU 索引，当前 pin: 2.4.1）
 sentence-transformers==2.3.1
 numpy==1.26.4
 

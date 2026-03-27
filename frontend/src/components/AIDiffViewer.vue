@@ -159,13 +159,23 @@ function escapeHtml(text: string): string {
 }
 
 function accept() {
-  emit('accept', props.rewrittenText)
+  // 先关闭弹窗，避免父组件事件回调抛错时导致 close() 未执行
   close()
+  try {
+    emit('accept', props.rewrittenText)
+  } catch (e) {
+    console.error(e)
+  }
 }
 
 function reject() {
-  emit('reject')
+  // 先关闭弹窗，避免父组件事件回调抛错时导致 close() 未执行
   close()
+  try {
+    emit('reject')
+  } catch (e) {
+    console.error(e)
+  }
 }
 
 function close() {
@@ -173,6 +183,7 @@ function close() {
 }
 
 function handleOverlayClick() {
+  // 同样确保关闭弹窗不会被异常阻断
   reject()
 }
 
