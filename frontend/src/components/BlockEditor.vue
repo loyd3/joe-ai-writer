@@ -644,6 +644,9 @@ function markUserScrolling() {
 let isUpdatingVirtualWindow = false
 /** 是否有待处理的虚拟窗口更新 */
 let pendingVirtualUpdate = false
+/** 程序滚动中暂停虚拟渲染 */
+let isProgramScrolling = false
+let programScrollTimeout: number | null = null
 
 function vnodeRefToHTMLElement(el: unknown): HTMLElement | null {
   if (el == null) return null
@@ -723,6 +726,8 @@ function virtualLastVisibleRow(offsets: number[], n: number, start: number, bott
 
 function updateVirtualWindow() {
   if (!virtualEnabled.value || !scrollEl.value) return
+  // 程序滚动期间跳过虚拟窗口更新（由 scrollToBlockIndex 的定时器恢复后统一更新）
+  if (isProgramScrolling) return
   // 重入锁：防止循环触发
   if (isUpdatingVirtualWindow) {
     pendingVirtualUpdate = true
@@ -791,6 +796,8 @@ function scheduleVirtualScrollUpdate() {
 
 function onBlockListScroll() {
   if (!virtualEnabled.value) return
+  // 程序滚动期间暂停虚拟渲染，避免卡顿
+  if (isProgramScrolling) return
   markUserScrolling()
   // 节流控制：避免频繁更新
   const now = performance.now()
@@ -926,9 +933,22 @@ function scrollToBlockIndex(index: number, align: 'start' | 'nearest' = 'nearest
     window.clearTimeout(userScrollTimeout)
     userScrollTimeout = null
   }
+  // 标记程序滚动中，暂停虚拟渲染以避免卡顿
+  isProgramScrolling = true
+  if (programScrollTimeout) {
+    window.clearTimeout(programScrollTimeout)
+    programScrollTimeout = null
+  }
+  // 滚动动画结束后恢复虚拟渲染
+  const scrollDuration = behavior === 'smooth' ? 300 : 50
+  programScrollTimeout = window.setTimeout(() => {
+    isProgramScrolling = false
+    updateVirtualWindow()
+  }, scrollDuration + 50)
+
   if (behavior === 'smooth') el.scrollTo({ top: targetSt, behavior })
   else el.scrollTop = targetSt
-  updateVirtualWindow()
+  // 滚动期间不立即更新虚拟窗口，等滚动完成后再更新
 }
 
 function setBlockWrapperRef(el: unknown, index: number) {
