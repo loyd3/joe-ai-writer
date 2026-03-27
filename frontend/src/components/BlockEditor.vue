@@ -1805,6 +1805,8 @@ function handleBlur() {
   if (focusBlurTimer) clearTimeout(focusBlurTimer)
   focusBlurTimer = setTimeout(() => {
     focusBlurTimer = null
+    // 多选模式下不自动清空焦点，避免快捷栏操作后焦点乱跳
+    if (selectedBlocks.value.size > 0) return
     const ae = document.activeElement
     if (ae instanceof HTMLElement) {
       for (const el of blockRefs.value.values()) {
@@ -2281,6 +2283,11 @@ function copySelectedBlocks() {
 
   ElMessage.success(`已复制 ${copiedBlocks.value.length} 个块`)
   clearBlockSelection()
+  // 恢复焦点到第一个选中的块（或当前聚焦的块）
+  const targetIndex = sortedIndices[0] ?? focusedIndex.value
+  if (targetIndex >= 0 && targetIndex < props.modelValue.length) {
+    nextTick(() => focusBlock(targetIndex, false))
+  }
 }
 
 function cutSelectedBlocks() {
@@ -2294,6 +2301,23 @@ function deleteSelectedBlocks() {
   if (selectedBlocks.value.size === 0) return
 
   const selectedSet = new Set(selectedBlocks.value)
+  const sortedIndices = Array.from(selectedBlocks.value).sort((a, b) => a - b)
+  // 找到第一个未被删除的块作为焦点目标
+  let focusTarget = -1
+  for (let i = 0; i < props.modelValue.length; i++) {
+    if (!selectedSet.has(i)) {
+      // 找到第一个在选中区域之前或之后的块
+      if (i < sortedIndices[0]) {
+        focusTarget = i
+      } else if (focusTarget === -1) {
+        focusTarget = i
+        break
+      }
+    }
+  }
+  // 如果没有找到，使用第一个选中位置
+  if (focusTarget === -1) focusTarget = Math.max(0, sortedIndices[0] - 1)
+
   let newBlocks = props.modelValue.filter((_, i) => !selectedSet.has(i))
 
   // 确保至少保留一个块
@@ -2304,12 +2328,17 @@ function deleteSelectedBlocks() {
       content: '',
       props: {}
     }]
+    focusTarget = 0
   }
 
   emitContentUpdateNow(newBlocks)
   saveHistory()
   clearBlockSelection()
   ElMessage.success('已删除选中的块')
+  // 恢复焦点
+  if (focusTarget >= 0 && focusTarget < newBlocks.length) {
+    nextTick(() => focusBlock(focusTarget, false))
+  }
 }
 
 function onMultiBatchStyleCommand(cmd: string) {
@@ -2360,6 +2389,11 @@ function batchSetBlockType(type: Block['type']) {
   saveHistory()
   nextTick(() => initBlockContents())
   ElMessage.success(`已更新 ${indices.length} 个块的文体`)
+  // 恢复焦点到第一个选中的块
+  const focusTarget = indices[0]
+  if (focusTarget >= 0 && focusTarget < newBlocks.length) {
+    nextTick(() => focusBlock(focusTarget, false))
+  }
 }
 
 function wrapEntireRichText(html: string, cmd: 'bold' | 'italic' | 'underline'): string {
@@ -2401,6 +2435,11 @@ function batchApplyFormat(cmd: 'bold' | 'italic' | 'underline') {
   saveHistory()
   nextTick(() => initBlockContents())
   ElMessage.success(`已为 ${indices.length} 个块应用${cmd === 'bold' ? '加粗' : cmd === 'italic' ? '斜体' : '下划线'}`)
+  // 恢复焦点到第一个选中的块
+  const focusTarget = indices[0]
+  if (focusTarget >= 0 && focusTarget < newBlocks.length) {
+    nextTick(() => focusBlock(focusTarget, false))
+  }
 }
 
 function pasteBlocks(afterIndex: number): boolean {
