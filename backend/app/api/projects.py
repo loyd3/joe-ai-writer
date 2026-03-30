@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.orm import Session, joinedload
 from typing import List
 from app.database import get_db
@@ -9,6 +9,7 @@ from app.schemas.schemas import (
     AIMemoryUpdate, AIMemoryResponse
 )
 from app.services.ai_memory_service import AIMemoryService
+from app.services.fulltext_search_service import fulltext_search_service
 from app.api.auth import get_current_user
 
 router = APIRouter(prefix="/api", tags=["projects"])
@@ -96,6 +97,7 @@ def update_project(
 @router.delete("/projects/{project_id}")
 def delete_project(
     project_id: int,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
 ):
@@ -107,18 +109,21 @@ def delete_project(
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
 
-    # 获取项目下的所有文档ID
     document_ids = [doc.id for doc in project.documents]
 
-    # 先删除 AI 交互记录（避免外键约束错误）
     if document_ids:
         db.query(AIInteraction).filter(
             AIInteraction.document_id.in_(document_ids)
         ).delete(synchronize_session=False)
 
-    # 删除项目（会级联删除 documents, ai_memories, events）
     db.delete(project)
     db.commit()
+    
+    background_tasks.add_task(
+        fulltext_search_service.remove_project,
+        project_id
+    )
+    
     return {"message": "Project deleted"}
 
 # ========== Document Routes ==========
@@ -157,20 +162,45 @@ def list_documents(
     )
     return documents
 
+def _index_document_async(document_id: int, document_title: str, project_id: int, content: any, project_title: str = ""):
+    try:
+        fulltext_search_service.index_document(
+            document_id=document_id,
+            document_title=document_title,
+            project_id=project_id,
+            content=content,
+            metadata={"project_title": project_title}
+        )
+    except Exception as e:
+        print(f"[SearchIndex] 索引文档失败: {e}")
+
+
 @router.post("/projects/{project_id}/documents", response_model=DocumentResponse)
 def create_document(
     project_id: int,
     document: DocumentCreate,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
 ):
     """创建新文档"""
-    check_project_owner(db, project_id, current_user["id"])
+    project = check_project_owner(db, project_id, current_user["id"])
     
     db_document = Document(**document.model_dump(), project_id=project_id)
     db.add(db_document)
     db.commit()
     db.refresh(db_document)
+    
+    if db_document.content:
+        background_tasks.add_task(
+            _index_document_async,
+            db_document.id,
+            db_document.title,
+            project_id,
+            db_document.content,
+            project.title
+        )
+    
     return db_document
 
 @router.get("/documents/{document_id}", response_model=DocumentResponse)
@@ -192,6 +222,7 @@ def get_document(
 def update_document(
     document_id: int,
     document_update: DocumentUpdate,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
 ):
@@ -200,19 +231,30 @@ def update_document(
     if not document:
         raise HTTPException(status_code=404, detail="Document not found")
     
-    # 检查权限
-    check_project_owner(db, document.project_id, current_user["id"])
+    project = check_project_owner(db, document.project_id, current_user["id"])
     
     for field, value in document_update.model_dump(exclude_unset=True).items():
         setattr(document, field, value)
     
     db.commit()
     db.refresh(document)
+    
+    if document.content:
+        background_tasks.add_task(
+            _index_document_async,
+            document.id,
+            document.title,
+            document.project_id,
+            document.content,
+            project.title
+        )
+    
     return document
 
 @router.delete("/documents/{document_id}")
 def delete_document(
     document_id: int,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
 ):
@@ -221,11 +263,18 @@ def delete_document(
     if not document:
         raise HTTPException(status_code=404, detail="Document not found")
     
-    # 检查权限
     check_project_owner(db, document.project_id, current_user["id"])
+    
+    doc_id = document.id
     
     db.delete(document)
     db.commit()
+    
+    background_tasks.add_task(
+        fulltext_search_service.remove_document,
+        doc_id
+    )
+    
     return {"message": "Document deleted"}
 
 
