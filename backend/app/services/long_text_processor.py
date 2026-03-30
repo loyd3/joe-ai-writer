@@ -131,11 +131,14 @@ class LongTextProcessor:
                 if sent_len > self.max_chunk_size:
                     for i in range(0, sent_len, self.max_chunk_size):
                         chunk = sent[i:i + self.max_chunk_size]
+                        chunk_global_pos = full_text.find(chunk)
+                        if chunk_global_pos < 0:
+                            chunk_global_pos = 0
                         segment = TextSegment(
                             index=chunk_index,
                             content=chunk,
-                            context_before=self._get_context_before(full_text, paragraph[:i]),
-                            context_after=self._get_context_after(full_text, paragraph[i + self.max_chunk_size:])
+                            context_before=self._get_context_before(full_text, chunk_global_pos),
+                            context_after=self._get_context_after(full_text, chunk_global_pos + len(chunk))
                         )
                         segments.append(segment)
                         chunk_index += 1

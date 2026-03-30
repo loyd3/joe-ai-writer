@@ -2,12 +2,16 @@ from typing import Optional, AsyncGenerator
 from sqlalchemy.orm import Session
 import json
 import asyncio
+import logging
 from app.core.ai_client import ai_client
 from app.services.ai_memory_service import AIMemoryService
 from app.services.long_text_processor import LongTextProcessor, process_long_text_stream
 # from app.services.rag_service import rag_service  # RAG 功能已移除
 from app.schemas.schemas import AIRequest, ChatMessage, AIGenerateProgress, AIGenerateChunk, LiteraryAnalysisResult, Character
 from app.models.models import AIInteraction
+
+logger = logging.getLogger(__name__)
+
 
 class AIWritingService:
     """AI 写作服务 - 处理各种写作相关的 AI 交互"""
@@ -158,12 +162,16 @@ class AIWritingService:
             LONG_TEXT_THRESHOLD = 6000  # 字符数阈值
 
             if estimated_input_tokens > LONG_TEXT_THRESHOLD and request.action in ['polish', 'revise', 'expand']:
-                # 使用长文本处理器
-                async for chunk in AIWritingService._process_long_text_stream(
-                    db, request, input_text, memory_context, user_id
-                ):
-                    yield chunk
-                return
+                # 仅在“确实能分成多段”时才启用分段流程
+                # 避免出现“进入长文本模式但实际只有 1 段”导致额外延迟
+                processor = LongTextProcessor(max_chunk_size=8000, overlap_size=500, context_size=200)
+                preview_segments = processor.split_text(input_text)
+                if len(preview_segments) > 1:
+                    async for chunk in AIWritingService._process_long_text_stream(
+                        db, request, input_text, memory_context, user_id
+                    ):
+                        yield chunk
+                    return
 
             # 短文本使用原有处理逻辑
             messages = AIWritingService._build_messages(
@@ -177,14 +185,6 @@ class AIWritingService:
             # 根据输入内容长度动态计算 max_tokens
             # 润色操作需要足够的 token 来返回完整内容
             max_tokens = min(64000, max(4096, estimated_input_tokens * 2 + 1000))
-
-            # 检查是否需要警告用户文本可能过长
-            provider = ai_client.provider
-            from app.core.ai_client import AIClient
-            provider_limit = AIClient.PROVIDER_TOKEN_LIMITS.get(provider, 8192)
-            if estimated_input_tokens > provider_limit // 3 and request.action in ['polish', 'revise', 'expand']:
-                yield f"[提示] 当前文本较长(约 {estimated_input_tokens} 字符),模型输出限制为 {provider_limit} tokens。"
-                yield f"如结果不完整,建议分段处理或使用支持更长输出的模型(如 Claude 3.5 Sonnet)。\n\n"
 
             full_response = []
             async for chunk in ai_client.stream_completion(messages, max_tokens=max_tokens):
@@ -221,9 +221,10 @@ class AIWritingService:
         user_id: int
     ) -> AsyncGenerator[str, None]:
         """
-        处理长文本流式请求
+        处理长文本流式请求 - 分段并发处理，整体返回
 
-        将长文本分段处理,保持上下文连贯性
+        将长文本智能分段后并发调用 AI，按原段落顺序合并并返回。
+        对外表现与普通的润色/扩展/修改操作一致，前端无需特殊处理。
         """
         processor = LongTextProcessor(max_chunk_size=8000, overlap_size=500, context_size=200)
 
@@ -231,57 +232,83 @@ class AIWritingService:
         segments = processor.split_text(input_text)
         total_segments = len(segments)
 
-        yield f"[长文本处理] 文本较长(约 {len(input_text)} 字符),将分为 {total_segments} 段处理...\n\n"
+        # 并发控制：避免同时请求过多导致模型服务拥塞
+        max_concurrency = min(4, max(1, total_segments))
+        semaphore = asyncio.Semaphore(max_concurrency)
+        all_responses = [""] * total_segments
+        fallback_indices: list[int] = []
+        max_retries = 2
 
-        all_responses = []
+        async def _process_segment(index: int, segment) -> None:
+            async with semaphore:
+                system_prompt = AIWritingService.SYSTEM_PROMPT
+                segment_prompt = processor.build_segment_prompt(
+                    segment,
+                    request.action,
+                    request.instruction
+                )
+                messages = [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "system", "content": f"项目背景信息:\n{memory_context}"} if memory_context else None,
+                    {"role": "user", "content": segment_prompt}
+                ]
+                messages = [m for m in messages if m is not None]
 
-        for i, segment in enumerate(segments):
-            # 发送段落进度
-            yield f"\n[处理第 {i+1}/{total_segments} 段]\n"
+                estimated_tokens = len(segment.content) * 2 + 1000
+                max_tokens = min(64000, max(4096, estimated_tokens))
 
-            # 构建系统提示词
-            system_prompt = AIWritingService._build_system_prompt(request.action, memory_context)
+                for attempt in range(max_retries + 1):
+                    try:
+                        segment_response = await ai_client.chat_completion(
+                            messages,
+                            max_tokens=max_tokens,
+                            timeout=180.0,
+                            enable_network_test=False,
+                            retry_attempts=1
+                        )
+                        all_responses[index] = segment_response
+                        return
+                    except Exception as e:
+                        is_last_try = attempt >= max_retries
+                        if is_last_try:
+                            logger.warning(
+                                "长文本分段第 %s/%s 段请求失败，已回退为原文: %s",
+                                index + 1,
+                                total_segments,
+                                e,
+                            )
+                            all_responses[index] = segment.content
+                            fallback_indices.append(index)
+                            return
+                        await asyncio.sleep(min(2 * (attempt + 1), 5))
 
-            # 构建段落提示词
-            segment_prompt = processor.build_segment_prompt(segment, request.action, request.instruction)
+        await asyncio.gather(*[_process_segment(i, seg) for i, seg in enumerate(segments)])
 
-            # 构建消息
-            messages = [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": segment_prompt}
-            ]
-
-            # 计算该段落的 max_tokens
-            estimated_tokens = len(segment.content) * 2 + 1000
-            max_tokens = min(64000, max(4096, estimated_tokens))
-
-            # 调用 AI
-            segment_response = []
-            try:
-                async for chunk in ai_client.stream_completion(messages, max_tokens=max_tokens):
-                    segment_response.append(chunk)
-                    yield chunk
-
-                all_responses.append("".join(segment_response))
-
-            except Exception as e:
-                error_msg = f"[第 {i+1} 段处理失败: {str(e)}]"
-                yield error_msg
-                all_responses.append(error_msg)
-
-        # 记录交互(合并后的结果)
+        # 合并所有段落结果
         full_response = "\n\n".join(all_responses)
+
+        # 记录交互
+        user_input_text = request.instruction or (input_text[:500] + "..." if len(input_text) > 500 else input_text)
         interaction = AIInteraction(
             document_id=request.document_id,
             interaction_type=request.action,
-            user_input=request.instruction or input_text[:500] + "..." if len(input_text) > 500 else input_text,
+            user_input=user_input_text,
             ai_response=full_response,
-            context_used={"memory_used": bool(memory_context), "rag_used": False, "long_text_segments": total_segments}
+            context_used={
+                "memory_used": bool(memory_context),
+                "rag_used": False,
+                "long_text_segments": total_segments,
+                "long_text_fallback_segment_indices": fallback_indices,
+            }
         )
         db.add(interaction)
         db.commit()
 
-        yield f"\n\n[长文本处理完成,共 {total_segments} 段]"
+        # 按较大块流式输出，减少人为延迟与前端等待时间
+        chunk_size = 500
+        for i in range(0, len(full_response), chunk_size):
+            chunk = full_response[i:i + chunk_size]
+            yield chunk
 
     @staticmethod
     async def chat(

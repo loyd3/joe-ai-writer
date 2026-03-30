@@ -247,6 +247,8 @@ class AIClient:
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
         timeout: float = 120.0,
+        enable_network_test: bool = True,
+        retry_attempts: int = 3,
         **kwargs,
     ) -> str:
         """通用对话接口（非流式）"""
@@ -255,26 +257,27 @@ class AIClient:
         # 检查配置
         self._check_config()
 
-        # 先测试网络连接
-        try:
-            import httpx
-            import ssl
-            ssl_context = ssl.create_default_context()
-            ssl_context.check_hostname = False
-            ssl_context.verify_mode = ssl.CERT_NONE
+        # 先测试网络连接（可选；长文本分段场景可关闭以减少延迟）
+        if enable_network_test:
+            try:
+                import httpx
+                import ssl
+                ssl_context = ssl.create_default_context()
+                ssl_context.check_hostname = False
+                ssl_context.verify_mode = ssl.CERT_NONE
 
-            test_url = f"{self.base_url}/models"
-            async with httpx.AsyncClient(verify=ssl_context, timeout=10.0) as client:
-                headers = {"Authorization": f"Bearer {self.api_key}"}
-                test_response = await client.get(test_url, headers=headers)
-                print(f"[AIClient] 网络测试: {test_url} -> {test_response.status_code}")
-                if test_response.status_code == 401:
-                    print(f"[AIClient] 警告: API 返回 401，可能是 API Key 无效")
-        except Exception as e:
-            print(f"[AIClient] 网络测试失败: {e}")
+                test_url = f"{self.base_url}/models"
+                async with httpx.AsyncClient(verify=ssl_context, timeout=10.0) as client:
+                    headers = {"Authorization": f"Bearer {self.api_key}"}
+                    test_response = await client.get(test_url, headers=headers)
+                    print(f"[AIClient] 网络测试: {test_url} -> {test_response.status_code}")
+                    if test_response.status_code == 401:
+                        print(f"[AIClient] 警告: API 返回 401，可能是 API Key 无效")
+            except Exception as e:
+                print(f"[AIClient] 网络测试失败: {e}")
 
         # 增加重试机制
-        max_retries = 3
+        max_retries = max(1, retry_attempts)
         last_error = None
         
         for attempt in range(1, max_retries + 1):
