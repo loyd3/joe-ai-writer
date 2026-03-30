@@ -89,11 +89,12 @@ class FullTextSearchService:
         )
     
     def _ensure_embedding_model(self) -> bool:
-        if FullTextSearchService._embedding_load_attempted:
-            return self._embedding_model is not None
-        FullTextSearchService._embedding_load_attempted = True
+        if self._embedding_model is not None:
+            return True
         try:
+            print(f"[FullTextSearch] 正在加载 embedding 模型: {EMBEDDING_MODEL}")
             self._embedding_model = SentenceTransformer(EMBEDDING_MODEL)
+            print(f"[FullTextSearch] Embedding 模型加载成功")
             return True
         except Exception as e:
             print(f"[FullTextSearch] 加载 embedding 模型失败: {e}")
@@ -409,8 +410,13 @@ class FullTextSearchService:
         except Exception:
             return []
         
-        if use_semantic and self._embedding_model:
-            query_embedding = self._get_embedding(query)
+        if use_semantic:
+            # 确保嵌入模型已加载
+            if not self._embedding_model:
+                self._ensure_embedding_model()
+            
+            if self._embedding_model:
+                query_embedding = self._get_embedding(query)
             
             if query_embedding:
                 try:
