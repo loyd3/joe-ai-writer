@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.orm import Session
 
 from app.api.auth import get_current_user
@@ -19,9 +19,21 @@ from app.api.dependencies import get_llm_service
 from app.database import get_db
 from app.models.models import Document, Project
 from app.services.copywriting_service import CopywritingService
+from app.services.fulltext_search_service import FullTextSearchService
 from app.utils.document_format import parse_formatted_text_to_blocks
 
 router = APIRouter(prefix="/api/copywriting", tags=["文案写作(compat)"])
+
+
+def _index_document_async(background_tasks: BackgroundTasks, doc_id: int, content: str, title: str, project_id: int, project_title: str = ""):
+    """后台异步索引文档"""
+    def do_index():
+        try:
+            service = FullTextSearchService()
+            service.index_document(doc_id, content, title, project_id, project_title)
+        except Exception as e:
+            print(f"[SearchIndex] 后台索引文档 {doc_id} 失败: {e}")
+    background_tasks.add_task(do_index)
 
 
 def _require_project(db: Session, project_id: int, user_id: int) -> Project:
