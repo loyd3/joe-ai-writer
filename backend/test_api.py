@@ -5,9 +5,10 @@
 import asyncio
 import httpx
 import ssl
+import os
 
 async def test_deepseek_api():
-    api_key = "YOUR_API_KEY_HERE"  # 替换为你的 API Key
+    api_key = os.environ.get("DEEPSEEK_API_KEY", "")  # 从环境变量读取 API Key
     base_url = "https://api.deepseek.com/v1"
     
     print("=" * 50)
