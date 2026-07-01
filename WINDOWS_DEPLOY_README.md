@@ -1,232 +1,196 @@
-# 🚀 Windows Docker 部署脚本说明
+# Windows Docker 部署脚本说明
 
 ## 快速开始
 
-### 首次部署
+### 发布镜像（开发机）
 
 ```powershell
-# 方式1: 一键安装（最简单）
 cd D:\projects\joe-ai-writer
+
+# 交互式（推荐，双击 deploy-docker.bat 亦可）
+.\deploy-docker.bat
+
+# 或 PowerShell 命令行
+.\docker-push.ps1 -Version 1.0.0                    # 构建并推送到 Docker Hub
+.\docker-push.ps1 -Version 1.0.0 -SkipPush          # 仅构建
+.\docker-push.ps1 -ExportOnly                       # 构建并导出 tar
+.\docker-push.ps1 -Registry registry.cn-hangzhou.aliyuncs.com/namespace
+```
+
+### 部署服务（生产机）
+
+```powershell
+# 交互式一键部署
 .\install.bat
 
-# 方式2: 先构建再部署
-.\deploy-docker.bat    # 构建镜像
-.\install.bat          # 部署服务
+# 或 PowerShell
+.\scripts\windows\deploy.ps1 -Source hub -DockerUser loyd3
+.\scripts\windows\deploy.ps1 -Source tar            # 离线 tar 加载
 ```
 
-### 日常使用
+### 诊断环境
 
 ```powershell
-# 启动服务
-docker-compose -f docker-compose.prod.yml up -d
-
-# 查看日志
-docker-compose -f docker-compose.prod.yml logs -f
-
-# 停止服务
-docker-compose -f docker-compose.prod.yml down
-
-# 更新版本
-.\update.bat
+.\diagnose.bat
+# 或
+.\scripts\windows\diagnose.ps1
 ```
 
 ---
 
-## 脚本清单
+## 脚本结构
 
-| 脚本 | 用途 |
-|------|------|
-| `deploy-docker.bat` | 构建镜像、推送到仓库或导出 |
-| `install.bat` | 一键部署到新服务器 |
-| `update.bat` | 更新现有部署 |
-| `start_local.bat` | 本地开发运行（非 Docker） |
-| `diagnose.ps1` | 诊断问题 |
+| 入口（项目根目录） | 实际脚本 | 用途 |
+|-------------------|----------|------|
+| `deploy-docker.bat` | `scripts/windows/docker-push.ps1` | 构建镜像、推送或导出 |
+| `docker-push.ps1` | 同上（命令行参数） | CI / 自动化发布 |
+| `install.bat` | `scripts/windows/deploy.ps1` | 生产环境一键部署 |
+| `diagnose.bat` | `scripts/windows/diagnose.ps1` | 环境诊断 |
+
+Mac/Linux 对应脚本：`docker-push.sh`（推送）、`deploy-docker.sh`（本地部署）。
 
 ---
 
-## 详细说明
-
-### 1. deploy-docker.bat - 构建发布镜像
+## deploy-docker.bat — 构建与发布
 
 功能：
-- ✅ 构建后端和前端 Docker 镜像
-- ✅ 导出镜像为 tar 文件（便于离线部署）
-- ✅ 推送到 Docker Hub
-- ✅ 推送到阿里云容器仓库
 
-使用步骤：
-1. 修改脚本开头的 `IMAGE_PREFIX` 为你的 Docker Hub 用户名
-2. 运行脚本，按提示操作
-3. 选择推送目标（Docker Hub / 阿里云 / 本地文件）
+- 构建后端（`backend/Dockerfile`）和前端（`frontend/Dockerfile`）镜像
+- 推送到 Docker Hub 或阿里云 ACR
+- 导出 tar 到 `docker-images/` 目录（离线部署）
+- 自动检测 Docker 是否运行
 
-输出文件：
-- `joe-ai-writer-backend-{version}.tar`
-- `joe-ai-writer-frontend-{version}.tar`
-
----
-
-### 2. install.bat - 一键部署
-
-功能：
-- ✅ 检查 Docker 环境
-- ✅ 创建配置文件
-- ✅ 拉取/加载镜像
-- ✅ 启动服务
-- ✅ 检查状态
-
-支持三种部署方式：
-1. **本地镜像** - 使用刚构建的镜像
-2. **Docker Hub** - 从仓库拉取
-3. **Tar 文件** - 从导出文件加载（离线部署）
-
----
-
-### 3. update.bat - 更新服务
-
-功能：
-- ✅ 自动备份数据库
-- ✅ 拉取新镜像
-- ✅ 可选重新构建
-- ✅ 重启服务
-
----
-
-### 4. start_local.bat - 本地开发
-
-功能：
-- ✅ 创建 Python 虚拟环境
-- ✅ 安装依赖
-- ✅ 启动本地后端
-
-适用场景：
-- Docker 网络问题无法解决时
-- 需要调试后端代码
-- Ollama 在 Windows 本地运行
-
----
-
-## 配置文件
-
-### .env.prod - 生产环境配置
+默认 Docker Hub 用户名为 `loyd3`，可在交互提示中修改，或通过环境变量：
 
 ```powershell
-# 复制模板
-copy .env.prod.example .env.prod
-
-# 编辑配置
-notepad .env.prod
+$env:DOCKER_USER = "your-username"
+.\deploy-docker.bat
 ```
 
-**必改项**：
-- `MYSQL_ROOT_PASSWORD` - 数据库 root 密码
-- `MYSQL_PASSWORD` - 数据库用户密码
-- `SECRET_KEY` - JWT 密钥
-- `CUSTOM_BASE_URL` - Ollama 地址
+导出文件位置：
+
+```
+docker-images/
+├── joe-ai-writer-backend-{version}.tar
+└── joe-ai-writer-frontend-{version}.tar
+```
+
+---
+
+## install.bat — 生产部署
+
+支持三种镜像来源：
+
+1. **local** — 使用本机已构建的镜像（先运行 `deploy-docker.bat`）
+2. **hub** — 从 Docker Hub 拉取（自动更新 `.env.prod` 中的 `DOCKER_REGISTRY`）
+3. **tar** — 从 `docker-images/` 加载离线镜像
+
+首次运行会自动从 `.env.prod.example` 创建 `.env.prod`。
+
+**必改配置**（`.env.prod`）：
+
+- `DOCKER_REGISTRY` — Docker Hub 用户名
+- `MYSQL_ROOT_PASSWORD` / `MYSQL_PASSWORD` — 数据库密码
+- `SECRET_KEY` — JWT 密钥
+- `CUSTOM_BASE_URL` — Ollama 或 AI API 地址
 
 ---
 
 ## 部署场景
 
-### 场景1：本地开发测试
+### 场景 1：本地开发（轻量版 + Ollama）
 
 ```powershell
-# 使用轻量版配置
-docker-compose -f docker-compose-lite.yml up -d
+docker compose -f docker-compose-lite.yml up -d
 ```
 
-### 场景2：单机生产部署
+### 场景 2：单机生产部署
 
 ```powershell
-# 1. 配置环境
+copy .env.prod.example .env.prod
 notepad .env.prod
-
-# 2. 部署
 .\install.bat
-
-# 或手动
-docker-compose -f docker-compose.prod.yml --env-file .env.prod up -d
 ```
 
-### 场景3：离线环境部署
+### 场景 3：离线环境
+
+在有网络的机器上：
 
 ```powershell
-# 在有网络的机器上
-cd D:\projects\joe-ai-writer
-.\deploy-docker.bat
-# 选择导出镜像
-
-# 复制以下文件到离线服务器：
-# - joe-ai-writer-backend-latest.tar
-# - joe-ai-writer-frontend-latest.tar
-# - docker-compose.prod.yml
-# - install.bat
-
-# 在离线服务器上
-.\install.bat
-# 选择 "从 tar 文件加载镜像"
+.\deploy-docker.bat   # 选择「导出 tar」
 ```
 
-### 场景4：多服务器部署
+将以下文件复制到离线服务器：
+
+- `docker-images/*.tar`
+- `docker-compose.prod.yml`
+- `.env.prod.example`（或已配置好的 `.env.prod`）
+- `install.bat` 及 `scripts/windows/` 目录
+
+在离线服务器上：
 
 ```powershell
-# 推送到 Docker Hub
-.\deploy-docker.bat
-# 选择推送到 Docker Hub
+.\install.bat   # 选择「从 tar 文件加载」
+```
 
-# 在多台服务器上
-.\install.bat
-# 选择 "从 Docker Hub 拉取镜像"
+### 场景 4：多服务器（Docker Hub）
+
+```powershell
+# 发布机
+.\deploy-docker.bat   # 推送到 Docker Hub
+
+# 各生产机
+.\install.bat         # 从 Docker Hub 拉取
+```
+
+---
+
+## 常用运维命令
+
+```powershell
+# 启动 / 停止
+docker compose -f docker-compose.prod.yml --env-file .env.prod up -d
+docker compose -f docker-compose.prod.yml down
+
+# 日志
+docker compose -f docker-compose.prod.yml logs -f
+
+# 更新镜像
+docker compose -f docker-compose.prod.yml --env-file .env.prod pull
+docker compose -f docker-compose.prod.yml --env-file .env.prod up -d
 ```
 
 ---
 
 ## 常见问题
 
-### Q: Docker 容器无法访问 Ollama？
+### Docker 容器无法访问 Ollama
 
-A: 修改 `.env.prod` 中的 `CUSTOM_BASE_URL`：
-- Ollama 在宿主机：`http://host.docker.internal:11434/v1`
-- Ollama 在其他服务器：`http://192.168.1.100:11434/v1`
+编辑 `.env.prod`：
 
-### Q: 如何修改端口？
-
-A: 编辑 `.env.prod`：
 ```env
-BACKEND_PORT=9000    # 后端端口
-FRONTEND_PORT=8080   # 前端端口
+CUSTOM_BASE_URL=http://host.docker.internal:11434/v1
 ```
 
-### Q: 如何升级版本？
+若 Ollama 仅监听 127.0.0.1，以管理员设置：
 
-A: 运行 `update.bat` 或手动：
 ```powershell
-docker-compose -f docker-compose.prod.yml pull
-docker-compose -f docker-compose.prod.yml up -d
+[Environment]::SetEnvironmentVariable("OLLAMA_HOST", "0.0.0.0:11434", "Machine")
 ```
 
-### Q: 数据如何持久化？
+然后重启 Ollama。
 
-A: MySQL 数据自动保存在 Docker Volume 中：
+### 修改端口
+
+```env
+BACKEND_PORT=9000
+FRONTEND_PORT=8080
+```
+
+### 数据备份
+
 ```powershell
-# 查看数据卷
-docker volume ls
-
-# 备份数据
 docker exec joe-writer-mysql-prod mysqldump -u root -p joe_writer > backup.sql
-```
-
----
-
-## 端口占用检查
-
-```powershell
-# 检查端口占用
-netstat -ano | findstr "8080"
-netstat -ano | findstr "9000"
-netstat -ano | findstr "11434"
-
-# 结束占用进程
-taskkill /PID 进程ID /F
 ```
 
 ---
@@ -235,29 +199,25 @@ taskkill /PID 进程ID /F
 
 ```
 joe-ai-writer/
-├── backend/                      # 后端代码
-│   ├── Dockerfile               # 生产 Dockerfile
-│   └── Dockerfile.lite          # 轻量版 Dockerfile
-├── frontend/                     # 前端代码
-│   └── Dockerfile
-├── deploy-docker.bat            # 构建发布镜像 ⭐
-├── install.bat                  # 一键部署 ⭐
-├── update.bat                   # 更新服务 ⭐
-├── start_local.bat              # 本地运行 ⭐
-├── diagnose.ps1                 # 诊断脚本
-├── docker-compose.yml           # 开发环境
-├── docker-compose-lite.yml      # 轻量开发环境
-├── docker-compose.prod.yml      # 生产环境 ⭐
-├── .env.prod.example            # 生产配置模板
-├── DEPLOY.md                    # 详细部署文档
-└── WINDOWS_DEPLOY_README.md     # 本文档
+├── scripts/windows/
+│   ├── docker-push.ps1      # 构建与发布（核心逻辑）
+│   ├── deploy.ps1           # 生产部署
+│   └── diagnose.ps1         # 环境诊断
+├── deploy-docker.bat        # 发布入口 ⭐
+├── install.bat              # 部署入口 ⭐
+├── diagnose.bat             # 诊断入口
+├── docker-push.ps1          # 命令行发布（转发）
+├── docker-push.sh           # Mac/Linux 发布
+├── docker-compose.prod.yml  # 生产 Compose
+├── docker-compose-lite.yml  # 轻量开发 Compose
+├── docker-images/           # 导出的 tar 镜像（git 忽略）
+└── .env.prod.example        # 生产配置模板
 ```
 
 ---
 
 ## 支持
 
-遇到问题？
-1. 运行 `diagnose.ps1` 检查环境
-2. 查看 `DEPLOY.md` 详细文档
-3. 检查 Docker 日志：`docker-compose -f docker-compose.prod.yml logs`
+1. 运行 `diagnose.bat` 检查环境
+2. 查看 `DOCKER_DEPLOY.md` 通用 Docker 文档
+3. 查看日志：`docker compose -f docker-compose.prod.yml logs`
