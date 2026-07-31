@@ -79,7 +79,7 @@ services:
     networks:
       - joe-writer-network
     command: >
-      sh -c "python init_db.py --auto &&
+      sh -c "python init_db.py &&
              uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
 
   # 前端开发服务器

@@ -1,13 +1,13 @@
 -- 墨心 数据库初始化 SQL
--- 数据库: aiwriter
+-- 数据库: joe_writer（与 docker-compose MYSQL_DATABASE 一致）
 -- 字符集: utf8mb4
 
 -- 创建数据库（如果不存在）
-CREATE DATABASE IF NOT EXISTS aiwriter 
+CREATE DATABASE IF NOT EXISTS joe_writer 
     CHARACTER SET utf8mb4 
     COLLATE utf8mb4_unicode_ci;
 
-USE aiwriter;
+USE joe_writer;
 
 -- ============================================
 -- 用户表

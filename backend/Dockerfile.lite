@@ -1,5 +1,5 @@
 # 轻量版 Dockerfile - 移除 RAG 依赖，使用 Ollama
-FROM python:3.11-slim
+FROM docker.m.daocloud.io/library/python:3.11-slim
 
 WORKDIR /app
 

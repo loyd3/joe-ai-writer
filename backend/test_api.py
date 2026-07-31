@@ -7,7 +7,7 @@ import httpx
 import ssl
 
 async def test_deepseek_api():
-    api_key = "sk-30040f2756c64c50922fe0313fbacb38"  # 替换为你的 API Key
+    api_key = "sk-2f83a17e51f7494ea18124492268947e"  # 替换为你的 API Key
     base_url = "https://api.deepseek.com/v1"
     
     print("=" * 50)
