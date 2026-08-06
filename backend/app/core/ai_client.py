@@ -33,12 +33,11 @@ class AIClient:
         self._init_client()
 
     def _get_config_from_db(self) -> Optional[dict]:
-        """从数据库 system_configs 表获取 AI 配置"""
+        """从数据库 system_configs 表获取 AI 配置（可部分字段，用于与 env 合并）"""
         try:
             db = self._db or SessionLocal()
             try:
                 configs = {}
-                # 批量获取所有 AI 相关配置
                 print(f"[AIClient] 正在从数据库读取配置...")
                 for key in self.CONFIG_KEYS.values():
                     config_row = db.query(SystemConfig).filter(
@@ -46,33 +45,47 @@ class AIClient:
                     ).first()
                     if config_row and config_row.config_value:
                         try:
-                            configs[key] = json.loads(config_row.config_value).get("value")
-                            print(f"[AIClient] DB配置 {key}: {configs[key][:20] if configs[key] and isinstance(configs[key], str) else configs[key]}...")
+                            value = json.loads(config_row.config_value).get("value")
                         except Exception as e:
                             print(f"[AIClient] 解析 {key} 失败: {e}")
-                            configs[key] = config_row.config_value
+                            value = config_row.config_value
+                        # 空字符串视为未设置，继续走 env 回退
+                        if value is None or value == "":
+                            print(f"[AIClient] DB配置 {key}: 空值，跳过")
+                            continue
+                        configs[key] = value
+                        preview = configs[key]
+                        if isinstance(preview, str) and key == "ai_api_key":
+                            preview = f"{preview[:8]}..."
+                        elif isinstance(preview, str):
+                            preview = preview[:40]
+                        print(f"[AIClient] DB配置 {key}: {preview}")
                     else:
                         print(f"[AIClient] DB配置 {key}: 未找到")
 
-                # 检查是否有完整的配置
-                provider = configs.get("ai_provider")
-                api_key = configs.get("ai_api_key")
+                if not configs:
+                    print(f"[AIClient] 数据库无用户配置，将使用环境变量")
+                    return None
 
-                print(f"[AIClient] DB读取结果: provider={provider}, api_key={'已设置' if api_key else '未设置'}")
+                result = {}
+                if "ai_provider" in configs:
+                    result["provider"] = configs["ai_provider"]
+                if "ai_model" in configs:
+                    result["model"] = configs["ai_model"]
+                if "ai_api_key" in configs:
+                    result["api_key"] = configs["ai_api_key"]
+                if "ai_base_url" in configs:
+                    result["base_url"] = configs["ai_base_url"]
+                if "ai_temperature" in configs:
+                    result["temperature"] = float(configs["ai_temperature"])
+                if "ai_max_tokens" in configs:
+                    result["max_tokens"] = int(configs["ai_max_tokens"])
 
-                if provider and api_key:
-                    result = {
-                        "provider": provider,
-                        "model": configs.get("ai_model", "deepseek-chat"),
-                        "api_key": api_key,
-                        "base_url": configs.get("ai_base_url", ""),
-                        "temperature": float(configs.get("ai_temperature", 0.7)),
-                        "max_tokens": int(configs.get("ai_max_tokens", 4096)),
-                    }
-                    print(f"[AIClient] 使用数据库配置成功")
-                    return result
-                else:
-                    print(f"[AIClient] 数据库配置不完整，回退到环境变量")
+                print(
+                    f"[AIClient] DB读取结果: keys={list(result.keys())}, "
+                    f"api_key={'已设置' if result.get('api_key') else '未设置'}"
+                )
+                return result or None
             finally:
                 if not self._db:
                     db.close()
@@ -117,31 +130,42 @@ class AIClient:
         }
 
     def _init_client(self):
-        """根据配置的 provider 初始化对应的客户端（数据库优先）"""
-        # 优先从数据库读取配置
-        db_config = self._get_config_from_db()
+        """初始化客户端：用户前端配置（DB）优先，未设置字段回退到 env"""
+        env_config = self._get_config_from_env()
+        db_config = self._get_config_from_db() or {}
 
-        if db_config and db_config.get("api_key"):
-            # 使用数据库配置
-            self.provider = db_config["provider"]
-            self.model = db_config["model"]
-            self.api_key = db_config["api_key"]
-            self.base_url = db_config["base_url"] or self._get_default_base_url(self.provider)
-            self.temperature = db_config["temperature"]
-            self.max_tokens = db_config["max_tokens"]
-            self.config_source = "database"
-            print(f"[AIClient] 从数据库加载配置: provider={self.provider}, model={self.model}")
+        # 逐字段合并：DB 有值则用 DB，否则用 env
+        self.provider = db_config.get("provider") or env_config["provider"]
+        self.model = db_config.get("model") or env_config["model"]
+        self.api_key = db_config.get("api_key") or env_config["api_key"]
+        self.base_url = (
+            db_config.get("base_url")
+            or env_config.get("base_url")
+            or self._get_default_base_url(self.provider)
+        )
+        self.temperature = (
+            db_config["temperature"]
+            if "temperature" in db_config
+            else env_config["temperature"]
+        )
+        self.max_tokens = (
+            db_config["max_tokens"]
+            if "max_tokens" in db_config
+            else env_config["max_tokens"]
+        )
+
+        if db_config.get("api_key"):
+            self.config_source = "user"  # 前端保存到 DB 的用户配置
+        elif db_config:
+            self.config_source = "mixed"  # 部分用户配置 + env
         else:
-            # 回退到环境变量配置
-            env_config = self._get_config_from_env()
-            self.provider = env_config["provider"]
-            self.model = env_config["model"]
-            self.api_key = env_config["api_key"]
-            self.base_url = env_config["base_url"]
-            self.temperature = env_config["temperature"]
-            self.max_tokens = env_config["max_tokens"]
             self.config_source = "env"
-            print(f"[AIClient] 从环境变量加载配置: provider={self.provider}, model={self.model}")
+
+        print(
+            f"[AIClient] 配置加载完成: source={self.config_source}, "
+            f"provider={self.provider}, model={self.model}, "
+            f"api_key_from={'user' if db_config.get('api_key') else 'env'}"
+        )
 
         if not self.api_key or self.api_key == "your-deepseek-api-key":
             print(f"[AIClient] 警告: API Key 未配置或使用的是默认值")
@@ -396,14 +420,14 @@ def refresh_ai_client(db: Optional[Session] = None) -> AIClient:
 
 # 向后兼容 - 使用属性访问器实现真正的延迟加载
 class _LazyAIClient:
-    """延迟加载的 AI 客户端代理"""
+    """延迟加载的 AI 客户端代理。
 
-    _client: AIClient | None = None
+    注意：不要单独缓存实例，必须始终走 get_ai_client()，
+    否则 refresh_ai_client() 后业务代码仍会用到旧的 env key。
+    """
 
     def _get_client(self):
-        if self._client is None:
-            self._client = get_ai_client()
-        return self._client
+        return get_ai_client()
 
     def __getattr__(self, name):
         return getattr(self._get_client(), name)

@@ -33,9 +33,9 @@
         <div class="section">
           <div class="section-header">
             <h3>🔥 热门脑洞</h3>
-            <button class="refresh-btn" @click="fetchTrendingBrainstorms">
+            <el-button class="btn" @click="fetchTrendingBrainstorms">
               🔄 刷新
-            </button>
+            </el-button>
           </div>
           <div class="brainstorm-list">
             <div
@@ -55,17 +55,17 @@
 
         <!-- 随机生成 -->
         <div class="section">
-          <button class="random-btn" @click="generateRandomBrainstorm">
+          <el-button class="btn btn-primary btn-block btn-lg" @click="generateRandomBrainstorm">
             🎲 随机生成脑洞
-          </button>
+          </el-button>
         </div>
 
         <!-- 从热点生成 -->
         <div class="section">
           <h3>📰 基于热点生成</h3>
-          <button class="secondary-btn" @click="generateFromHotTopics">
+          <el-button class="btn btn-block" @click="generateFromHotTopics">
             🔥 将当前热点转为脑洞
-          </button>
+          </el-button>
         </div>
 
         <!-- 自定义脑洞 -->
@@ -90,13 +90,13 @@
           </div>
 
           <div class="custom-actions">
-            <button
-              class="primary-btn"
+            <el-button
+              class="btn btn-primary btn-block"
               :disabled="!customConcept.trim()"
               @click="addCustomBrainstorm"
             >
               ➕ 添加自定义脑洞
-            </button>
+            </el-button>
           </div>
 
           <div v-if="customBrainstorms.length > 0" class="custom-list">
@@ -171,25 +171,25 @@
 
           <!-- 操作按钮 -->
           <div class="action-buttons">
-            <button
-              class="primary-btn"
+            <el-button
+              class="btn btn-primary"
               :disabled="generatingOutline"
               @click="generateOutline"
             >
               <span v-if="generatingOutline">⏳ 生成中...</span>
               <span v-else>📋 生成大纲</span>
-            </button>
-            <button
-              class="primary-btn"
+            </el-button>
+            <el-button
+              class="btn btn-primary"
               :disabled="generatingArticle || !outline"
               @click="generateArticle"
             >
               <span v-if="generatingArticle">✍️ 写作中...</span>
               <span v-else>📝 生成文章</span>
-            </button>
-            <button class="secondary-btn" @click="quickGenerate">
+            </el-button>
+            <el-button class="btn" @click="quickGenerate">
               ⚡ 一键生成
-            </button>
+            </el-button>
           </div>
 
           <div v-if="generatingOutline" class="outline-streaming">
@@ -239,15 +239,18 @@
             <div class="article-header">
               <h3>📝 生成的文章</h3>
               <div class="article-actions">
-                <button class="icon-btn" @click="copyArticle" title="复制">
+                <el-button class="btn-icon-only" @click="copyArticle" title="复制">
                   📋
-                </button>
-                <button class="icon-btn" @click="openSaveDialog" title="保存">
+                </el-button>
+                <el-button class="btn-icon-only" @click="openSaveDialog" title="保存">
                   💾
-                </button>
-                <button class="icon-btn" @click="showPublishDialog = true" title="发布到自媒体">
+                </el-button>
+                <el-button class="btn-icon-only" @click="showPublishDialog = true" title="发布到自媒体">
                   📢
-                </button>
+                </el-button>
+                <el-button class="btn-icon-only" @click="showVideoScriptDialog = true" title="转视频文案">
+                  🎬
+                </el-button>
               </div>
             </div>
             <div class="article-content">
@@ -339,6 +342,12 @@
     :raw-title="article?.title || selectedBrainstorm?.title || ''"
     :raw-content="article?.content || ''"
   />
+
+  <VideoScriptDialog
+    v-model="showVideoScriptDialog"
+    :raw-title="article?.title || selectedBrainstorm?.title || ''"
+    :raw-content="article?.content || ''"
+  />
 </template>
 
 <script setup lang="ts">
@@ -347,6 +356,7 @@ import { ElMessage } from 'element-plus'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 import PublishDialog from '@/components/PublishDialog.vue'
+import VideoScriptDialog from '@/components/VideoScriptDialog.vue'
 import { useAuthStore } from '@/stores/auth'
 import api, { projectApi, documentApi, API_BASE_URL } from '@/api'
 import type { Block } from '@/api/types'
@@ -441,6 +451,7 @@ const selectedProjectId = ref(null)
 const newProjectName = ref('')
 const saving = ref(false)
 const showPublishDialog = ref(false)
+const showVideoScriptDialog = ref(false)
 
 // 获取分类
 const fetchCategories = async () => {
@@ -1000,37 +1011,6 @@ onMounted(() => {
   }
 }
 
-.random-btn {
-  width: 100%;
-  padding: 12px;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: #fff;
-  border: none;
-  border-radius: 8px;
-  font-size: 15px;
-  cursor: pointer;
-  transition: transform 0.2s;
-
-  &:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
-  }
-}
-
-.secondary-btn {
-  width: 100%;
-  padding: 10px;
-  background: #f5f5f5;
-  border: 1px solid #e0e0e0;
-  border-radius: 6px;
-  cursor: pointer;
-  font-size: 14px;
-
-  &:hover {
-    background: #e8e8e8;
-  }
-}
-
 .right-panel {
   background: #fff;
   border-radius: 12px;
@@ -1128,26 +1108,7 @@ onMounted(() => {
   display: flex;
   gap: 12px;
   margin-bottom: 24px;
-
-  .primary-btn {
-    padding: 10px 20px;
-    background: #409eff;
-    color: #fff;
-    border: none;
-    border-radius: 6px;
-    font-size: 14px;
-    cursor: pointer;
-    transition: all 0.2s;
-
-    &:hover:not(:disabled) {
-      background: #66b1ff;
-    }
-
-    &:disabled {
-      background: #a0cfff;
-      cursor: not-allowed;
-    }
-  }
+  flex-wrap: wrap;
 }
 
 .outline-section {
@@ -1235,19 +1196,6 @@ onMounted(() => {
     .article-actions {
       display: flex;
       gap: 8px;
-
-      .icon-btn {
-        padding: 6px 10px;
-        background: #f5f5f5;
-        border: none;
-        border-radius: 4px;
-        cursor: pointer;
-        font-size: 16px;
-
-        &:hover {
-          background: #e8e8e8;
-        }
-      }
     }
   }
 }

@@ -2,7 +2,7 @@
   <div class="document-editor">
     <div class="editor-header">
       <div class="header-left">
-        <el-button link class="back-btn" @click="goBack">
+        <el-button link class="btn-icon" @click="goBack">
           <el-icon><ArrowLeft /></el-icon>
         </el-button>
         <div class="breadcrumb">
@@ -24,7 +24,7 @@
         </div>
         <!-- 折叠时只显示 3 个：保存、AI 助手、更多 -->
         <el-button
-          class="preview-mode-btn"
+          class="btn"
           :type="previewMode ? 'primary' : 'default'"
           @click="previewMode = !previewMode"
           :title="previewMode ? '关闭预览，恢复正文编辑' : '预览：只读正文，可调整结构、AI 与撤销等'"
@@ -32,12 +32,12 @@
           <el-icon><View /></el-icon>
           <span>{{ previewMode ? '退出预览' : '预览' }}</span>
         </el-button>
-        <el-button class="save-btn" type="primary" @click="saveDocument" :loading="saving">
+        <el-button class="btn btn-primary" type="primary" @click="saveDocument" :loading="saving">
           <el-icon><Check /></el-icon>
           <span>保存</span>
         </el-button>
         <el-dropdown trigger="click" @command="handleImageMenuCommand">
-          <el-button class="article-image-btn" :loading="generatingImage || uploadingImage">
+          <el-button class="btn" :loading="generatingImage || uploadingImage">
             <el-icon><Picture /></el-icon>
             <span>图片</span>
             <el-icon class="arrow-icon"><ArrowDown /></el-icon>
@@ -60,7 +60,7 @@
           </template>
         </el-dropdown>
         <el-button 
-          class="chat-toggle" 
+          class="btn"
           :type="showChatPanel ? 'primary' : 'default'"
           @click="showChatPanel = !showChatPanel"
         >
@@ -68,7 +68,7 @@
           <span>AI 助手</span>
         </el-button>
         <el-dropdown v-if="!headerExpanded" trigger="click" @command="handleMoreCommand" class="doc-actions-dropdown">
-          <el-button class="more-btn">
+          <el-button class="btn">
             <el-icon><MoreFilled /></el-icon>
             <span>更多</span>
             <el-icon class="arrow-icon"><ArrowDown /></el-icon>
@@ -105,6 +105,12 @@
               <el-dropdown-item divided command="publish">
                 <el-icon><Promotion /></el-icon> 发布到自媒体
               </el-dropdown-item>
+              <el-dropdown-item command="video-script">
+                <el-icon><VideoCamera /></el-icon> 转视频文案
+              </el-dropdown-item>
+              <el-dropdown-item command="film-script">
+                <el-icon><Film /></el-icon> 转影视脚本
+              </el-dropdown-item>
               <el-dropdown-item divided command="rename">
                 <el-icon><Edit /></el-icon> 重命名
               </el-dropdown-item>
@@ -116,12 +122,12 @@
         </el-dropdown>
         <!-- 展开时显示的其余按钮 -->
         <template v-if="headerExpanded">
-          <el-button class="extract-btn" @click="showExtractDrawer = true">
+          <el-button class="btn" @click="showExtractDrawer = true">
             <el-icon><Aim /></el-icon>
           <span>AI 智能扩展</span>
           </el-button>
           <el-dropdown trigger="click" @command="handleImageMenuCommand">
-            <el-button class="extract-btn" :loading="generatingImage || uploadingImage">
+            <el-button class="btn" :loading="generatingImage || uploadingImage">
               <el-icon><Picture /></el-icon>
               <span>图片</span>
               <el-icon class="arrow-icon"><ArrowDown /></el-icon>
@@ -143,7 +149,7 @@
               </el-dropdown-menu>
             </template>
           </el-dropdown>
-          <el-button class="generate-btn" @click="showGenerateDrawer = true">
+          <el-button class="btn" @click="showGenerateDrawer = true">
             <el-icon><MagicStick /></el-icon>
             <span>根据设定生成</span>
           </el-button>
@@ -152,7 +158,7 @@
             class="export-dropdown"
             @command="(cmd: string) => exportMenuRef?.triggerExport(cmd)"
           >
-            <el-button class="extract-btn export-dropdown-btn">
+            <el-button class="btn export-dropdown-btn">
               <el-icon><Download /></el-icon>
               <span>导出</span>
               <el-icon class="arrow-icon"><ArrowDown /></el-icon>
@@ -174,15 +180,23 @@
               </el-dropdown-menu>
             </template>
           </el-dropdown>
-          <el-button class="extract-btn" @click="showPublishDialog = true">
+          <el-button class="btn" @click="showPublishDialog = true">
             <el-icon><Promotion /></el-icon>
             <span>发布到自媒体</span>
           </el-button>
-          <el-button class="extract-btn" @click="handleDocCommand('rename')">
+          <el-button class="btn" @click="showVideoScriptDialog = true">
+            <el-icon><VideoCamera /></el-icon>
+            <span>转视频文案</span>
+          </el-button>
+          <el-button class="btn" :loading="convertingFilmScript" @click="convertToFilmScript">
+            <el-icon><Film /></el-icon>
+            <span>转影视脚本</span>
+          </el-button>
+          <el-button class="btn" @click="handleDocCommand('rename')">
             <el-icon><Edit /></el-icon>
             <span>重命名</span>
           </el-button>
-          <el-button class="header-delete-btn" type="danger" @click="handleDocCommand('delete')">
+          <el-button class="btn btn-danger" type="danger" @click="handleDocCommand('delete')">
             <el-icon><Delete /></el-icon>
             <span>删除文档</span>
           </el-button>
@@ -196,7 +210,7 @@
         />
         <el-button
           v-if="headerExpanded"
-          class="collapse-btn"
+          class="btn-text"
           link
           @click="headerExpanded = false"
         >
@@ -205,7 +219,7 @@
         </el-button>
         <el-button
           v-else
-          class="expand-btn"
+          class="btn-text"
           link
           @click="headerExpanded = true"
         >
@@ -312,6 +326,12 @@
       :document-id="Number(documentId)"
     />
 
+    <VideoScriptDialog
+      v-model="showVideoScriptDialog"
+      :document-id="Number(documentId)"
+      :raw-blocks="blocksSnapshotForImageApi()"
+    />
+
     <input
       ref="documentImageUploadRef"
       type="file"
@@ -333,10 +353,11 @@ import AIExtract from '@/components/AIExtract.vue'
 import AIGenerateFromMemory from '@/components/AIGenerateFromMemory.vue'
 import ExportMenu from '@/components/ExportMenu.vue'
 import PublishDialog from '@/components/PublishDialog.vue'
+import VideoScriptDialog from '@/components/VideoScriptDialog.vue'
 import { parseFormattedTextToBlocks } from '@/utils/formatToBlocks'
 import { ElMessageBox } from 'element-plus'
 import { aiApi } from '@/api'
-import { ArrowLeft, ArrowRight, ArrowDown, ArrowUp, ChatDotRound, Check, Loading, CircleCheck, MoreFilled, Edit, Delete, Aim, MagicStick, Document, Collection, Files, Promotion, Download, Picture, Link, Upload, View } from '@element-plus/icons-vue'
+import { ArrowLeft, ArrowRight, ArrowDown, ArrowUp, ChatDotRound, Check, Loading, CircleCheck, MoreFilled, Edit, Delete, Aim, MagicStick, Document, Collection, Files, Promotion, Download, Picture, Link, Upload, View, VideoCamera, Film } from '@element-plus/icons-vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -370,6 +391,7 @@ const blockEditorRef = ref<{ getImageInsertAfterIndex: () => number; flushPendin
 // 默认先折叠：只展示“保存、AI 助手、更多”
 const headerExpanded = ref(false)
 const showPublishDialog = ref(false)
+const showVideoScriptDialog = ref(false)
 const generatingImage = ref(false)
 const uploadingImage = ref(false)
 const documentImageUploadRef = ref<HTMLInputElement | null>(null)
@@ -555,6 +577,10 @@ function handleMoreCommand(command: string) {
     exportMenuRef.value?.triggerExport('txt')
   } else if (command === 'publish') {
     showPublishDialog.value = true
+  } else if (command === 'video-script') {
+    showVideoScriptDialog.value = true
+  } else if (command === 'film-script') {
+    void convertToFilmScript()
   } else if (command === 'rename' || command === 'delete') {
     handleDocCommand(command)
   }
@@ -692,6 +718,40 @@ function blocksSnapshotForImageApi(): Block[] {
     return JSON.parse(JSON.stringify(content.value)) as Block[]
   } catch {
     return [...content.value]
+  }
+}
+
+const convertingFilmScript = ref(false)
+
+async function convertToFilmScript() {
+  if (convertingFilmScript.value) return
+  if (!content.value.length) {
+    ElMessage.warning('文档内容为空，无法转换')
+    return
+  }
+  convertingFilmScript.value = true
+  const loading = ElMessage({ message: '正在转换为影视脚本，请稍候...', type: 'info', duration: 0 })
+  try {
+    if (hasChanges.value) await saveDocument()
+    const res = await aiApi.convertToFilmScript({
+      document_id: Number(documentId.value),
+      blocks: blocksSnapshotForImageApi(),
+    })
+    const data = res.data?.data
+    if (!data?.script_text) throw new Error('empty script')
+    const projectId = document.value?.project_id
+    if (!projectId) throw new Error('no project')
+    const title = (data.script_title || `${documentTitle.value}·影视脚本`).slice(0, 100)
+    const blocks = parseFormattedTextToBlocks(data.script_text, 'doc')
+    const newDoc = await store.createDocument(projectId, { title, content: blocks })
+    ElMessage.success('已生成影视脚本文档')
+    router.push(`/document/${newDoc.id}`)
+  } catch (e) {
+    console.error(e)
+    ElMessage.error(messageFromAxiosError(e, '转换影视脚本失败，请稍后重试'))
+  } finally {
+    loading.close()
+    convertingFilmScript.value = false
   }
 }
 
@@ -990,18 +1050,6 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 12px;
-  
-  .back-btn {
-    width: 36px;
-    height: 36px;
-    border-radius: 8px;
-    color: var(--coffee-text-muted);
-    
-    &:hover {
-      background: var(--coffee-bg-warm);
-      color: var(--coffee-primary);
-    }
-  }
 }
 
 .breadcrumb {
@@ -1052,29 +1100,9 @@ onUnmounted(() => {
   justify-content: flex-end;
   min-width: 0;
 
-  .doc-actions-dropdown .more-btn {
-    height: 40px;
-    padding: 0 12px;
-    color: var(--coffee-text-muted);
-    .arrow-icon {
-      margin-left: 4px;
-      font-size: 12px;
-      transition: transform 0.2s;
-      &.expanded { transform: rotate(180deg); }
-    }
-    &:hover {
-      color: var(--coffee-primary);
-    }
-  }
-
-  .collapse-btn,
-  .expand-btn {
-    height: 40px;
-    padding: 0 8px;
-    color: var(--coffee-text-muted);
-    font-size: 13px;
-    &:hover { color: var(--coffee-primary); }
-    .el-icon { margin-right: 2px; font-size: 14px; }
+  .doc-actions-dropdown .btn .arrow-icon {
+    transition: transform 0.2s;
+    &.expanded { transform: rotate(180deg); }
   }
 
   .export-dropdown {
@@ -1085,15 +1113,6 @@ onUnmounted(() => {
         margin-right: 0;
         font-size: 12px;
       }
-    }
-  }
-
-  .header-delete-btn {
-    height: 40px;
-    padding: 0 16px;
-    border-radius: 8px;
-    .el-icon {
-      margin-right: 6px;
     }
   }
 
@@ -1128,46 +1147,20 @@ onUnmounted(() => {
   }
 }
 
-.chat-toggle,
-.extract-btn,
-.generate-btn {
-  height: 40px;
-  padding: 0 16px;
-  border-radius: 8px;
-  border-color: var(--coffee-border);
-  color: var(--coffee-text-secondary);
-  
-  &:hover, &.el-button--primary {
-    border-color: var(--coffee-primary);
-    color: var(--coffee-primary);
-    background: var(--coffee-bg-hover);
-  }
-  
-  &.el-button--primary {
-    background: var(--coffee-primary);
-    color: #fff;
-  }
-  
-  .el-icon {
-    margin-right: 6px;
-  }
-}
-
-.save-btn {
-  height: 40px;
-  padding: 0 20px;
-  border-radius: 8px;
-  background: linear-gradient(135deg, var(--coffee-primary) 0%, var(--coffee-primary-light) 100%);
-  border: none;
-  font-weight: 500;
-  
-  &:hover {
-    transform: translateY(-1px);
-    box-shadow: 0 4px 12px var(--coffee-selection);
-  }
-  
-  .el-icon {
-    margin-right: 6px;
+@media (max-width: 1024px) {
+  .header-right {
+    .btn span {
+      display: none;
+    }
+    .btn {
+      padding: 0 12px;
+      .el-icon {
+        margin-right: 0;
+      }
+    }
+    .btn.btn-primary span {
+      display: none;
+    }
   }
 }
 
@@ -1291,26 +1284,6 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-}
-
-@media (max-width: 1024px) {
-  .header-right {
-    .chat-toggle span,
-    .extract-btn span,
-    .generate-btn span,
-    .save-btn span {
-      display: none;
-    }
-    .chat-toggle,
-    .extract-btn,
-    .generate-btn,
-    .save-btn {
-      padding: 0 12px;
-      .el-icon {
-        margin-right: 0;
-      }
-    }
-  }
 }
 
 @media (max-width: 768px) {

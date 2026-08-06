@@ -43,6 +43,16 @@ useThemeStore()
   /* 渐变 */
   --coffee-gradient-primary: linear-gradient(135deg, var(--coffee-primary) 0%, var(--coffee-primary-light) 100%);
   --coffee-gradient-light: linear-gradient(135deg, var(--coffee-bg-warm) 0%, var(--coffee-divider) 100%);
+
+  /* Element Plus 主色初值（默认咖啡棕，theme store 初始化后会按当前主题改写） */
+  --el-color-primary: #a65e2e;
+  --el-color-primary-rgb: 166, 94, 46;
+  --el-color-primary-light-3: #c18e6d;
+  --el-color-primary-light-5: #d3af97;
+  --el-color-primary-light-7: #e4cfc0;
+  --el-color-primary-light-8: #eddfd5;
+  --el-color-primary-light-9: #f6efea;
+  --el-color-primary-dark-2: #854b25;
 }
 
 * {
@@ -61,16 +71,6 @@ body {
 }
 
 /* ===== Element Plus 主题覆盖 ===== */
-
-/* 主要按钮 */
-.el-button--primary {
-  --el-button-bg-color: var(--coffee-primary);
-  --el-button-border-color: var(--coffee-primary);
-  --el-button-hover-bg-color: var(--coffee-primary-light);
-  --el-button-hover-border-color: var(--coffee-primary-light);
-  --el-button-active-bg-color: var(--coffee-primary-dark);
-  --el-button-active-border-color: var(--coffee-primary-dark);
-}
 
 /* 输入框 */
 .el-input__wrapper {

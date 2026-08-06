@@ -1,0 +1,238 @@
+/* ===== 统一按钮规范 ===== */
+
+:root {
+  --btn-height: 40px;
+  --btn-height-lg: 44px;
+  --btn-height-sm: 36px;
+  --btn-radius: 8px;
+  --btn-radius-lg: 10px;
+  --btn-padding-x: 16px;
+  --btn-padding-x-primary: 20px;
+  --btn-font-size: 14px;
+  --btn-font-size-lg: 15px;
+}
+
+/* 图标间距 */
+.btn .el-icon:first-child,
+.btn-primary .el-icon:first-child,
+.btn-danger .el-icon:first-child {
+  margin-right: 6px;
+}
+
+.btn .arrow-icon,
+.btn-primary .arrow-icon {
+  margin-left: 4px;
+  margin-right: 0 !important;
+  font-size: 12px;
+}
+
+/* 次要按钮（描边） */
+.btn,
+.el-button.btn {
+  height: var(--btn-height);
+  padding: 0 var(--btn-padding-x);
+  border-radius: var(--btn-radius);
+  border: 1px solid var(--coffee-border);
+  background: var(--coffee-bg-card);
+  color: var(--coffee-text-secondary);
+  font-size: var(--btn-font-size);
+  font-weight: 400;
+  transition: all 0.2s;
+}
+
+.btn:hover,
+.btn:focus-visible,
+.el-button.btn:hover,
+.el-button.btn:focus-visible {
+  color: var(--coffee-primary);
+  border-color: var(--coffee-primary);
+  background: var(--coffee-bg-hover);
+}
+
+.btn.is-disabled,
+.btn.is-disabled:hover,
+.el-button.btn.is-disabled,
+.el-button.btn.is-disabled:hover {
+  opacity: 0.6;
+  transform: none;
+  box-shadow: none;
+}
+
+/* 主按钮（渐变实心） */
+.btn-primary,
+.el-button.btn-primary,
+.el-button.btn.el-button--primary:not(.is-link):not(.is-text) {
+  height: var(--btn-height);
+  padding: 0 var(--btn-padding-x-primary);
+  border-radius: var(--btn-radius);
+  border: none;
+  background: var(--coffee-gradient-primary);
+  color: #fff;
+  font-size: var(--btn-font-size);
+  font-weight: 500;
+  transition: all 0.2s;
+}
+
+.btn-primary:hover,
+.btn-primary:focus-visible,
+.el-button.btn-primary:hover,
+.el-button.btn-primary:focus-visible,
+.el-button.btn.el-button--primary:not(.is-link):not(.is-text):hover,
+.el-button.btn.el-button--primary:not(.is-link):not(.is-text):focus-visible {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(var(--coffee-primary-rgb), 0.35);
+  background: var(--coffee-gradient-primary);
+  color: #fff;
+  border-color: transparent;
+}
+
+.btn-primary.is-disabled,
+.btn-primary.is-disabled:hover,
+.el-button.btn-primary.is-disabled,
+.el-button.btn-primary.is-disabled:hover,
+.el-button.btn.el-button--primary.is-disabled,
+.el-button.btn.el-button--primary.is-disabled:hover {
+  transform: none;
+  box-shadow: none;
+  opacity: 0.6;
+}
+
+/* 危险按钮 */
+.btn-danger,
+.el-button.btn-danger,
+.el-button.btn.el-button--danger:not(.is-link):not(.is-text) {
+  height: var(--btn-height);
+  padding: 0 var(--btn-padding-x);
+  border-radius: var(--btn-radius);
+  font-size: var(--btn-font-size);
+}
+
+/* 大号 */
+.btn-lg,
+.el-button.btn-lg {
+  height: var(--btn-height-lg);
+  padding: 0 24px;
+  border-radius: var(--btn-radius-lg);
+  font-size: var(--btn-font-size-lg);
+}
+
+.el-button.btn-primary.btn-lg,
+.el-button.btn.btn-lg.el-button--primary:not(.is-link):not(.is-text) {
+  height: var(--btn-height-lg);
+  padding: 0 24px;
+  border-radius: var(--btn-radius-lg);
+  font-size: var(--btn-font-size-lg);
+}
+
+/* 小号 */
+.btn-sm,
+.el-button.btn-sm {
+  height: var(--btn-height-sm);
+  padding: 0 16px;
+  border-radius: var(--btn-radius);
+  font-size: 13px;
+}
+
+.el-button.btn-primary.btn-sm,
+.el-button.btn.btn-sm.el-button--primary:not(.is-link):not(.is-text) {
+  height: var(--btn-height-sm);
+  padding: 0 16px;
+}
+
+/* 全宽 */
+.btn-block,
+.el-button.btn-block {
+  width: 100%;
+}
+
+/* 虚线添加按钮 */
+.btn-dashed,
+.el-button.btn-dashed {
+  width: 100%;
+  height: var(--btn-height-lg);
+  border-radius: var(--btn-radius-lg);
+  border: 2px dashed var(--coffee-border);
+  color: var(--coffee-text-muted);
+  background: transparent;
+}
+
+.btn-dashed:hover,
+.el-button.btn-dashed:hover {
+  border-color: var(--coffee-primary);
+  color: var(--coffee-primary);
+  background: var(--coffee-sidebar-shadow);
+}
+
+/* 返回 / 图标按钮 */
+.btn-icon,
+.el-button.btn-icon {
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border-radius: var(--btn-radius);
+  border: none;
+  background: transparent;
+  color: var(--coffee-text-muted);
+}
+
+.btn-icon:hover,
+.el-button.btn-icon:hover {
+  background: var(--coffee-bg-warm);
+  color: var(--coffee-primary);
+}
+
+.btn-icon-lg,
+.el-button.btn-icon-lg {
+  width: 40px;
+  height: 40px;
+  border-radius: var(--btn-radius-lg);
+  background: var(--coffee-bg-warm);
+}
+
+.btn-icon-lg:hover,
+.el-button.btn-icon-lg:hover {
+  background: var(--coffee-border-light);
+  color: var(--coffee-primary);
+}
+
+/* 纯图标小按钮（工具栏） */
+.btn-icon-only,
+.el-button.btn-icon-only {
+  min-width: 32px;
+  height: 32px;
+  padding: 0 8px;
+  border-radius: 6px;
+  border: none;
+  background: var(--coffee-bg-warm);
+  color: var(--coffee-text-secondary);
+  font-size: 16px;
+}
+
+.btn-icon-only:hover,
+.el-button.btn-icon-only:hover {
+  background: var(--coffee-bg-hover);
+  color: var(--coffee-primary);
+}
+
+/* 折叠/展开文字按钮 */
+.btn-text,
+.el-button.btn-text {
+  height: var(--btn-height);
+  padding: 0 8px;
+  border: none;
+  background: transparent;
+  color: var(--coffee-text-muted);
+  font-size: 13px;
+}
+
+.btn-text:hover,
+.el-button.btn-text:hover {
+  color: var(--coffee-primary);
+  background: transparent;
+}
+
+.btn-text .el-icon,
+.el-button.btn-text .el-icon {
+  margin-right: 2px;
+  font-size: 14px;
+}

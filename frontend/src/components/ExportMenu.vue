@@ -1,7 +1,7 @@
 <template>
   <div class="export-menu">
     <el-dropdown v-if="showButton" trigger="click" @command="handleExport">
-      <el-button class="export-btn">
+      <el-button class="btn">
         <el-icon><Download /></el-icon>
         <span>导出</span>
         <el-icon class="arrow-icon"><ArrowDown /></el-icon>
@@ -191,31 +191,6 @@ defineExpose({
 <style scoped lang="scss">
 .export-menu {
   display: inline-block;
-}
-
-.export-btn {
-  height: 40px;
-  padding: 0 16px;
-  border-radius: 8px;
-  border-color: var(--coffee-border);
-  color: var(--coffee-text-secondary);
-  background: var(--coffee-bg-card);
-  
-  &:hover {
-    border-color: var(--coffee-primary);
-    color: var(--coffee-primary);
-    background: var(--coffee-sidebar-shadow);
-  }
-  
-  .el-icon {
-    margin-right: 6px;
-  }
-  
-  .arrow-icon {
-    margin-left: 6px;
-    margin-right: 0;
-    font-size: 12px;
-  }
 }
 
 .export-dropdown {

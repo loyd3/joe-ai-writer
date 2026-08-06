@@ -31,6 +31,8 @@ from app.services.enhanced_long_article_service import EnhancedLongArticleServic
 from app.services.ai_memory_service import AIMemoryService
 from app.services.llm_service import LLMService
 from app.services.ai_image_service import AIImageService
+from app.services.video_script_service import VideoScriptService
+from app.services.film_script_service import FilmScriptService
 
 router = APIRouter(prefix="/api/ai", tags=["ai"])
 
@@ -48,6 +50,34 @@ class GenerateArticleImageRequest(BaseModel):
         default=None,
         description="编辑器当前块快照（可选）；传入时优先用于提取正文，避免未保存时数据库内容为空",
     )
+
+
+class ConvertToVideoScriptRequest(BaseModel):
+    """将文章转换为短视频口播文案 + AI 视频提示词"""
+    document_id: Optional[int] = Field(default=None, description="已保存文档 ID（可选）")
+    raw_title: Optional[str] = Field(default=None, description="未保存时的标题")
+    raw_content: Optional[str] = Field(default=None, description="未保存时的纯文本/Markdown")
+    raw_blocks: Optional[List[Dict[str, Any]]] = Field(default=None, description="未保存时的编辑器块")
+    blocks: Optional[List[Dict[str, Any]]] = Field(
+        default=None,
+        description="编辑器当前块快照（有 document_id 时优先于数据库正文）",
+    )
+    duration_sec: int = Field(default=60, ge=15, le=180, description="目标时长（秒）")
+    style: str = Field(default="口播解说", description="视频风格，如：口播解说/剧情演绎/知识干货")
+    platform: str = Field(default="抖音", description="目标平台")
+
+
+class ConvertToFilmScriptRequest(BaseModel):
+    """将文章转换为影视脚本（Markdown 长文本）"""
+    document_id: Optional[int] = Field(default=None, description="已保存文档 ID（可选）")
+    raw_title: Optional[str] = Field(default=None, description="未保存时的标题")
+    raw_content: Optional[str] = Field(default=None, description="未保存时的纯文本/Markdown")
+    raw_blocks: Optional[List[Dict[str, Any]]] = Field(default=None, description="未保存时的编辑器块")
+    blocks: Optional[List[Dict[str, Any]]] = Field(
+        default=None,
+        description="编辑器当前块快照（有 document_id 时优先于数据库正文）",
+    )
+
 
 def check_document_access(db: Session, document_id: int, user_id: int):
     """检查用户是否有权限访问文档"""
@@ -375,6 +405,88 @@ async def generate_article_image(
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"生成插图失败: {str(e)}")
+
+
+@router.post("/convert-to-video-script")
+async def convert_to_video_script(
+    request: ConvertToVideoScriptRequest,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+    llm_service: LLMService = Depends(get_llm_service),
+):
+    """
+    将文章一键转换为：
+    - 短视频口播文案（含钩子、分镜、标签）
+    - AI 视频生成提示词（英文，可直接用于 Runway/Kling 等）
+    """
+    title = (request.raw_title or "").strip()
+    blocks: Optional[List[Dict[str, Any]]] = request.raw_blocks or request.blocks
+    raw_content = (request.raw_content or "").strip()
+
+    if request.document_id:
+        document = check_document_access(db, request.document_id, current_user["id"])
+        title = title or (document.title or "")
+        # 优先前端传入的当前块（含未保存编辑）
+        if not blocks:
+            blocks = list(document.content or [])
+
+    if not blocks and not raw_content:
+        raise HTTPException(status_code=400, detail="请提供 document_id 或文章内容")
+
+    try:
+        data = await VideoScriptService.convert(
+            llm_service,
+            title=title,
+            blocks=blocks,
+            raw_content=raw_content,
+            duration_sec=request.duration_sec,
+            style=request.style,
+            platform=request.platform,
+        )
+        return {"success": True, "data": data}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"转换视频文案失败: {str(e)}")
+
+
+@router.post("/convert-to-film-script")
+async def convert_to_film_script(
+    request: ConvertToFilmScriptRequest,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+    llm_service: LLMService = Depends(get_llm_service),
+):
+    """
+    将文章一键转换为影视脚本（Markdown 长文本），
+    前端拿到结果后在当前项目下生成新文档。
+    """
+    title = (request.raw_title or "").strip()
+    blocks: Optional[List[Dict[str, Any]]] = request.raw_blocks or request.blocks
+    raw_content = (request.raw_content or "").strip()
+
+    if request.document_id:
+        document = check_document_access(db, request.document_id, current_user["id"])
+        title = title or (document.title or "")
+        # 优先前端传入的当前块（含未保存编辑）
+        if not blocks:
+            blocks = list(document.content or [])
+
+    if not blocks and not raw_content:
+        raise HTTPException(status_code=400, detail="请提供 document_id 或文章内容")
+
+    try:
+        data = await FilmScriptService.convert(
+            llm_service,
+            title=title,
+            blocks=blocks,
+            raw_content=raw_content,
+        )
+        return {"success": True, "data": data}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"转换影视脚本失败: {str(e)}")
 
 
 _ALLOWED_IMAGE_CT = {

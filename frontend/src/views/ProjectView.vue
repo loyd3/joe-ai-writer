@@ -3,7 +3,7 @@
     <div class="project-header">
       <div class="header-content">
         <div class="breadcrumb">
-          <el-button link @click="goHome" class="back-btn">
+          <el-button link @click="goHome" class="btn-icon-lg">
             <el-icon><ArrowLeft /></el-icon>
           </el-button>
           <div class="title-section">
@@ -13,16 +13,16 @@
         </div>
         <div class="actions">
           <!-- 折叠时只显示 3 个：新建文档、项目设定、更多 -->
-          <el-button type="primary" class="create-btn" @click="showCreateDocDialog = true">
+          <el-button type="primary" class="btn-primary btn-lg" @click="showCreateDocDialog = true">
             <el-icon><Plus /></el-icon>
             <span>新建文档</span>
           </el-button>
-          <el-button class="memory-btn" @click="showMemoryDrawer = true">
+          <el-button class="btn btn-lg" @click="showMemoryDrawer = true">
             <el-icon><Collection /></el-icon>
             <span>项目设定</span>
           </el-button>
           <el-dropdown v-if="!headerExpanded" trigger="click" @command="handleProjectMoreCommand" class="project-actions-dropdown">
-            <el-button class="more-btn">
+            <el-button class="btn btn-lg">
               <el-icon><MoreFilled /></el-icon>
               <span>更多</span>
               <el-icon class="arrow-icon"><ArrowDown /></el-icon>
@@ -48,15 +48,15 @@
             </template>
           </el-dropdown>
           <template v-if="headerExpanded">
-            <el-button class="memory-btn" @click="showTemplateLibrary = true">
+            <el-button class="btn btn-lg" @click="showTemplateLibrary = true">
               <el-icon><Upload /></el-icon>
               <span>导入模板</span>
             </el-button>
-            <el-button class="auto-write-btn" type="warning" plain @click="showAutoWriteDrawer = true">
+            <el-button class="btn btn-lg" type="warning" plain @click="showAutoWriteDrawer = true">
               <el-icon><EditPen /></el-icon>
               <span>AI 自动写作</span>
             </el-button>
-            <el-button class="analyzer-btn" type="success" plain @click="showLiteratureAnalyzer = true">
+            <el-button class="btn btn-lg" type="success" plain @click="showLiteratureAnalyzer = true">
               <el-icon><Reading /></el-icon>
               <span>作品分析</span>
             </el-button>
@@ -68,11 +68,11 @@
             :project-id="Number(projectId)"
             :project-title="project?.title"
           />
-          <el-button v-if="headerExpanded" class="collapse-btn" link @click="headerExpanded = false">
+          <el-button v-if="headerExpanded" class="btn-text" link @click="headerExpanded = false">
             <el-icon><ArrowUp /></el-icon>
             <span>收起</span>
           </el-button>
-          <el-button v-else class="expand-btn" link @click="headerExpanded = true">
+          <el-button v-else class="btn-text" link @click="headerExpanded = true">
             <el-icon><ArrowDown /></el-icon>
             <span>展开</span>
           </el-button>
@@ -546,19 +546,6 @@ async function onProjectFromLiteratureCreated(projectId: number) {
   align-items: flex-start;
   gap: 16px;
   
-  .back-btn {
-    width: 40px;
-    height: 40px;
-    border-radius: 10px;
-    background: var(--coffee-bg-warm);
-    color: var(--coffee-text-muted);
-    
-    &:hover {
-      background: var(--coffee-border-light);
-      color: var(--coffee-primary);
-    }
-  }
-  
   .title-section {
     h1 {
       font-size: 28px;
@@ -580,68 +567,12 @@ async function onProjectFromLiteratureCreated(projectId: number) {
   align-items: center;
   gap: 12px;
   
-  .project-actions-dropdown .more-btn {
-    height: 44px;
-    padding: 0 12px;
-    border-radius: 10px;
-    border-color: var(--coffee-border);
-    color: var(--coffee-text-secondary);
-    .el-icon { margin-right: 6px; }
-    .arrow-icon { margin-left: 2px; font-size: 12px; }
-    &:hover {
-      border-color: var(--coffee-primary);
-      color: var(--coffee-primary);
-    }
+  .project-actions-dropdown .btn .arrow-icon {
+    font-size: 12px;
   }
 
-  .collapse-btn,
-  .expand-btn {
-    height: 44px;
-    padding: 0 8px;
-    color: var(--coffee-text-muted);
-    font-size: 13px;
-    &:hover { color: var(--coffee-primary); }
-    .el-icon { margin-right: 2px; font-size: 14px; }
-  }
-  
   :deep(.delete-item) {
     color: var(--el-color-danger);
-  }
-  
-  .memory-btn {
-    height: 44px;
-    padding: 0 20px;
-    border-radius: 10px;
-    border-color: var(--coffee-border);
-    color: var(--coffee-text-secondary);
-    
-    &:hover {
-      border-color: var(--coffee-primary);
-      color: var(--coffee-primary);
-      background: var(--coffee-sidebar-shadow);
-    }
-    
-    .el-icon {
-      margin-right: 6px;
-    }
-  }
-  
-  .create-btn {
-    height: 44px;
-    padding: 0 24px;
-    border-radius: 10px;
-    background: linear-gradient(135deg, var(--coffee-primary) 0%, var(--coffee-primary-light) 100%);
-    border: none;
-    font-weight: 500;
-    
-    &:hover {
-      transform: translateY(-1px);
-      box-shadow: 0 6px 16px var(--coffee-selection);
-    }
-    
-    .el-icon {
-      margin-right: 6px;
-    }
   }
 }
 

@@ -63,7 +63,7 @@
           <el-button 
             type="primary" 
             size="large" 
-            class="submit-btn"
+            class="btn btn-primary btn-lg btn-block auth-submit"
             :loading="authStore.loading"
             @click="handleSubmit"
           >
@@ -271,22 +271,9 @@ async function handleSubmit() {
       height: 44px;
     }
   }
-  
-  .submit-btn {
-    width: 100%;
-    height: 48px;
-    border-radius: 12px;
-    font-size: 16px;
-    font-weight: 500;
+
+  .auth-submit {
     margin-top: 10px;
-    background: var(--coffee-gradient-primary);
-    border: none;
-    transition: all 0.3s ease;
-    
-    &:hover {
-      transform: translateY(-2px);
-      box-shadow: 0 8px 20px rgba(var(--coffee-primary-rgb), 0.3);
-    }
   }
 }
 

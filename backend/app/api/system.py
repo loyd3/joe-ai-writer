@@ -35,6 +35,7 @@ class AIConfigUpdate(BaseModel):
     base_url: Optional[str] = None
     model: Optional[str] = None
     temperature: Optional[float] = None
+    max_tokens: Optional[int] = None
 
 
 # 支持的 AI 提供商配置
@@ -371,7 +372,7 @@ def save_user_ai_config(
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
 ):
-    """保存用户 AI 配置到 system_configs 表"""
+    """保存用户 AI 配置到 system_configs 表（优先于环境变量）"""
     from app.core.ai_client import refresh_ai_client
     
     try:
@@ -389,30 +390,47 @@ def save_user_ai_config(
             "siliconflow": "deepseek-ai/DeepSeek-V3",
             "custom": "custom"
         }
+
+        api_key = (config.api_key or "").strip()
+        # 前端可能回填脱敏值（如 sk-xxxx...），不应覆盖已有真实 key
+        if api_key.endswith("...") or api_key == "":
+            existing_key = _get_db_config(db, "ai_api_key")
+            if existing_key and (api_key == "" or api_key.endswith("...")):
+                api_key = existing_key
+            elif api_key.endswith("..."):
+                raise HTTPException(
+                    status_code=400,
+                    detail="请重新输入完整的 API Key 后再保存",
+                )
+            elif not api_key:
+                raise HTTPException(status_code=400, detail="请填写 API Key")
         
         # 保存到 system_configs 表
         print(f"[SystemAPI] 保存 AI 配置: provider={config.provider}, model={config.model}")
-        print(f"[SystemAPI] API Key: {'已提供' if config.api_key else '未提供'}")
+        print(f"[SystemAPI] API Key: 已提供 ({api_key[:8]}...)")
         
         _set_db_config(db, "ai_provider", config.provider)
         _set_db_config(db, "ai_model", config.model or default_models.get(config.provider, "custom"))
-        _set_db_config(db, "ai_api_key", config.api_key)
+        _set_db_config(db, "ai_api_key", api_key)
         _set_db_config(db, "ai_base_url", config.base_url or base_url_map.get(config.provider, ""))
-        _set_db_config(db, "ai_temperature", config.temperature or 0.7)
-        _set_db_config(db, "ai_max_tokens", 4096)
+        _set_db_config(db, "ai_temperature", config.temperature if config.temperature is not None else 0.7)
+        _set_db_config(db, "ai_max_tokens", config.max_tokens or 4096)
         
         print(f"[SystemAPI] 配置已保存到数据库")
         
-        # 刷新 AI 客户端（使用新配置）
-        refresh_ai_client(db=db)
+        # 刷新 AI 客户端（使用新配置；勿绑定请求 session，避免请求结束后会话失效）
+        refresh_ai_client()
         
         return {
             "success": True,
-            "message": f"AI 配置已保存到数据库: {config.provider} - {config.model}",
+            "message": f"AI 配置已保存，将优先使用你的 API Key: {config.provider} - {config.model}",
             "provider": config.provider,
-            "model": config.model
+            "model": config.model,
+            "source": "user"
         }
         
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"配置更新失败: {str(e)}")
 

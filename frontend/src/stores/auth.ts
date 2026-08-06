@@ -76,6 +76,7 @@ export const useAuthStore = defineStore('auth', () => {
       let msg = '登录失败'
       const errMsg = error.message?.toLowerCase() || ''
       const errCode = error.code?.toUpperCase() || ''
+      const detail = error.response?.data?.detail
 
       if (errCode.includes('CONNECTION_TIMED_OUT') || errMsg.includes('timed out')) {
         msg = '连接超时 (ERR_CONNECTION_TIMED_OUT)：后端服务无响应\n请确保服务已启动: python start.py'
@@ -87,8 +88,12 @@ export const useAuthStore = defineStore('auth', () => {
         msg = '连接超时：无法连接到后端服务'
       } else if (error.code === 'ERR_NETWORK' || errMsg.includes('network error')) {
         msg = '网络错误：无法连接到后端服务'
-      } else if (error.response?.data?.detail) {
-        msg = error.response.data.detail
+      } else if (error.response?.status === 401) {
+        msg = '用户名或密码错误'
+      } else if (typeof detail === 'string') {
+        msg = detail
+      } else if (Array.isArray(detail) && detail[0]?.msg) {
+        msg = detail.map((d: any) => d.msg).join('；')
       }
 
       ElMessage.error({

@@ -1,0 +1,11 @@
+# 增量重建：复用已有镜像依赖层，仅更新代码
+FROM loyd3/joe-ai-writer-frontend:latest
+
+WORKDIR /app
+
+# node_modules 在 .dockerignore 中，会保留基础镜像里已安装的依赖
+COPY . .
+
+EXPOSE 5173
+
+CMD ["npm", "run", "dev", "--", "--host"]

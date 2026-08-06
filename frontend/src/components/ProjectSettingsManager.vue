@@ -12,7 +12,7 @@
                 <el-icon><Delete /></el-icon>
               </el-button>
             </div>
-            <el-button class="add-btn" @click="addOutline">
+            <el-button class="btn btn-dashed" @click="addOutline">
               <el-icon><Plus /></el-icon> 添加章节
             </el-button>
           </div>
@@ -56,7 +56,7 @@
               </div>
             </div>
           </div>
-          <el-button class="add-btn" @click="addCharacter">
+          <el-button class="btn btn-dashed" @click="addCharacter">
             <el-icon><Plus /></el-icon> 添加角色
           </el-button>
         </div>
@@ -99,7 +99,7 @@
                 <el-icon><Delete /></el-icon>
               </el-button>
             </div>
-            <el-button class="add-btn" @click="addKeyPoint">
+            <el-button class="btn btn-dashed" @click="addKeyPoint">
               <el-icon><Plus /></el-icon> 添加情节点
             </el-button>
           </div>
@@ -121,7 +121,7 @@
     </el-tabs>
 
     <div class="save-bar">
-      <el-button type="primary" size="large" @click="saveSettings" :loading="saving" class="save-btn">
+      <el-button type="primary" size="large" @click="saveSettings" :loading="saving" class="btn btn-primary btn-lg">
         <el-icon><Check /></el-icon> 保存设定
       </el-button>
     </div>
@@ -383,36 +383,15 @@ async function saveSettings() {
   .el-input {
     flex: 1;
   }
-  
-  .delete-btn {
-    color: var(--coffee-text-light);
-    
-    &:hover {
-      color: #f56c6c;
-    }
-  }
 }
 
-/* 按钮样式 */
-.add-btn {
-  width: 100%;
-  height: 44px;
-  border-radius: 10px;
-  border: 2px dashed var(--coffee-border);
-  color: var(--coffee-text-muted);
-  background: transparent;
-  
-  &:hover {
-    border-color: var(--coffee-primary);
-    color: var(--coffee-primary);
-    background: var(--coffee-sidebar-shadow);
-  }
-}
-
+/* 删除链接按钮 */
 .delete-btn {
+  color: var(--coffee-text-light);
   padding: 8px;
   
   &:hover {
+    color: #f56c6c;
     background: rgba(245, 108, 108, 0.1);
   }
 }
@@ -444,19 +423,8 @@ async function saveSettings() {
   background: var(--coffee-bg-card);
   border-top: 1px solid var(--coffee-border);
   
-  .save-btn {
+  .btn-primary {
     min-width: 160px;
-    height: 48px;
-    border-radius: 10px;
-    background: linear-gradient(135deg, var(--coffee-primary) 0%, var(--coffee-primary-light) 100%);
-    border: none;
-    font-size: 15px;
-    font-weight: 500;
-    
-    &:hover {
-      transform: translateY(-1px);
-      box-shadow: 0 6px 16px var(--coffee-selection);
-    }
   }
 }
 </style>

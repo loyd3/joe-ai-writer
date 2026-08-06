@@ -104,7 +104,7 @@
               size="large"
               :loading="creating"
               @click="createPlan"
-              class="create-btn"
+              class="btn btn-primary btn-lg"
             >
               <el-icon><Document /></el-icon>
               创建写作计划
@@ -804,11 +804,6 @@ onMounted(() => {
 
 .style-tag {
   cursor: pointer;
-}
-
-.create-btn {
-  padding: 15px 40px;
-  font-size: 16px;
 }
 
 .plan-detail {

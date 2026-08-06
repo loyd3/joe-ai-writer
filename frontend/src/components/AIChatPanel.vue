@@ -95,7 +95,7 @@
           <el-icon><InfoFilled /></el-icon>
           Ctrl + Enter 发送
         </span>
-        <el-button type="primary" @click="sendMessage" :loading="loading" class="send-btn">
+        <el-button type="primary" @click="sendMessage" :loading="loading" class="btn btn-primary btn-sm">
           <el-icon><Promotion /></el-icon> 发送
         </el-button>
       </div>
@@ -736,23 +736,6 @@ function scrollToBottom() {
     
     .el-icon {
       font-size: 14px;
-    }
-  }
-  
-  .send-btn {
-    height: 36px;
-    padding: 0 20px;
-    border-radius: 8px;
-    background: linear-gradient(135deg, var(--coffee-primary) 0%, var(--coffee-primary-light) 100%);
-    border: none;
-    
-    &:hover {
-      transform: translateY(-1px);
-      box-shadow: 0 4px 12px var(--coffee-selection);
-    }
-    
-    .el-icon {
-      margin-right: 4px;
     }
   }
 }

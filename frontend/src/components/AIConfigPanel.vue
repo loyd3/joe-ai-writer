@@ -86,7 +86,7 @@
         </el-input>
         <div class="form-hint">
           <el-icon><InfoFilled /></el-icon>
-          API Key 仅保存在本地，不会上传到服务器
+          保存后优先使用你填写的 API Key；未配置时才使用服务器环境变量
         </div>
       </el-form-item>
       
@@ -258,8 +258,6 @@ const isConfigured = computed(() => {
 
 onMounted(async () => {
   await loadConfig()
-  // 尝试从 localStorage 加载保存的配置
-  loadFromLocalStorage()
 })
 
 async function loadConfig() {
@@ -274,11 +272,39 @@ async function loadConfig() {
       form.value.provider = res.data.provider
       form.value.model = res.data.model
     }
+
+    // 优先加载已保存到服务端的用户配置（真正会被后端 AI 调用使用）
+    try {
+      const userRes = await systemApi.getUserAIConfig()
+      const userCfg = userRes.data
+      if (userCfg?.provider) {
+        form.value.provider = userCfg.provider
+        form.value.model = userCfg.model || form.value.model
+        form.value.baseUrl = userCfg.base_url || ''
+        form.value.temperature = userCfg.temperature ?? form.value.temperature
+        form.value.maxTokens = userCfg.max_tokens ?? form.value.maxTokens
+        // 脱敏 key 仅作占位提示；真正完整 key 优先从本地读取
+        if (userCfg.api_key && !form.value.apiKey) {
+          form.value.apiKey = userCfg.api_key
+        }
+        config.value = {
+          ...config.value!,
+          provider: userCfg.provider,
+          model: userCfg.model || config.value?.model || ''
+        }
+      }
+    } catch (e) {
+      console.log('尚未保存用户 AI 配置，将使用环境变量回退')
+    }
+
+    // 本地完整 API Key 覆盖脱敏占位
+    loadFromLocalStorage()
   } catch (e) {
     console.error('加载配置失败:', e)
     // 使用默认 DeepSeek 配置
     form.value.provider = 'deepseek'
     form.value.model = 'deepseek-chat'
+    loadFromLocalStorage()
   } finally {
     loading.value = false
   }
@@ -289,7 +315,13 @@ function loadFromLocalStorage() {
     const saved = localStorage.getItem('joe-ai-config')
     if (saved) {
       const parsed = JSON.parse(saved)
-      form.value = { ...form.value, ...parsed }
+      // 本地有完整 key 时覆盖脱敏值
+      if (parsed.apiKey && !String(parsed.apiKey).endsWith('...')) {
+        form.value = { ...form.value, ...parsed }
+      } else {
+        const { apiKey: _ignored, ...rest } = parsed
+        form.value = { ...form.value, ...rest }
+      }
     }
   } catch (e) {
     console.error('加载本地配置失败:', e)
@@ -357,10 +389,24 @@ async function saveConfig() {
     ElMessage.warning('请输入 API Key 后再保存')
     return
   }
+  if (String(form.value.apiKey).endsWith('...')) {
+    ElMessage.warning('请重新输入完整的 API Key 后再保存')
+    return
+  }
   
   saving.value = true
   try {
-    // 1. 保存到 localStorage
+    // 1. 必须先保存到后端（AI 调用实际读取服务端配置）
+    await systemApi.saveUserAIConfig({
+      provider: form.value.provider,
+      model: form.value.model,
+      api_key: form.value.apiKey,
+      base_url: form.value.baseUrl || undefined,
+      temperature: form.value.temperature,
+      max_tokens: form.value.maxTokens
+    })
+
+    // 2. 同步本地缓存（方便下次打开表单回填完整 key）
     localStorage.setItem('joe-ai-config', JSON.stringify({
       provider: form.value.provider,
       model: form.value.model,
@@ -370,22 +416,7 @@ async function saveConfig() {
       maxTokens: form.value.maxTokens
     }))
     
-    // 2. 尝试保存到后端（动态切换）
-    try {
-      await systemApi.saveUserAIConfig({
-        provider: form.value.provider,
-        model: form.value.model,
-        api_key: form.value.apiKey,
-        base_url: form.value.baseUrl || undefined,
-        temperature: form.value.temperature,
-        max_tokens: form.value.maxTokens
-      })
-    } catch (e) {
-      // 后端保存失败不影响，因为本地已保存
-      console.log('后端配置保存失败（可能需要重启服务生效）')
-    }
-    
-    ElMessage.success('配置已保存！')
+    ElMessage.success('配置已保存，将优先使用你的 API Key')
     
     // 更新状态显示
     config.value = {
@@ -393,17 +424,23 @@ async function saveConfig() {
       provider: form.value.provider,
       model: form.value.model
     }
-  } catch (e) {
-    ElMessage.error('保存失败')
+  } catch (e: any) {
+    const msg = e?.response?.data?.detail || e?.message || '保存失败'
+    ElMessage.error(typeof msg === 'string' ? msg : '保存失败，请确认已登录')
   } finally {
     saving.value = false
   }
 }
 
-function resetToDefault() {
+async function resetToDefault() {
   form.value = { ...defaultConfig }
   localStorage.removeItem('joe-ai-config')
-  ElMessage.success('已重置为默认配置')
+  try {
+    await systemApi.deleteUserAIConfig()
+    ElMessage.success('已清除用户配置，将使用服务器环境变量')
+  } catch {
+    ElMessage.success('已重置本地配置（服务端清除失败，可能未登录）')
+  }
   testResult.value = null
 }
 </script>

@@ -106,7 +106,7 @@
 
         <div class="action-buttons">
           <el-button @click="currentStep = 0">上一步</el-button>
-          <el-button type="primary" @click="generateOutline" :loading="generatingOutline">
+          <el-button class="btn-primary btn-lg" @click="generateOutline" :loading="generatingOutline">
             <el-icon><MagicStick /></el-icon> AI生成大纲
           </el-button>
         </div>
@@ -220,7 +220,7 @@
 
           <div class="action-buttons">
             <el-button @click="currentStep = 1">上一步</el-button>
-            <el-button type="primary" @click="generateArticle" :loading="generatingArticle">
+            <el-button class="btn-primary btn-lg" @click="generateArticle" :loading="generatingArticle">
               <el-icon><EditPen /></el-icon> AI生成文章
             </el-button>
           </div>
@@ -305,10 +305,20 @@
             <el-button type="warning" size="large" @click="showPublishDialog = true">
               <el-icon><Promotion /></el-icon> 一键发布到自媒体平台
             </el-button>
+            <el-button type="primary" size="large" @click="showVideoScriptDialog = true" style="margin-left: 12px">
+              <el-icon><VideoCamera /></el-icon> 转视频文案 / AI提示词
+            </el-button>
           </div>
 
           <PublishDialog
             v-model="showPublishDialog"
+            :document-id="savedDoc?.id"
+            :raw-title="selectedTitle || saveConfig.title"
+            :raw-content="generatedArticle"
+          />
+
+          <VideoScriptDialog
+            v-model="showVideoScriptDialog"
             :document-id="savedDoc?.id"
             :raw-title="selectedTitle || saveConfig.title"
             :raw-content="generatedArticle"
@@ -338,10 +348,11 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { Refresh, TrendCharts, MagicStick, EditPen, DocumentChecked, Search, Promotion } from '@element-plus/icons-vue'
+import { Refresh, TrendCharts, MagicStick, EditPen, DocumentChecked, Search, Promotion, VideoCamera } from '@element-plus/icons-vue'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 import PublishDialog from '@/components/PublishDialog.vue'
+import VideoScriptDialog from '@/components/VideoScriptDialog.vue'
 import { useProjectStore } from '@/stores/project'
 import { API_BASE_URL } from '@/api'
 
@@ -444,6 +455,7 @@ const saving = ref(false)
 const quickWriting = ref(false)
 const savedDoc = ref<any>(null)
 const showPublishDialog = ref(false)
+const showVideoScriptDialog = ref(false)
 
 // 配置
 const outlineConfig = ref({

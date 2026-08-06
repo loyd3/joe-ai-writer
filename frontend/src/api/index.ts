@@ -177,11 +177,20 @@ api.interceptors.response.use(
 
     const { status, data } = error.response
 
-    // 认证错误
+    // 认证错误：登录接口的 401 是账号/密码错误，不能整页跳转
     if (status === 401) {
+      const url = error.config?.url || ''
+      const isLoginRequest = url.includes('/auth/login')
+      if (isLoginRequest) {
+        return Promise.reject(error)
+      }
+
       localStorage.removeItem('token')
       localStorage.removeItem('user')
-      window.location.href = '/login'
+      // 已在登录页时不要强制刷新，避免看不到错误提示
+      if (!window.location.pathname.startsWith('/login')) {
+        window.location.href = '/login'
+      }
       return Promise.reject(error)
     }
 
@@ -361,6 +370,37 @@ export const aiApi = {
       { timeout: 180000 }
     ),
 
+  /** 文章一键转短视频口播文案 + AI 视频提示词 */
+  convertToVideoScript: (data: {
+    document_id?: number
+    raw_title?: string
+    raw_content?: string
+    raw_blocks?: Block[] | Record<string, any>[] | null
+    blocks?: Block[] | Record<string, any>[] | null
+    duration_sec?: number
+    style?: string
+    platform?: string
+  }) =>
+    api.post<{ success: boolean; data: any }>(
+      '/ai/convert-to-video-script',
+      data,
+      { timeout: 180000 }
+    ),
+
+  /** 文章一键转影视脚本（返回 Markdown 长文本） */
+  convertToFilmScript: (data: {
+    document_id?: number
+    raw_title?: string
+    raw_content?: string
+    raw_blocks?: Block[] | Record<string, any>[] | null
+    blocks?: Block[] | Record<string, any>[] | null
+  }) =>
+    api.post<{ success: boolean; data: { script_title: string; script_text: string } }>(
+      '/ai/convert-to-film-script',
+      data,
+      { timeout: 180000 }
+    ),
+
   /** 上传本地图片到服务器 static，返回 /static/... URL */
   uploadDocumentImage: (documentId: number, file: File) => {
     const fd = new FormData()
@@ -377,8 +417,12 @@ export const systemApi = {
   aiConfig: () => api.get<AIConfig>('/system/ai-config'),
   testAI: (data: AIConfig) =>
     api.post<{ success: boolean; message?: string }>('/system/ai-config/test', data),
+  getUserAIConfig: () =>
+    api.get<AIConfig & { source?: string; message?: string }>('/system/user-ai-config'),
   saveUserAIConfig: (data: AIConfig) =>
     api.post('/system/user-ai-config', data),
+  deleteUserAIConfig: () =>
+    api.delete('/system/user-ai-config'),
 }
 
 // ========== 多平台发布 API ==========

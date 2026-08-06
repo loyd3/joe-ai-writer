@@ -66,7 +66,7 @@
         size="large"
         :loading="generating"
         @click="generateIdeas"
-        class="generate-btn"
+        class="btn btn-primary btn-lg"
       >
         <el-icon><MagicStick /></el-icon>
         生成创意
@@ -610,11 +610,6 @@ onMounted(() => {
 .generate-section {
   text-align: center;
   margin-bottom: 30px;
-}
-
-.generate-btn {
-  padding: 15px 40px;
-  font-size: 16px;
 }
 
 .ideas-section {

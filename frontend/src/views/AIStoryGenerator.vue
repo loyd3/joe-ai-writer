@@ -81,7 +81,7 @@
         </el-form-item>
 
         <div class="action-buttons">
-          <el-button type="primary" size="large" @click="generateStory" :loading="generating">
+          <el-button class="btn-primary btn-lg" @click="generateStory" :loading="generating">
             <el-icon><MagicStick /></el-icon>
             生成故事设定
           </el-button>
@@ -289,7 +289,7 @@
           </el-form>
 
           <div class="action-buttons">
-            <el-button type="success" @click="confirmAndCreateProject" :loading="applying || quickCreating">
+            <el-button class="btn-primary" @click="confirmAndCreateProject" :loading="applying || quickCreating">
               <el-icon><Check /></el-icon>
               确认并创建项目
             </el-button>

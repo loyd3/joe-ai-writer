@@ -6,14 +6,6 @@
         <p class="subtitle">在这里记录您的灵感与故事</p>
       </div>
       <div class="header-actions">
-        <!-- <el-button type="primary" class="action-btn" @click="showTemplateLibrary = true">
-          <el-icon><Collection /></el-icon>
-          <span>从模板开始</span>
-        </el-button> -->
-        <!-- <el-button class="action-btn" @click="showCreateDialog = true">
-          <el-icon><Plus /></el-icon>
-          <span>新建项目</span>
-        </el-button> -->
       </div>
     </div>
     
@@ -92,13 +84,13 @@
       <h2>开启您的创作之旅</h2>
       <p>创建第一个项目，开始记录您的灵感</p>
       <div class="empty-actions">
-        <el-button type="primary" size="large" @click="showTemplateLibrary = true">
+        <el-button type="primary" size="large" class="btn-lg" @click="showTemplateLibrary = true">
           <el-icon><Collection /></el-icon> 从模板开始
         </el-button>
-        <el-button size="large" @click="showCreateDialog = true">
+        <el-button size="large" class="btn-lg" @click="showCreateDialog = true">
           <el-icon><Plus /></el-icon> 创建空白项目
         </el-button>
-        <el-button size="large" @click="triggerImportProject" :loading="importing">
+        <el-button size="large" class="btn-lg" @click="triggerImportProject" :loading="importing">
           <el-icon><Upload /></el-icon> 导入项目
         </el-button>
       </div>
@@ -330,29 +322,6 @@ async function saveProject() {
   .header-actions {
     display: flex;
     gap: 12px;
-  }
-  
-  .action-btn {
-    height: 40px;
-    padding: 0 20px;
-    border-radius: 10px;
-    font-size: 14px;
-    font-weight: 500;
-    transition: all 0.3s ease;
-    
-    &.el-button--primary {
-      background: var(--coffee-gradient-primary);
-      border: none;
-    }
-    
-    &:hover {
-      transform: translateY(-2px);
-      box-shadow: 0 6px 16px var(--coffee-selection);
-    }
-    
-    .el-icon {
-      margin-right: 6px;
-    }
   }
 }
 

@@ -39,9 +39,9 @@
         <el-button
           type="primary"
           size="large"
+          class="full-width-btn"
           @click="generate"
           :loading="generating"
-          style="width: 100%"
         >
           <el-icon><Promotion /></el-icon>
           {{ generating ? '生成中...' : '开始生成' }}

@@ -189,6 +189,22 @@ function setCssVars(palette: Record<string, string>) {
   root.style.setProperty('--coffee-sidebar-shadow', `rgba(${r}, ${g}, ${b}, 0.04)`)
   root.style.setProperty('--el-menu-hover-bg-color', `rgba(${r}, ${g}, ${b}, 0.08)`)
   root.style.setProperty('--el-dropdown-menuItem-hover-fill', `rgba(${r}, ${g}, ${b}, 0.08)`)
+  // Element Plus 主色派生（light-N = 混白 N*10%，dark-2 = 混黑 20%），
+  // 使 link/text/plain 按钮及引用 --el-color-primary* 的样式跟随主题
+  const p = hexToRgb(primary)
+  const light = (n: number) =>
+    rgbToHex(...(mixRgb(p, WHITE, n / 10).map((x) => Math.round(x)) as [number, number, number]))
+  root.style.setProperty('--el-color-primary', primary)
+  root.style.setProperty('--el-color-primary-rgb', `${r}, ${g}, ${b}`)
+  root.style.setProperty('--el-color-primary-light-3', light(3))
+  root.style.setProperty('--el-color-primary-light-5', light(5))
+  root.style.setProperty('--el-color-primary-light-7', light(7))
+  root.style.setProperty('--el-color-primary-light-8', light(8))
+  root.style.setProperty('--el-color-primary-light-9', light(9))
+  root.style.setProperty(
+    '--el-color-primary-dark-2',
+    rgbToHex(...(mixRgb(p, BLACK, 0.2).map((x) => Math.round(x)) as [number, number, number]))
+  )
 }
 
 export const useThemeStore = defineStore('theme', () => {

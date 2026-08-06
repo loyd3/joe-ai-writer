@@ -1,0 +1,12 @@
+# 增量重建：复用已有镜像依赖层，仅更新代码
+FROM loyd3/joe-ai-writer-backend:latest
+
+WORKDIR /app
+
+COPY . .
+
+RUN chmod +x init_db.py
+
+EXPOSE 8000
+
+CMD ["sh", "-c", "python init_db.py && uvicorn app.main:app --host 0.0.0.0 --port 8000"]

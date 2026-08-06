@@ -9,9 +9,6 @@
 5. 搜索结果高亮
 """
 
-import chromadb
-from chromadb.config import Settings
-from sentence_transformers import SentenceTransformer
 from typing import List, Dict, Any, Optional, Tuple
 from dataclasses import dataclass, field
 import hashlib
@@ -23,6 +20,36 @@ import asyncio
 from concurrent.futures import ThreadPoolExecutor
 
 from app.core.config import get_settings
+
+# chromadb / sentence_transformers / torch 为可选依赖：
+# 本地环境 torch DLL 损坏时不应阻止整个后端启动
+_chromadb = None
+_chroma_settings = None
+_SentenceTransformer = None
+_VECTOR_DEPS_ERROR: Optional[str] = None
+
+
+def _load_vector_deps() -> bool:
+    """延迟加载向量检索依赖，失败时仅禁用语义搜索。"""
+    global _chromadb, _chroma_settings, _SentenceTransformer, _VECTOR_DEPS_ERROR
+    if _chromadb is not None and _SentenceTransformer is not None:
+        return True
+    if _VECTOR_DEPS_ERROR:
+        return False
+    try:
+        import chromadb
+        from chromadb.config import Settings as ChromaSettings
+        from sentence_transformers import SentenceTransformer
+
+        _chromadb = chromadb
+        _chroma_settings = ChromaSettings
+        _SentenceTransformer = SentenceTransformer
+        return True
+    except Exception as e:
+        _VECTOR_DEPS_ERROR = str(e)
+        print(f"[FullTextSearch] 向量检索依赖不可用，将仅使用关键词搜索: {e}")
+        return False
+
 
 EMBEDDING_MODEL = "shibing624/text2vec-base-chinese"
 CHUNK_SIZE = 500
@@ -77,23 +104,36 @@ class FullTextSearchService:
             self._init_client()
     
     def _init_client(self):
+        if not _load_vector_deps():
+            self._client = None
+            return
+
         persist_dir = os.path.join(os.getcwd(), "search_index")
         os.makedirs(persist_dir, exist_ok=True)
         
-        self._client = chromadb.PersistentClient(
-            path=persist_dir,
-            settings=Settings(
-                anonymized_telemetry=False,
-                allow_reset=True
+        try:
+            self._client = _chromadb.PersistentClient(
+                path=persist_dir,
+                settings=_chroma_settings(
+                    anonymized_telemetry=False,
+                    allow_reset=True
+                )
             )
-        )
+        except Exception as e:
+            print(f"[FullTextSearch] ChromaDB 初始化失败: {e}")
+            self._client = None
     
     def _ensure_embedding_model(self) -> bool:
         if self._embedding_model is not None:
             return True
+        if self._embedding_load_attempted:
+            return False
+        self._embedding_load_attempted = True
+        if not _load_vector_deps() or _SentenceTransformer is None:
+            return False
         try:
             print(f"[FullTextSearch] 正在加载 embedding 模型: {EMBEDDING_MODEL}")
-            self._embedding_model = SentenceTransformer(EMBEDDING_MODEL)
+            self._embedding_model = _SentenceTransformer(EMBEDDING_MODEL)
             print(f"[FullTextSearch] Embedding 模型加载成功")
             return True
         except Exception as e:
@@ -237,6 +277,11 @@ class FullTextSearchService:
     
     def _generate_chunk_id(self, document_id: int, chunk_index: int) -> str:
         return f"doc_{document_id}_chunk_{chunk_index}"
+
+    def _ensure_client(self) -> bool:
+        if self._client is None:
+            self._init_client()
+        return self._client is not None
     
     def index_document(
         self,
@@ -246,6 +291,10 @@ class FullTextSearchService:
         content: Any,
         metadata: Optional[Dict[str, Any]] = None
     ) -> int:
+        if not self._ensure_client():
+            print("[FullTextSearch] 向量索引不可用，跳过文档索引")
+            return 0
+
         text = self._chunks_to_text(content)
         if not text.strip():
             return 0
@@ -315,6 +364,8 @@ class FullTextSearchService:
             return 0
     
     def remove_document(self, document_id: int):
+        if not self._ensure_client():
+            return
         collection_name = self._get_global_collection_name()
         try:
             collection = self._client.get_collection(name=collection_name)
@@ -331,6 +382,8 @@ class FullTextSearchService:
             pass
     
     def remove_project(self, project_id: int):
+        if not self._ensure_client():
+            return
         collection_name = self._get_global_collection_name()
         try:
             collection = self._client.get_collection(name=collection_name)
@@ -397,6 +450,8 @@ class FullTextSearchService:
         min_score: float = 0.3
     ) -> List[SearchResult]:
         if not query or len(query.strip()) < 2:
+            return []
+        if not self._ensure_client():
             return []
         
         query = query.strip()
@@ -534,6 +589,8 @@ class FullTextSearchService:
     ) -> List[SearchResult]:
         if not query or len(query.strip()) < 2:
             return []
+        if not self._ensure_client():
+            return []
         
         query = query.strip()
         results = []
@@ -597,9 +654,13 @@ class FullTextSearchService:
             "total_chunks": 0,
             "total_documents": 0,
             "projects": {},
-            "embedding_model_loaded": self._embedding_model is not None
+            "embedding_model_loaded": self._embedding_model is not None,
+            "vector_search_available": self._ensure_client(),
         }
         
+        if not self._client:
+            return stats
+
         collection_name = self._get_global_collection_name()
         
         try:

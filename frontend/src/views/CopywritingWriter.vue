@@ -109,7 +109,7 @@
         </el-form>
 
         <div class="action-buttons">
-          <el-button type="primary" @click="generateCopywriting" :loading="generating" :disabled="!canGenerate">
+          <el-button class="btn-primary btn-lg" @click="generateCopywriting" :loading="generating" :disabled="!canGenerate">
             <el-icon><MagicStick /></el-icon> 生成文案
           </el-button>
         </div>
@@ -185,7 +185,7 @@
         <div class="action-buttons">
           <el-button
             @click="saveDocument"
-            type="primary"
+            class="btn-primary"
             :loading="saving"
             :disabled="!canSave"
           >
@@ -193,7 +193,7 @@
           </el-button>
 
           <el-button
-            type="success"
+            class="btn-primary"
             :loading="quickWriting"
             @click="quickWrite"
             v-if="!savedDoc"
@@ -208,6 +208,9 @@
           <el-button type="warning" size="large" @click="showPublishDialog = true">
             <el-icon><Promotion /></el-icon> 一键适配并预览多平台风格
           </el-button>
+          <el-button type="primary" size="large" @click="showVideoScriptDialog = true" style="margin-left: 12px">
+            <el-icon><VideoCamera /></el-icon> 转视频文案 / AI提示词
+          </el-button>
         </div>
       </el-card>
 
@@ -218,6 +221,14 @@
         :raw-content="generatedArticle?.content"
         :rawBlocks="generatedArticle?.blocks"
       />
+
+      <VideoScriptDialog
+        v-model="showVideoScriptDialog"
+        :document-id="savedDoc?.id"
+        :raw-title="generatedArticle?.title"
+        :raw-content="generatedArticle?.content"
+        :raw-blocks="generatedArticle?.blocks"
+      />
     </div>
   </div>
 </template>
@@ -225,10 +236,11 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Refresh, MagicStick, DocumentChecked, Promotion } from '@element-plus/icons-vue'
+import { Refresh, MagicStick, DocumentChecked, Promotion, VideoCamera } from '@element-plus/icons-vue'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 import PublishDialog from '@/components/PublishDialog.vue'
+import VideoScriptDialog from '@/components/VideoScriptDialog.vue'
 import { useProjectStore } from '@/stores/project'
 import { API_BASE_URL } from '@/api'
 
@@ -250,6 +262,7 @@ const generatedArticle = ref<{ title: string; content: string; keywords?: string
 const savedDoc = ref<any>(null)
 
 const showPublishDialog = ref(false)
+const showVideoScriptDialog = ref(false)
 
 const form = ref({
   copyObjective: '广告',
