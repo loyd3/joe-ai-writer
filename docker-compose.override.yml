@@ -12,9 +12,13 @@ services:
       - /app/__pycache__
     environment:
       - DEBUG=true
+      - PYTHONUNBUFFERED=1
+      - WATCHFILES_FORCE_POLLING=true
     command: >
       sh -c "python init_db.py &&
-             uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
+             uvicorn app.main:app --host 0.0.0.0 --port 8000
+             --reload --reload-dir=/app/app
+             --reload-include='*.py'"
 
   frontend:
     volumes:
@@ -22,7 +26,10 @@ services:
       - /app/node_modules
     environment:
       - VITE_API_URL=http://localhost:9000
+      - VITE_HMR_CLIENT_PORT=8080
       - NODE_ENV=development
+      - CHOKIDAR_USEPOLLING=true
+      - WATCHPACK_POLLING=true
     command: >
       sh -c "echo 'VITE_API_URL=http://localhost:9000' > /app/.env.local &&
-             npm run dev -- --host 0.0.0.0"
+             npm run dev -- --host 0.0.0.0 --port 5173"

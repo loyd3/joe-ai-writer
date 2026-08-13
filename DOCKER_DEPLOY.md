@@ -1,134 +1,83 @@
-# Joe AI Writer - Docker 本地部署指南
+# Joe AI Writer - Docker 部署
+
+## 保留的文件
+
+| 文件 | 作用 |
+|------|------|
+| `deploy.bat` | Windows 一键入口（启动 / 停止 / 日志） |
+| `docker-compose.yml` | MySQL + 后端 + 前端 |
+| `docker-compose.override.yml` | 本地开发覆盖（自动加载） |
+| `backend/Dockerfile` | 后端镜像 |
+| `frontend/Dockerfile` | 前端镜像 |
+| `.env.docker` | Docker 环境变量模板 |
 
 ## 快速开始
 
-### 1. 确保 Docker 已安装
+1. 安装并启动 [Docker Desktop](https://www.docker.com/products/docker-desktop)
+2. 配置环境变量：
 
-```bash
-# 检查 Docker
-docker --version
-docker-compose --version
+```powershell
+copy .env.docker .env
+# 编辑 .env，至少填入 DEEPSEEK_API_KEY（或其他 AI Key）
 ```
 
-### 2. 一键部署脚本
+3. 启动：
 
-```bash
-cd /Users/loyd/PycharmProjects/joe-ai-writer
-./deploy-docker.sh
+```powershell
+.\deploy.bat
+# 或
+docker compose up -d --build
 ```
 
-### 3. 或手动部署
+## 访问地址
 
-#### 方式一：完整部署（推荐）
-包含 MySQL 数据库 + 后端 + 前端
+| 服务 | 地址 |
+|------|------|
+| 前端 | http://localhost:8080 |
+| 后端 API | http://localhost:9000 |
+| API 文档 | http://localhost:9000/docs |
 
-```bash
-# 复制环境配置
-cp .env.docker .env
+## 容器内数据库
 
-# 编辑 .env 文件，配置你的 AI API Key
-vim .env
+后端通过 Docker 网络连接 MySQL，**不要用 localhost**：
 
-# 启动所有服务
-docker-compose up -d --build
+```
+mysql+pymysql://joewriter:joewriter123@mysql:3306/joe_writer?charset=utf8mb4
 ```
 
-#### 方式二：使用本地 MySQL
-如果你本地已有 MySQL
+| 项 | 默认值 |
+|----|--------|
+| 主机 | `mysql`（compose 服务名） |
+| 端口 | `3306`（仅容器网络内） |
+| 库名 | `joe_writer` |
+| 用户 | `joewriter` / `joewriter123` |
+| root | `root` / `rootpassword` |
 
-```bash
-# 确保 .env 中的数据库连接指向本地 MySQL
-# DATABASE_URL=mysql+pymysql://root:password@host.docker.internal:3306/aiwriter
+进入数据库容器：
 
-docker-compose -f docker-compose.local-db.yml up -d --build
+```powershell
+docker exec -it joe-writer-mysql mysql -ujoewriter -pjoewriter123 joe_writer
 ```
-
-## 访问服务
-
-- **前端界面**: http://localhost:8080
-- **后端 API**: http://localhost:9000
-- **API 文档**: http://localhost:9000/docs
-
-> 注意：Docker 使用 8080/9000 端口，与本地开发端口（5173/8000）不同，可同时运行互不干扰
 
 ## 常用命令
 
-```bash
-# 查看日志
-docker-compose logs -f
+```powershell
+.\deploy.bat              # 构建并启动
+.\deploy.bat logs         # 查看日志
+.\deploy.bat status       # 查看状态
+.\deploy.bat restart      # 重启
+.\deploy.bat down         # 停止
 
-# 停止服务
-docker-compose down
-
-# 重启服务
-docker-compose restart
-
-# 查看运行状态
-docker-compose ps
-
-# 进入后端容器
-docker exec -it joe-writer-backend bash
-
-# 进入数据库容器
-docker exec -it joe-writer-mysql mysql -ujoewriter -p
+# 等价 docker compose 命令
+docker compose up -d --build
+docker compose logs -f
+docker compose ps
+docker compose down
+docker compose down -v    # 停止并删除 MySQL 数据卷（慎用）
 ```
 
-## 配置说明
+## 说明
 
-编辑 `.env` 文件配置 AI API：
-
-```env
-# 选择 AI 提供商
-AI_PROVIDER=deepseek
-
-# DeepSeek API Key (推荐)
-DEEPSEEK_API_KEY=your-deepseek-api-key
-
-# 或 OpenAI
-# OPENAI_API_KEY=your-openai-api-key
-
-# 或 SiliconFlow
-# SILICONFLOW_API_KEY=your-siliconflow-api-key
-```
-
-## 故障排查
-
-### 端口被占用
-```bash
-# 检查 8000 或 5173 端口是否被占用
-lsof -i :8000
-lsof -i :5173
-
-# 修改 docker-compose.yml 中的端口映射
-# ports:
-#   - "8080:8000"  # 改为 8080
-```
-
-### 数据库连接失败
-```bash
-# 查看数据库日志
-docker-compose logs mysql
-
-# 重新初始化数据库
-docker-compose down -v
-docker-compose up -d
-```
-
-### 前端无法连接后端
-检查 `VITE_API_URL` 是否配置正确：
-```env
-VITE_API_URL=http://localhost:8000
-```
-
-## 数据持久化
-
-- MySQL 数据存储在 Docker Volume `mysql_data` 中
-- 即使删除容器，数据也不会丢失
-- 如需完全重置：`docker-compose down -v`
-
-## 生产环境部署
-
-```bash
-# 使用生产配置
-docker-compose -f docker-compose.prod.yml up -d
-```
+- Docker 前端 **8080**、后端 **9000**，与本地开发（5173 / 8000）互不冲突
+- MySQL **未映射到宿主机**，仅后端容器可访问；需要本机工具连接时再在 `docker-compose.yml` 的 `mysql` 下加 `ports: ["3307:3306"]`
+- 数据持久化在 Docker Volume `mysql_data`

@@ -945,7 +945,7 @@ onMounted(() => {
 }
 
 .topic-card {
-  background: #fff;
+  background: var(--coffee-bg-card);
   border: 1px solid #e4e7ed;
   border-radius: 8px;
   padding: 16px;

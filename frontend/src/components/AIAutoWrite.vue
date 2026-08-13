@@ -2273,19 +2273,4 @@ function resetAndClose() {
     }
   }
 }
-
-// 深色模式适配
-@media (prefers-color-scheme: dark) {
-  .auto-write-header {
-    background: linear-gradient(135deg, rgba(var(--el-color-primary-rgb), 0.15) 0%, var(--el-fill-color-light) 100%);
-  }
-
-  .summary {
-    background: linear-gradient(135deg, rgba(var(--el-color-success-rgb), 0.15) 0%, var(--el-fill-color-light) 100%);
-  }
-
-  .generating-status {
-    background: linear-gradient(135deg, var(--el-fill-color-light) 0%, rgba(var(--el-color-primary-rgb), 0.15) 100%);
-  }
-}
 </style>

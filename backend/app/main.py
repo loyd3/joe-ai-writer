@@ -4,15 +4,37 @@ from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse, RedirectResponse
+import logging
 import os
+import time
 from app.database import engine, Base
 from app.api import projects, ai, auth, search, export, templates, versions, extract, system, dashboard, hot_topics, publish, ai_story_generator, long_article, import_project, brainstorm, auto_write
 from app.api import hot_topics_compat, brainstorm_compat
 from app.api import copywriting_compat
 from sqlalchemy import text
 
-# 创建数据库表
-Base.metadata.create_all(bind=engine)
+logger = logging.getLogger(__name__)
+
+
+def _init_database(max_retries: int = 10, delay: float = 2.0) -> bool:
+    """创建表结构；数据库未就绪时重试，避免启动直接崩溃。"""
+    last_err = None
+    for attempt in range(1, max_retries + 1):
+        try:
+            Base.metadata.create_all(bind=engine)
+            return True
+        except Exception as e:
+            last_err = e
+            logger.warning(
+                "数据库初始化失败 (%s/%s): %s",
+                attempt,
+                max_retries,
+                e,
+            )
+            if attempt < max_retries:
+                time.sleep(delay)
+    logger.error("数据库初始化最终失败: %s", last_err)
+    return False
 
 
 def _ensure_avatar_column():
@@ -41,6 +63,11 @@ app = FastAPI(
 
 @app.on_event("startup")
 def startup():
+    if not _init_database():
+        logger.error(
+            "无法连接数据库，请检查 DATABASE_URL；"
+            "若使用 Docker MySQL：docker compose up -d mysql，并确认端口 3307"
+        )
     try:
         _ensure_avatar_column()
     except Exception:

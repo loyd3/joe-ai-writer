@@ -1,9 +1,9 @@
 /* ===== 统一按钮规范 ===== */
 
 :root {
-  --btn-height: 40px;
-  --btn-height-lg: 44px;
-  --btn-height-sm: 36px;
+  --btn-height: 38px;
+  --btn-height-lg: 42px;
+  --btn-height-sm: 32px;
   --btn-radius: 8px;
   --btn-radius-lg: 10px;
   --btn-padding-x: 16px;
@@ -46,7 +46,7 @@
 .el-button.btn:focus-visible {
   color: var(--coffee-primary);
   border-color: var(--coffee-primary);
-  background: var(--coffee-bg-hover);
+  background: var(--coffee-bg-warm);
 }
 
 .btn.is-disabled,
@@ -79,8 +79,7 @@
 .el-button.btn-primary:focus-visible,
 .el-button.btn.el-button--primary:not(.is-link):not(.is-text):hover,
 .el-button.btn.el-button--primary:not(.is-link):not(.is-text):focus-visible {
-  transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(var(--coffee-primary-rgb), 0.35);
+  box-shadow: 0 4px 14px rgba(var(--coffee-primary-rgb), 0.38);
   background: var(--coffee-gradient-primary);
   color: #fff;
   border-color: transparent;

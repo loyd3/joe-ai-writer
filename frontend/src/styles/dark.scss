@@ -1,0 +1,36 @@
+/* ===== 暗色模式补丁 =====
+ * 大部分颜色已由 theme store 运行时注入的 --coffee-* / --el-color-primary* 内联变量覆盖，
+ * 这里只补内联变量覆盖不到或 Element Plus 暗色变量未处理的细节。 */
+
+html.dark {
+  color-scheme: dark;
+}
+
+/* 弹层（select/tooltip/popover 等传送到 body 的浮层）底色与边框 */
+html.dark .el-popper.is-light {
+  background: var(--coffee-bg-card);
+  border-color: var(--coffee-border);
+}
+
+html.dark .el-popper.is-light .el-popper__arrow::before {
+  background: var(--coffee-bg-card);
+  border-color: var(--coffee-border);
+}
+
+/* 遮罩在暗色下保持通透 */
+html.dark .el-loading-mask {
+  background: rgba(19, 19, 23, 0.7);
+}
+
+/* 表格（如有使用）表头与hover态跟随主题 */
+html.dark .el-table {
+  --el-table-header-bg-color: var(--coffee-bg-warm);
+  --el-table-tr-bg-color: var(--coffee-bg-card);
+  --el-table-row-hover-bg-color: var(--coffee-bg-hover);
+}
+
+/* 暗色下彩色装饰渐变横幅略降亮度，避免刺眼 */
+html.dark .page-banner,
+html.dark .hero-banner {
+  filter: brightness(0.88);
+}

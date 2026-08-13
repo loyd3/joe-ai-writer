@@ -206,14 +206,21 @@ class LongTextProcessor:
             'polish': '润色',
             'revise': '修改',
             'expand': '扩展',
-            'continue': '续写'
+            'continue': '续写',
+            'format_style': '调整样式',
         }
         action_name = action_names.get(action, '处理')
         
         parts = []
         
         # 添加系统指令
-        parts.append(f"你是一位专业的写作助手。请对以下文本进行{action_name}。")
+        if action == 'format_style':
+            parts.append(
+                "你是一位专业的写作助手。请对以下文本做「仅排版」优化："
+                "只调整分段与结构标记，严禁改写、增删或替换任何原文用词。"
+            )
+        else:
+            parts.append(f"你是一位专业的写作助手。请对以下文本进行{action_name}。")
         
         # 添加上下文信息
         if segment.context_before:
@@ -229,8 +236,27 @@ class LongTextProcessor:
         parts.append(f"\n【{action_name}要求】")
         if instruction:
             parts.append(instruction)
-        
-        parts.append(f"""
+
+        if action == 'format_style':
+            parts.append("""
+请直接输出排版后的正文，不要添加任何说明、理由或前缀。
+注意：
+1. 严禁修改正文内容：不得增删改字词、句子或标点语义；不得润色/改写/扩写
+2. 只允许插入换行与格式标记行，改善层次与可读性
+3. 保持与前后文的连贯性；只输出本段结果，不要包含上下文内容
+4. 编辑器格式约定（用于自动排版）：
+   - 大标题用单独一行以 `##` 开头
+   - 小标题用单独一行以 `###` 开头
+   - 引用/对话用单独一行以 `>` 开头
+   - 列表用单独一行以 `- ` 开头
+   - 分割线用单独一行使用 `---`
+   - 段落之间空一行
+   - 不要使用 Markdown 标题 `#`
+   - 不要使用 `**`/`*` 加粗斜体
+   - 不要输出 ``` 代码块
+""")
+        else:
+            parts.append(f"""
 请直接输出{action_name}后的正文，不要添加任何说明、理由或前缀。
 注意：
 1. 保持与前后文的连贯性

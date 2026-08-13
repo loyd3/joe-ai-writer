@@ -88,12 +88,66 @@ def check_frontend_deps(frontend_path):
         log("未找到 npm，请安装 Node.js", Colors.RED)
         return False
 
+def ensure_docker_mysql(root: Path, timeout: int = 90) -> bool:
+    """确保 Docker MySQL 已启动并健康（供本地 start.py 连接 localhost:3307）。"""
+    try:
+        subprocess.run(["docker", "info"], check=True, capture_output=True)
+    except Exception:
+        log("未检测到 Docker，请自行保证 DATABASE_URL 指向可用数据库", Colors.YELLOW)
+        return False
+
+    log("检查 / 启动 Docker MySQL...")
+    try:
+        subprocess.run(
+            ["docker", "compose", "up", "-d", "mysql"],
+            cwd=str(root),
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except subprocess.CalledProcessError as e:
+        log(f"启动 MySQL 容器失败: {e.stderr or e}", Colors.RED)
+        return False
+
+    start = time.time()
+    while time.time() - start < timeout:
+        try:
+            result = subprocess.run(
+                [
+                    "docker", "inspect",
+                    "-f", "{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}",
+                    "joe-writer-mysql",
+                ],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            status = (result.stdout or "").strip().lower()
+            if status == "healthy":
+                log("Docker MySQL 已就绪 (localhost:3307)", Colors.GREEN)
+                return True
+            # 无 healthcheck 时 State.Status 可能是 running
+            if status == "running":
+                log("Docker MySQL 已运行 (localhost:3307)", Colors.GREEN)
+                return True
+        except Exception:
+            pass
+        time.sleep(2)
+
+    log("MySQL 启动超时，后端可能暂时连不上库", Colors.YELLOW)
+    return False
+
+
 def start_backend(backend_path, port=8000, reload=True):
-    """启动后端服务"""
-    log(f"启动后端服务 (端口: {port})...")
+    """启动后端服务（默认开启 --reload 热重载）"""
+    log(f"启动后端服务 (端口: {port}){' · 热重载已开启' if reload else ''}...")
     
     env = os.environ.copy()
     env["PYTHONPATH"] = str(backend_path.parent)
+    env["PYTHONUNBUFFERED"] = "1"
+    # Windows 下原生文件监听偶发失效，强制轮询更稳
+    if _WIN and reload:
+        env["WATCHFILES_FORCE_POLLING"] = "true"
     
     cmd = [
         sys.executable, "-m", "uvicorn",
@@ -102,7 +156,14 @@ def start_backend(backend_path, port=8000, reload=True):
         "--port", str(port),
     ]
     if reload:
-        cmd.append("--reload")
+        app_dir = backend_path / "app"
+        cmd.extend([
+            "--reload",
+            f"--reload-dir={app_dir}",
+            "--reload-include=*.py",
+            "--reload-exclude=*.pyc",
+            "--reload-exclude=__pycache__",
+        ])
     
     return subprocess.Popen(
         cmd,
@@ -111,18 +172,23 @@ def start_backend(backend_path, port=8000, reload=True):
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
-        bufsize=1
+        bufsize=1,
+        encoding="utf-8",
+        errors="replace",
     )
 
 def start_frontend(frontend_path, port=5173):
-    """启动前端服务"""
-    log(f"启动前端服务 (端口: {port})...")
+    """启动前端 Vite 开发服务（自带 HMR 热更新）"""
+    log(f"启动前端服务 (端口: {port}) · HMR 热更新已开启...")
     
     env = os.environ.copy()
-    env["VITE_API_BASE_URL"] = f"http://localhost:8000"
+    env["VITE_API_BASE_URL"] = "http://localhost:8000"
+    env["VITE_API_URL"] = "http://localhost:8000"
+    # 保证 Vite 控制台立即输出 HMR 日志
+    env["FORCE_COLOR"] = "1"
     
     if _WIN:
-        cmd = f"npm run dev -- --port {port}"
+        cmd = f"npm run dev -- --host 127.0.0.1 --port {port}"
         return subprocess.Popen(
             cmd,
             cwd=str(frontend_path),
@@ -132,15 +198,19 @@ def start_frontend(frontend_path, port=5173):
             text=True,
             bufsize=1,
             shell=True,
+            encoding="utf-8",
+            errors="replace",
         )
     return subprocess.Popen(
-        ["npm", "run", "dev", "--", "--port", str(port)],
+        ["npm", "run", "dev", "--", "--host", "127.0.0.1", "--port", str(port)],
         cwd=str(frontend_path),
         env=env,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
-        bufsize=1
+        bufsize=1,
+        encoding="utf-8",
+        errors="replace",
     )
 
 def print_output(process, prefix, color):
@@ -190,6 +260,9 @@ def main():
     try:
         # 启动后端
         if not args.frontend_only:
+            # 本地开发默认依赖 Docker MySQL（.env 中 localhost:3307）
+            ensure_docker_mysql(root)
+
             if not check_backend_deps(backend_path):
                 sys.exit(1)
             
@@ -200,9 +273,9 @@ def main():
             )
             processes.append(("Backend", backend_proc, Colors.BLUE))
             
-            # 等待后端启动
+            # 等待后端启动（含数据库建表重试，适当加长）
             log("等待后端启动...")
-            if wait_for_service(f"http://localhost:{args.backend_port}/health", timeout=30):
+            if wait_for_service(f"http://localhost:{args.backend_port}/health", timeout=60):
                 log(f"后端已就绪: http://localhost:{args.backend_port}", Colors.GREEN)
             else:
                 log("后端启动超时，继续尝试启动前端...", Colors.YELLOW)
@@ -227,8 +300,11 @@ def main():
         if not args.frontend_only:
             print(f"  后端 API: {Colors.BLUE}http://localhost:{args.backend_port}{Colors.END}")
             print(f"  API 文档: {Colors.BLUE}http://localhost:{args.backend_port}/docs{Colors.END}")
+            if not args.no_reload:
+                print(f"  后端热重载: {Colors.GREEN}已开启{Colors.END}（改 .py 自动重启）")
         if not args.backend_only:
             print(f"  前端界面: {Colors.CYAN}http://localhost:{args.frontend_port}{Colors.END}")
+            print(f"  前端热更新: {Colors.GREEN}已开启{Colors.END}（改 .vue/.ts 浏览器自动刷新）")
         print("="*60)
         print(f"\n按 Ctrl+C 停止服务\n")
         

@@ -153,7 +153,7 @@ class ProjectResponse(ProjectBase):
 # ========== AI Interaction Schemas ==========
 class AIRequest(BaseModel):
     document_id: int
-    action: str  # 'guide', 'revise', 'polish', 'continue', 'brainstorm'
+    action: str  # 'guide', 'revise', 'polish', 'continue', 'brainstorm', 'expand', 'format_style'
     selected_text: Optional[str] = None
     instruction: Optional[str] = None
 

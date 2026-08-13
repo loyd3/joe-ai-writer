@@ -22,44 +22,11 @@
           <el-icon><CircleCheck /></el-icon>
           <span>已保存 {{ formatTime(lastSaved) }}</span>
         </div>
-        <!-- 折叠时只显示 3 个：保存、AI 助手、更多 -->
-        <el-button
-          class="btn"
-          :type="previewMode ? 'primary' : 'default'"
-          @click="previewMode = !previewMode"
-          :title="previewMode ? '关闭预览，恢复正文编辑' : '预览：只读正文，可调整结构、AI 与撤销等'"
-        >
-          <el-icon><View /></el-icon>
-          <span>{{ previewMode ? '退出预览' : '预览' }}</span>
-        </el-button>
         <el-button class="btn btn-primary" type="primary" @click="saveDocument" :loading="saving">
           <el-icon><Check /></el-icon>
           <span>保存</span>
         </el-button>
-        <el-dropdown trigger="click" @command="handleImageMenuCommand">
-          <el-button class="btn" :loading="generatingImage || uploadingImage">
-            <el-icon><Picture /></el-icon>
-            <span>图片</span>
-            <el-icon class="arrow-icon"><ArrowDown /></el-icon>
-          </el-button>
-          <template #dropdown>
-            <el-dropdown-menu>
-              <el-dropdown-item command="full-image" :disabled="!content.length">
-                <el-icon><Picture /></el-icon>
-                AI 插图（全文）
-              </el-dropdown-item>
-              <el-dropdown-item command="url-image">
-                <el-icon><Link /></el-icon>
-                插入网络图片…
-              </el-dropdown-item>
-              <el-dropdown-item command="upload-image">
-                <el-icon><Upload /></el-icon>
-                上传本地图片…
-              </el-dropdown-item>
-            </el-dropdown-menu>
-          </template>
-        </el-dropdown>
-        <el-button 
+        <el-button
           class="btn"
           :type="showChatPanel ? 'primary' : 'default'"
           @click="showChatPanel = !showChatPanel"
@@ -67,165 +34,171 @@
           <el-icon><ChatDotRound /></el-icon>
           <span>AI 助手</span>
         </el-button>
-        <el-dropdown v-if="!headerExpanded" trigger="click" @command="handleMoreCommand" class="doc-actions-dropdown">
+        <el-button
+          class="btn"
+          :type="previewMode ? 'primary' : 'default'"
+          @click="previewMode = !previewMode"
+        >
+          <el-icon><View /></el-icon>
+          <span>{{ previewMode ? '退出预览' : '预览' }}</span>
+        </el-button>
+        <el-dropdown trigger="click" placement="bottom-end" popper-class="coffee-dropdown" @command="handleMoreCommand" class="header-dropdown">
+          <el-button class="btn">
+            <el-icon><MagicStick /></el-icon>
+            <span>AI 工具</span>
+            <el-icon class="arrow-icon"><ArrowDown /></el-icon>
+          </el-button>
+          <template #dropdown>
+            <el-dropdown-menu class="coffee-dropdown-menu">
+              <el-dropdown-item command="format-style" :disabled="!content.length">
+                <div class="dd-item">
+                  <span class="dd-icon"><el-icon><SetUp /></el-icon></span>
+                  <div class="dd-meta">
+                    <span class="dd-title">AI 调整样式</span>
+                    <span class="dd-desc">优化结构与排版，不改内容</span>
+                  </div>
+                </div>
+              </el-dropdown-item>
+              <el-dropdown-item command="split-sections" :disabled="!content.length">
+                <div class="dd-item">
+                  <span class="dd-icon"><el-icon><Files /></el-icon></span>
+                  <div class="dd-meta">
+                    <span class="dd-title">按章节拆分为多篇</span>
+                    <span class="dd-desc">拆成多篇文档，按序加入项目</span>
+                  </div>
+                </div>
+              </el-dropdown-item>
+              <el-dropdown-item command="extract">
+                <div class="dd-item">
+                  <span class="dd-icon"><el-icon><Aim /></el-icon></span>
+                  <div class="dd-meta">
+                    <span class="dd-title">AI 智能扩展</span>
+                    <span class="dd-desc">扩展为长篇项目</span>
+                  </div>
+                </div>
+              </el-dropdown-item>
+              <el-dropdown-item command="generate">
+                <div class="dd-item">
+                  <span class="dd-icon"><el-icon><MagicStick /></el-icon></span>
+                  <div class="dd-meta">
+                    <span class="dd-title">根据设定生成</span>
+                    <span class="dd-desc">用项目设定续写或生成</span>
+                  </div>
+                </div>
+              </el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
+        <el-dropdown trigger="click" placement="bottom-end" popper-class="coffee-dropdown" @command="handleMoreCommand" class="header-dropdown">
+          <el-button class="btn">
+            <el-icon><Picture /></el-icon>
+            <span>插图</span>
+            <el-icon class="arrow-icon"><ArrowDown /></el-icon>
+          </el-button>
+          <template #dropdown>
+            <el-dropdown-menu class="coffee-dropdown-menu">
+              <el-dropdown-item command="image-full" :disabled="!content.length">
+                <div class="dd-item">
+                  <span class="dd-icon"><el-icon><Picture /></el-icon></span>
+                  <div class="dd-meta">
+                    <span class="dd-title">AI 插图（全文）</span>
+                    <span class="dd-desc">根据全文生成配图</span>
+                  </div>
+                </div>
+              </el-dropdown-item>
+              <el-dropdown-item command="image-url">
+                <div class="dd-item">
+                  <span class="dd-icon"><el-icon><Link /></el-icon></span>
+                  <div class="dd-meta">
+                    <span class="dd-title">插入网络图片</span>
+                    <span class="dd-desc">粘贴图片链接插入正文</span>
+                  </div>
+                </div>
+              </el-dropdown-item>
+              <el-dropdown-item command="image-upload">
+                <div class="dd-item">
+                  <span class="dd-icon"><el-icon><Upload /></el-icon></span>
+                  <div class="dd-meta">
+                    <span class="dd-title">上传本地图片</span>
+                    <span class="dd-desc">从电脑选择图片插入</span>
+                  </div>
+                </div>
+              </el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
+        <ExportMenu
+          mode="document"
+          :document-id="Number(documentId)"
+          :document-title="documentTitle"
+        />
+        <el-dropdown trigger="click" placement="bottom-end" popper-class="coffee-dropdown" @command="handleMoreCommand" class="header-dropdown">
+          <el-button class="btn">
+            <el-icon><Promotion /></el-icon>
+            <span>发布</span>
+            <el-icon class="arrow-icon"><ArrowDown /></el-icon>
+          </el-button>
+          <template #dropdown>
+            <el-dropdown-menu class="coffee-dropdown-menu">
+              <el-dropdown-item command="publish">
+                <div class="dd-item">
+                  <span class="dd-icon"><el-icon><Promotion /></el-icon></span>
+                  <div class="dd-meta">
+                    <span class="dd-title">发布到自媒体</span>
+                    <span class="dd-desc">一键发到内容平台</span>
+                  </div>
+                </div>
+              </el-dropdown-item>
+              <el-dropdown-item command="video-script">
+                <div class="dd-item">
+                  <span class="dd-icon"><el-icon><VideoCamera /></el-icon></span>
+                  <div class="dd-meta">
+                    <span class="dd-title">转视频文案</span>
+                    <span class="dd-desc">生成口播 / 短视频稿</span>
+                  </div>
+                </div>
+              </el-dropdown-item>
+              <el-dropdown-item command="film-script">
+                <div class="dd-item">
+                  <span class="dd-icon"><el-icon><Film /></el-icon></span>
+                  <div class="dd-meta">
+                    <span class="dd-title">转影视脚本</span>
+                    <span class="dd-desc">转为分镜剧本格式</span>
+                  </div>
+                </div>
+              </el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
+        <el-dropdown trigger="click" placement="bottom-end" popper-class="coffee-dropdown" @command="handleMoreCommand" class="header-dropdown">
           <el-button class="btn">
             <el-icon><MoreFilled /></el-icon>
             <span>更多</span>
             <el-icon class="arrow-icon"><ArrowDown /></el-icon>
           </el-button>
           <template #dropdown>
-            <el-dropdown-menu>
-              <el-dropdown-item command="extract">
-              <el-icon><Aim /></el-icon> AI 智能扩展
+            <el-dropdown-menu class="coffee-dropdown-menu">
+              <el-dropdown-item command="rename">
+                <div class="dd-item">
+                  <span class="dd-icon"><el-icon><Edit /></el-icon></span>
+                  <div class="dd-meta">
+                    <span class="dd-title">重命名</span>
+                    <span class="dd-desc">修改当前文档标题</span>
+                  </div>
+                </div>
               </el-dropdown-item>
-              <el-dropdown-item command="image-full" :disabled="!content.length">
-                <el-icon><Picture /></el-icon> AI 插图（全文）
-              </el-dropdown-item>
-              <el-dropdown-item command="image-url">
-                <el-icon><Link /></el-icon> 插入网络图片…
-              </el-dropdown-item>
-              <el-dropdown-item command="image-upload">
-                <el-icon><Upload /></el-icon> 上传本地图片…
-              </el-dropdown-item>
-              <el-dropdown-item command="generate">
-                <el-icon><MagicStick /></el-icon> 根据设定生成
-              </el-dropdown-item>
-              <el-dropdown-item command="export-markdown">
-                <el-icon><Document /></el-icon> 导出 Markdown
-              </el-dropdown-item>
-              <el-dropdown-item command="export-pdf">
-                <el-icon><Collection /></el-icon> 导出 PDF
-              </el-dropdown-item>
-              <el-dropdown-item command="export-docx">
-                <el-icon><Files /></el-icon> 导出 Word
-              </el-dropdown-item>
-              <el-dropdown-item command="export-txt">
-                <el-icon><Document /></el-icon> 导出纯文本
-              </el-dropdown-item>
-              <el-dropdown-item divided command="publish">
-                <el-icon><Promotion /></el-icon> 发布到自媒体
-              </el-dropdown-item>
-              <el-dropdown-item command="video-script">
-                <el-icon><VideoCamera /></el-icon> 转视频文案
-              </el-dropdown-item>
-              <el-dropdown-item command="film-script">
-                <el-icon><Film /></el-icon> 转影视脚本
-              </el-dropdown-item>
-              <el-dropdown-item divided command="rename">
-                <el-icon><Edit /></el-icon> 重命名
-              </el-dropdown-item>
-              <el-dropdown-item command="delete" class="delete-item">
-                <el-icon><Delete /></el-icon> 删除文档
+              <el-dropdown-item divided command="delete" class="delete-item">
+                <div class="dd-item">
+                  <span class="dd-icon"><el-icon><Delete /></el-icon></span>
+                  <div class="dd-meta">
+                    <span class="dd-title">删除文档</span>
+                    <span class="dd-desc">删除后不可恢复</span>
+                  </div>
+                </div>
               </el-dropdown-item>
             </el-dropdown-menu>
           </template>
         </el-dropdown>
-        <!-- 展开时显示的其余按钮 -->
-        <template v-if="headerExpanded">
-          <el-button class="btn" @click="showExtractDrawer = true">
-            <el-icon><Aim /></el-icon>
-          <span>AI 智能扩展</span>
-          </el-button>
-          <el-dropdown trigger="click" @command="handleImageMenuCommand">
-            <el-button class="btn" :loading="generatingImage || uploadingImage">
-              <el-icon><Picture /></el-icon>
-              <span>图片</span>
-              <el-icon class="arrow-icon"><ArrowDown /></el-icon>
-            </el-button>
-            <template #dropdown>
-              <el-dropdown-menu>
-                <el-dropdown-item command="full-image" :disabled="!content.length">
-                  <el-icon><Picture /></el-icon>
-                  AI 插图（全文）
-                </el-dropdown-item>
-                <el-dropdown-item command="url-image">
-                  <el-icon><Link /></el-icon>
-                  插入网络图片…
-                </el-dropdown-item>
-                <el-dropdown-item command="upload-image">
-                  <el-icon><Upload /></el-icon>
-                  上传本地图片…
-                </el-dropdown-item>
-              </el-dropdown-menu>
-            </template>
-          </el-dropdown>
-          <el-button class="btn" @click="showGenerateDrawer = true">
-            <el-icon><MagicStick /></el-icon>
-            <span>根据设定生成</span>
-          </el-button>
-          <el-dropdown
-            trigger="click"
-            class="export-dropdown"
-            @command="(cmd: string) => exportMenuRef?.triggerExport(cmd)"
-          >
-            <el-button class="btn export-dropdown-btn">
-              <el-icon><Download /></el-icon>
-              <span>导出</span>
-              <el-icon class="arrow-icon"><ArrowDown /></el-icon>
-            </el-button>
-            <template #dropdown>
-              <el-dropdown-menu>
-                <el-dropdown-item command="markdown">
-                  <el-icon><Document /></el-icon> Markdown
-                </el-dropdown-item>
-                <el-dropdown-item command="pdf">
-                  <el-icon><Collection /></el-icon> PDF
-                </el-dropdown-item>
-                <el-dropdown-item command="docx">
-                  <el-icon><Files /></el-icon> Word
-                </el-dropdown-item>
-                <el-dropdown-item command="txt">
-                  <el-icon><Document /></el-icon> 纯文本
-                </el-dropdown-item>
-              </el-dropdown-menu>
-            </template>
-          </el-dropdown>
-          <el-button class="btn" @click="showPublishDialog = true">
-            <el-icon><Promotion /></el-icon>
-            <span>发布到自媒体</span>
-          </el-button>
-          <el-button class="btn" @click="showVideoScriptDialog = true">
-            <el-icon><VideoCamera /></el-icon>
-            <span>转视频文案</span>
-          </el-button>
-          <el-button class="btn" :loading="convertingFilmScript" @click="convertToFilmScript">
-            <el-icon><Film /></el-icon>
-            <span>转影视脚本</span>
-          </el-button>
-          <el-button class="btn" @click="handleDocCommand('rename')">
-            <el-icon><Edit /></el-icon>
-            <span>重命名</span>
-          </el-button>
-          <el-button class="btn btn-danger" type="danger" @click="handleDocCommand('delete')">
-            <el-icon><Delete /></el-icon>
-            <span>删除文档</span>
-          </el-button>
-        </template>
-        <ExportMenu
-          ref="exportMenuRef"
-          mode="document"
-          :show-button="false"
-          :document-id="Number(documentId)"
-          :document-title="documentTitle"
-        />
-        <el-button
-          v-if="headerExpanded"
-          class="btn-text"
-          link
-          @click="headerExpanded = false"
-        >
-          <el-icon><ArrowUp /></el-icon>
-          <span>收起</span>
-        </el-button>
-        <el-button
-          v-else
-          class="btn-text"
-          link
-          @click="headerExpanded = true"
-        >
-          <el-icon><ArrowDown /></el-icon>
-          <span>展开</span>
-        </el-button>
       </div>
     </div>
 
@@ -267,6 +240,8 @@
             @content-dirty="onContentChange"
             @polish="onPolish"
             @polish-selected="onPolishSelected"
+            @format-style="onFormatStyle"
+            @format-style-selected="onFormatStyleSelected"
             @revise-selected="onReviseSelected"
             @expand-selected="onExpandSelected"
             @generate-image-for-selection="onGenerateImageForSelection"
@@ -332,6 +307,16 @@
       :raw-blocks="blocksSnapshotForImageApi()"
     />
 
+    <SplitDocumentDialog
+      v-if="document?.project_id"
+      v-model="showSplitDialog"
+      :blocks="content"
+      :project-id="document.project_id"
+      :document-id="Number(documentId)"
+      :document-title="documentTitle"
+      @done="onSplitDone"
+    />
+
     <input
       ref="documentImageUploadRef"
       type="file"
@@ -354,10 +339,11 @@ import AIGenerateFromMemory from '@/components/AIGenerateFromMemory.vue'
 import ExportMenu from '@/components/ExportMenu.vue'
 import PublishDialog from '@/components/PublishDialog.vue'
 import VideoScriptDialog from '@/components/VideoScriptDialog.vue'
+import SplitDocumentDialog from '@/components/SplitDocumentDialog.vue'
 import { parseFormattedTextToBlocks } from '@/utils/formatToBlocks'
 import { ElMessageBox } from 'element-plus'
 import { aiApi } from '@/api'
-import { ArrowLeft, ArrowRight, ArrowDown, ArrowUp, ChatDotRound, Check, Loading, CircleCheck, MoreFilled, Edit, Delete, Aim, MagicStick, Document, Collection, Files, Promotion, Download, Picture, Link, Upload, View, VideoCamera, Film } from '@element-plus/icons-vue'
+import { ArrowLeft, ArrowRight, ArrowDown, ChatDotRound, Check, Loading, CircleCheck, MoreFilled, Edit, Delete, Aim, MagicStick, Files, Promotion, Picture, Link, Upload, View, VideoCamera, Film, SetUp } from '@element-plus/icons-vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -383,15 +369,15 @@ const previewMode = ref(false)
 const aiChatRef = ref<{
   polishWithText: (text: string, blockIndex?: number) => Promise<void>
   polishWithSelectedText: (text: string, blockIndices: number[]) => Promise<void>
+  formatStyleWithText: (text: string, blockIndex?: number) => Promise<void>
+  formatStyleWithSelectedText: (text: string, blockIndices: number[]) => Promise<void>
   reviseWithSelectedText: (text: string, blockIndices: number[]) => Promise<void>
   expandWithSelectedText: (text: string, blockIndices: number[]) => Promise<void>
 } | null>(null)
-const exportMenuRef = ref<{ triggerExport: (command: string) => void } | null>(null)
 const blockEditorRef = ref<{ getImageInsertAfterIndex: () => number; flushPendingSync: () => void; focusBlock: (index: number, opts?: { cursor?: 'start' | 'end' | number; align?: 'start' | 'nearest'; behavior?: ScrollBehavior; focus?: boolean; preventScroll?: boolean; force?: boolean }) => void } | null>(null)
-// 默认先折叠：只展示“保存、AI 助手、更多”
-const headerExpanded = ref(false)
 const showPublishDialog = ref(false)
 const showVideoScriptDialog = ref(false)
+const showSplitDialog = ref(false)
 const generatingImage = ref(false)
 const uploadingImage = ref(false)
 const documentImageUploadRef = ref<HTMLInputElement | null>(null)
@@ -509,6 +495,38 @@ function onPolishSelected(payload: { indices: number[]; text: string }) {
   })
 }
 
+function onFormatStyle(payload: { index: number; text: string }) {
+  showChatPanel.value = true
+  nextTick(() => {
+    aiChatRef.value?.formatStyleWithText(payload.text, payload.index)
+  })
+}
+
+function onFormatStyleSelected(payload: { indices: number[]; text: string }) {
+  showChatPanel.value = true
+  nextTick(() => {
+    aiChatRef.value?.formatStyleWithSelectedText(payload.text, payload.indices)
+  })
+}
+
+/** 对整篇文档做仅排版优化 */
+function onFormatStyleDocument() {
+  const targets = content.value
+    .map((b, i) => ({ b, i }))
+    .filter(({ b }) => b && b.type !== 'image' && stripHtmlToText(b.content || '').trim())
+  const parts = targets.map(({ b }) => stripHtmlToText(b.content))
+  const text = parts.join('\n\n')
+  if (!text.trim()) {
+    ElMessage.warning('文档暂无内容可调整')
+    return
+  }
+  const indices = targets.map(({ i }) => i)
+  showChatPanel.value = true
+  nextTick(() => {
+    aiChatRef.value?.formatStyleWithSelectedText(text, indices)
+  })
+}
+
 function onReviseSelected(payload: { indices: number[]; text: string }) {
   showChatPanel.value = true
   nextTick(() => {
@@ -557,7 +575,11 @@ function goBack() {
 }
 
 function handleMoreCommand(command: string) {
-  if (command === 'extract') {
+  if (command === 'format-style') {
+    onFormatStyleDocument()
+  } else if (command === 'split-sections') {
+    openSplitDialog()
+  } else if (command === 'extract') {
     showExtractDrawer.value = true
   } else if (command === 'image-full') {
     void generateAndInsertArticleImage()
@@ -567,14 +589,6 @@ function handleMoreCommand(command: string) {
     triggerDocumentImageUpload()
   } else if (command === 'generate') {
     showGenerateDrawer.value = true
-  } else if (command === 'export-markdown') {
-    exportMenuRef.value?.triggerExport('markdown')
-  } else if (command === 'export-pdf') {
-    exportMenuRef.value?.triggerExport('pdf')
-  } else if (command === 'export-docx') {
-    exportMenuRef.value?.triggerExport('docx')
-  } else if (command === 'export-txt') {
-    exportMenuRef.value?.triggerExport('txt')
   } else if (command === 'publish') {
     showPublishDialog.value = true
   } else if (command === 'video-script') {
@@ -583,6 +597,38 @@ function handleMoreCommand(command: string) {
     void convertToFilmScript()
   } else if (command === 'rename' || command === 'delete') {
     handleDocCommand(command)
+  }
+}
+
+function openSplitDialog() {
+  blockEditorRef.value?.flushPendingSync?.()
+  if (!document.value?.project_id) {
+    ElMessage.warning('无法获取项目信息')
+    return
+  }
+  if (!content.value.length) {
+    ElMessage.warning('文档暂无内容')
+    return
+  }
+  showSplitDialog.value = true
+}
+
+async function onSplitDone(payload: { created: import('@/api/types').Document[]; deletedOriginal: boolean }) {
+  if (payload.deletedOriginal) {
+    const projectId = document.value?.project_id || project.value?.id
+    if (payload.created[0]) {
+      router.replace(`/document/${payload.created[0].id}`)
+    } else if (projectId) {
+      router.replace(`/project/${projectId}`)
+    } else {
+      router.replace('/')
+    }
+    return
+  }
+  // 原文档改为目录时，重新加载当前文档内容
+  if (documentId.value) {
+    await loadDocument()
+    hasChanges.value = false
   }
 }
 
@@ -655,12 +701,6 @@ function getImageInsertAfterIndexFromEditor(): number {
   const n = content.value.length
   if (n === 0) return -1
   return n - 1
-}
-
-function handleImageMenuCommand(cmd: string) {
-  if (cmd === 'full-image') void generateAndInsertArticleImage()
-  else if (cmd === 'url-image') void promptInsertImageUrl()
-  else if (cmd === 'upload-image') triggerDocumentImageUpload()
 }
 
 function triggerDocumentImageUpload() {
@@ -1100,30 +1140,12 @@ onUnmounted(() => {
   justify-content: flex-end;
   min-width: 0;
 
-  .doc-actions-dropdown .btn .arrow-icon {
-    transition: transform 0.2s;
-    &.expanded { transform: rotate(180deg); }
-  }
-
-  .export-dropdown {
-    display: inline-flex;
-    .export-dropdown-btn {
-      .el-icon.arrow-icon {
-        margin-left: 6px;
-        margin-right: 0;
-        font-size: 12px;
-      }
-    }
-  }
-
-  :deep(.delete-item) {
-    color: var(--el-color-danger);
-  }
-
-  :deep(.shortcut-hint) {
-    margin-left: auto;
+  .header-dropdown .btn .arrow-icon {
     font-size: 12px;
-    color: var(--coffee-text-light);
+  }
+
+  :deep(.export-menu .btn .arrow-icon) {
+    font-size: 12px;
   }
 }
 
@@ -1149,17 +1171,14 @@ onUnmounted(() => {
 
 @media (max-width: 1024px) {
   .header-right {
-    .btn span {
+    :deep(.btn span) {
       display: none;
     }
-    .btn {
+    :deep(.btn) {
       padding: 0 12px;
       .el-icon {
         margin-right: 0;
       }
-    }
-    .btn.btn-primary span {
-      display: none;
     }
   }
 }

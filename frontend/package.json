@@ -21,7 +21,7 @@
     "@tiptap/vue-3": "^2.2.2",
     "@types/dompurify": "^3.0.5",
     "axios": "^1.6.7",
-    "dompurify": "^3.3.2",
+    "dompurify": "^3.4.13",
     "element-plus": "^2.5.3",
     "marked": "^15.0.12",
     "pinia": "^2.1.7",

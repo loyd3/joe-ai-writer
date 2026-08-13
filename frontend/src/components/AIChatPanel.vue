@@ -24,6 +24,9 @@
         <el-button size="small" @click="quickAction('polish')">
           <el-icon><Brush /></el-icon> 润色
         </el-button>
+        <el-button size="small" @click="quickAction('format_style')">
+          <el-icon><SetUp /></el-icon> 调整样式
+        </el-button>
         <el-button size="small" @click="quickAction('continue')">
           <el-icon><Right /></el-icon> 续写
         </el-button>
@@ -52,7 +55,7 @@
           </div>
           <div v-if="msg.role === 'assistant' && index > 0" class="message-actions">
             <!-- 如果是改写类操作，显示预览修改按钮 -->
-            <template v-if="msg.actionType && ['polish', 'revise', 'expand'].includes(msg.actionType)">
+            <template v-if="msg.actionType && ['polish', 'revise', 'expand', 'format_style'].includes(msg.actionType)">
               <el-button link size="small" type="primary" @click="showDiffForMessage(msg)">
                 <el-icon><View /></el-icon> 预览修改
               </el-button>
@@ -119,7 +122,7 @@ import DOMPurify from 'dompurify'
 import { aiApi } from '@/api'
 import type { Block } from '@/api/types'
 import { ElMessage } from 'element-plus'
-import { Star, Compass, Edit, Brush, Right, User, DocumentAdd, CopyDocument, Promotion, InfoFilled, View } from '@element-plus/icons-vue'
+import { Star, Compass, Edit, Brush, Right, User, DocumentAdd, CopyDocument, Promotion, InfoFilled, View, SetUp } from '@element-plus/icons-vue'
 import AIDiffViewer from './AIDiffViewer.vue'
 
 marked.setOptions({ gfm: true, breaks: true })
@@ -323,6 +326,16 @@ async function polishWithSelectedText(text: string, blockIndices: number[]) {
   await runAssistAction('polish', text, undefined, blockIndices)
 }
 
+/** 由父组件调用：仅排版优化（不改内容） */
+async function formatStyleWithText(text: string, blockIndex?: number) {
+  await runAssistAction('format_style', text, blockIndex)
+}
+
+/** 由父组件调用：对选中多个块仅排版优化 */
+async function formatStyleWithSelectedText(text: string, blockIndices: number[]) {
+  await runAssistAction('format_style', text, undefined, blockIndices)
+}
+
 /** 由父组件调用：对选中多个块执行修改 */
 async function reviseWithSelectedText(text: string, blockIndices: number[]) {
   await runAssistAction('revise', text, undefined, blockIndices)
@@ -340,6 +353,9 @@ function getActionUserMessage(action: string, selectedText?: string): string {
     guide: '请对当前文档给出写作指导',
     revise: t ? `请修改以下内容：\n\n${t}` : '请修改选中的内容',
     polish: t ? `请润色以下内容：\n\n${t}` : '请润色选中的内容',
+    format_style: t
+      ? `请只调整以下文稿的结构与排版（不要改内容）：\n\n${t}`
+      : '请只调整当前文档的结构与排版（不要改内容）',
     continue: '请根据已有内容续写下一段',
     brainstorm: '请围绕当前内容进行头脑风暴',
     expand: t ? `请扩展以下内容：\n\n${t}` : '请扩展选中的内容',
@@ -352,7 +368,7 @@ async function runAssistAction(action: string, selectedText?: string, blockIndex
   loading.value = true
   streaming.value = true
   streamingContent.value = ''
-  assistStreamDisplay.value = ['polish', 'revise', 'expand', 'continue'].includes(action) ? 'minimal' : 'full'
+  assistStreamDisplay.value = ['polish', 'revise', 'expand', 'continue', 'format_style'].includes(action) ? 'minimal' : 'full'
 
   const originalText = selectedText || ''
   lastSelectedText.value = originalText
@@ -389,7 +405,7 @@ async function runAssistAction(action: string, selectedText?: string, blockIndex
         }
         streamingContent.value = ''
         streaming.value = false
-        const isRewriteAction = ['polish', 'revise', 'expand', 'continue'].includes(action)
+        const isRewriteAction = ['polish', 'revise', 'expand', 'continue', 'format_style'].includes(action)
         const canPreview = isRewriteAction && originalText && rewritten
         if (canPreview) {
           nextTick(() => showDiffForMessage(assistantMsg))
@@ -430,6 +446,8 @@ async function runAssistAction(action: string, selectedText?: string, blockIndex
 defineExpose({
   polishWithText: (text: string, blockIndex?: number) => polishWithText(text, blockIndex),
   polishWithSelectedText: (text: string, blockIndices: number[]) => polishWithSelectedText(text, blockIndices),
+  formatStyleWithText: (text: string, blockIndex?: number) => formatStyleWithText(text, blockIndex),
+  formatStyleWithSelectedText: (text: string, blockIndices: number[]) => formatStyleWithSelectedText(text, blockIndices),
   reviseWithSelectedText: (text: string, blockIndices: number[]) => reviseWithSelectedText(text, blockIndices),
   expandWithSelectedText: (text: string, blockIndices: number[]) => expandWithSelectedText(text, blockIndices),
 })
@@ -661,7 +679,7 @@ function scrollToBottom() {
     }
     
     .message-text {
-      background: linear-gradient(135deg, #fff 0%, var(--coffee-bg-warm) 100%);
+      background: linear-gradient(135deg, var(--coffee-bg-card) 0%, var(--coffee-bg-warm) 100%);
       border: 1px solid var(--coffee-border-light);
     }
   }
@@ -683,7 +701,7 @@ function scrollToBottom() {
 }
 
 .streaming .message-text {
-  background: linear-gradient(135deg, #fff 0%, var(--coffee-bg-warm) 100%);
+  background: linear-gradient(135deg, var(--coffee-bg-card) 0%, var(--coffee-bg-warm) 100%);
 }
 
 .cursor {

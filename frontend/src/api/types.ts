@@ -123,7 +123,7 @@ export interface AIMemoryUpdate {
 // AI 请求
 export interface AIRequest {
   document_id: number
-  action: 'guide' | 'revise' | 'polish' | 'continue' | 'brainstorm' | 'expand' | 'summarize'
+  action: 'guide' | 'revise' | 'polish' | 'continue' | 'brainstorm' | 'expand' | 'summarize' | 'format_style'
   selected_text?: string
   instruction?: string
 }

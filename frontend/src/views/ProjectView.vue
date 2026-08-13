@@ -12,7 +12,6 @@
           </div>
         </div>
         <div class="actions">
-          <!-- 折叠时只显示 3 个：新建文档、项目设定、更多 -->
           <el-button type="primary" class="btn-primary btn-lg" @click="showCreateDocDialog = true">
             <el-icon><Plus /></el-icon>
             <span>新建文档</span>
@@ -21,61 +20,79 @@
             <el-icon><Collection /></el-icon>
             <span>项目设定</span>
           </el-button>
-          <el-dropdown v-if="!headerExpanded" trigger="click" @command="handleProjectMoreCommand" class="project-actions-dropdown">
+          <el-dropdown trigger="click" placement="bottom-end" popper-class="coffee-dropdown" @command="handleProjectMoreCommand" class="header-dropdown">
+            <el-button class="btn btn-lg">
+              <el-icon><EditPen /></el-icon>
+              <span>工具</span>
+              <el-icon class="arrow-icon"><ArrowDown /></el-icon>
+            </el-button>
+            <template #dropdown>
+              <el-dropdown-menu class="coffee-dropdown-menu">
+                <el-dropdown-item command="template">
+                  <div class="dd-item">
+                    <span class="dd-icon"><el-icon><Upload /></el-icon></span>
+                    <div class="dd-meta">
+                      <span class="dd-title">导入模板</span>
+                      <span class="dd-desc">从模板库创建文档</span>
+                    </div>
+                  </div>
+                </el-dropdown-item>
+                <el-dropdown-item command="autowrite">
+                  <div class="dd-item">
+                    <span class="dd-icon"><el-icon><EditPen /></el-icon></span>
+                    <div class="dd-meta">
+                      <span class="dd-title">AI 自动写作</span>
+                      <span class="dd-desc">按项目设定批量生成</span>
+                    </div>
+                  </div>
+                </el-dropdown-item>
+                <el-dropdown-item command="literature">
+                  <div class="dd-item">
+                    <span class="dd-icon"><el-icon><Reading /></el-icon></span>
+                    <div class="dd-meta">
+                      <span class="dd-title">作品分析</span>
+                      <span class="dd-desc">拆解对标作品结构</span>
+                    </div>
+                  </div>
+                </el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
+          <ExportMenu
+            mode="project"
+            button-class="btn btn-lg"
+            :project-id="Number(projectId)"
+            :project-title="project?.title"
+          />
+          <el-dropdown trigger="click" placement="bottom-end" popper-class="coffee-dropdown" @command="handleProjectMoreCommand" class="header-dropdown">
             <el-button class="btn btn-lg">
               <el-icon><MoreFilled /></el-icon>
               <span>更多</span>
               <el-icon class="arrow-icon"><ArrowDown /></el-icon>
             </el-button>
             <template #dropdown>
-              <el-dropdown-menu>
-                <el-dropdown-item command="template">
-                  <el-icon><Upload /></el-icon> 导入模板
+              <el-dropdown-menu class="coffee-dropdown-menu">
+                <el-dropdown-item command="edit">
+                  <div class="dd-item">
+                    <span class="dd-icon"><el-icon><Edit /></el-icon></span>
+                    <div class="dd-meta">
+                      <span class="dd-title">编辑项目</span>
+                      <span class="dd-desc">修改名称与简介</span>
+                    </div>
+                  </div>
                 </el-dropdown-item>
-                <el-dropdown-item command="autowrite">
-                  <el-icon><EditPen /></el-icon> AI 自动写作
-                </el-dropdown-item>
-                <el-dropdown-item command="export-project">
-                  <el-icon><Folder /></el-icon> 导出整个项目
-                </el-dropdown-item>
-                <el-dropdown-item divided command="edit">
-                  <el-icon><Edit /></el-icon> 编辑项目
-                </el-dropdown-item>
-                <el-dropdown-item command="delete" class="delete-item">
-                  <el-icon><Delete /></el-icon> 删除项目
+                <el-dropdown-item divided command="delete" class="delete-item">
+                  <div class="dd-item">
+                    <span class="dd-icon"><el-icon><Delete /></el-icon></span>
+                    <div class="dd-meta">
+                      <span class="dd-title">删除项目</span>
+                      <span class="dd-desc">同时删除全部文档</span>
+                    </div>
+                  </div>
                 </el-dropdown-item>
               </el-dropdown-menu>
             </template>
           </el-dropdown>
-          <template v-if="headerExpanded">
-            <el-button class="btn btn-lg" @click="showTemplateLibrary = true">
-              <el-icon><Upload /></el-icon>
-              <span>导入模板</span>
-            </el-button>
-            <el-button class="btn btn-lg" type="warning" plain @click="showAutoWriteDrawer = true">
-              <el-icon><EditPen /></el-icon>
-              <span>AI 自动写作</span>
-            </el-button>
-            <el-button class="btn btn-lg" type="success" plain @click="showLiteratureAnalyzer = true">
-              <el-icon><Reading /></el-icon>
-              <span>作品分析</span>
-            </el-button>
-          </template>
-          <ExportMenu
-            ref="exportMenuRef"
-            mode="project"
-            :show-button="headerExpanded"
-            :project-id="Number(projectId)"
-            :project-title="project?.title"
-          />
-          <el-button v-if="headerExpanded" class="btn-text" link @click="headerExpanded = false">
-            <el-icon><ArrowUp /></el-icon>
-            <span>收起</span>
-          </el-button>
-          <el-button v-else class="btn-text" link @click="headerExpanded = true">
-            <el-icon><ArrowDown /></el-icon>
-            <span>展开</span>
-          </el-button>
         </div>
       </div>
     </div>
@@ -99,7 +116,7 @@
         <!-- 拖拽排序提示 -->
         <div class="drag-hint" v-if="documents.length > 1">
           <el-icon><InfoFilled /></el-icon>
-          <span>拖拽文档卡片可调整顺序</span>
+          <span>拖拽文档卡片可调整顺序（点击底部按钮不会触发拖拽）</span>
         </div>
         
         <draggable 
@@ -107,6 +124,8 @@
           class="documents-grid"
           item-key="id"
           handle=".doc-card"
+          filter=".doc-actions, .doc-action-btn, .doc-footer, .no-drag"
+          :prevent-on-filter="true"
           ghost-class="doc-card-ghost"
           drag-class="doc-card-drag"
           :animation="200"
@@ -122,28 +141,41 @@
                 <div class="doc-icon">
                   <el-icon><DocumentIcon /></el-icon>
                 </div>
-                <div class="drag-handle" @click.stop @mousedown="draggingIndex = index">
+                <div
+                  class="drag-handle"
+                  title="拖拽排序"
+                  @click.stop
+                  @mousedown="draggingIndex = index"
+                >
                   <el-icon><Rank /></el-icon>
                 </div>
-                <el-dropdown trigger="click" @command="(cmd) => handleDocCommand(cmd, doc)">
-                  <el-icon class="more-icon" @click.stop><MoreFilled /></el-icon>
-                  <template #dropdown>
-                    <el-dropdown-menu>
-                      <el-dropdown-item command="rename">
-                        <el-icon><Edit /></el-icon> 重命名
-                      </el-dropdown-item>
-                      <el-dropdown-item command="delete" divided class="delete-item">
-                        <el-icon><Delete /></el-icon> 删除
-                      </el-dropdown-item>
-                    </el-dropdown-menu>
-                  </template>
-                </el-dropdown>
               </div>
               <h4 class="doc-title">{{ doc.title }}</h4>
               <p class="doc-preview">{{ getDocPreview(doc) }}</p>
-              <div class="doc-meta">
-                <el-icon><Calendar /></el-icon>
-                <span>{{ formatDate(doc.updated_at) }}</span>
+              <div class="doc-footer no-drag" @click.stop>
+                <div class="doc-meta">
+                  <el-icon><Calendar /></el-icon>
+                  <span>{{ formatDate(doc.updated_at) }}</span>
+                </div>
+                <div class="doc-actions">
+                    
+                  <button
+                    type="button"
+                    class="doc-action-btn"
+                    title="重命名"
+                    @click.stop="handleDocCommand('rename', doc)"
+                  >
+                    <el-icon><Edit /></el-icon>
+                  </button>
+                  <button
+                    type="button"
+                    class="doc-action-btn danger"
+                    title="删除"
+                    @click.stop="handleDocCommand('delete', doc)"
+                  >
+                    <el-icon><Delete /></el-icon>
+                  </button>
+                </div>
               </div>
             </div>
           </template>
@@ -290,7 +322,7 @@ import draggable from 'vuedraggable'
 import ProjectSettingsManager from '@/components/ProjectSettingsManager.vue'
 import AIAutoWrite from '@/components/AIAutoWrite.vue'
 import LiteratureAnalyzer from '@/components/LiteratureAnalyzer.vue'
-import { ArrowLeft, ArrowDown, ArrowUp, Collection, Plus, Document as DocumentIcon, MoreFilled, Edit, Delete, Calendar, Upload, Rank, InfoFilled, EditPen, Folder, Reading } from '@element-plus/icons-vue'
+import { ArrowLeft, ArrowDown, Collection, Plus, Document as DocumentIcon, MoreFilled, Edit, Delete, Calendar, Upload, Rank, InfoFilled, EditPen, Reading } from '@element-plus/icons-vue'
 import ExportMenu from '@/components/ExportMenu.vue'
 import TemplateLibrary from '@/components/TemplateLibrary.vue'
 
@@ -315,8 +347,6 @@ const newDoc = ref({ title: '' })
 const editProjectForm = ref({ title: '', description: '' })
 const draggingIndex = ref(-1)
 const isReordering = ref(false)
-const headerExpanded = ref(false)
-const exportMenuRef = ref<{ triggerExport: (command: string) => void } | null>(null)
 
 // 用于拖拽排序的文档列表
 const draggableDocs = computed({
@@ -422,8 +452,8 @@ function handleProjectMoreCommand(command: string) {
     showTemplateLibrary.value = true
   } else if (command === 'autowrite') {
     showAutoWriteDrawer.value = true
-  } else if (command === 'export-project') {
-    exportMenuRef.value?.triggerExport('project')
+  } else if (command === 'literature') {
+    showLiteratureAnalyzer.value = true
   } else if (command === 'edit' || command === 'delete') {
     handleProjectCommand(command)
   }
@@ -567,12 +597,9 @@ async function onProjectFromLiteratureCreated(projectId: number) {
   align-items: center;
   gap: 12px;
   
-  .project-actions-dropdown .btn .arrow-icon {
+  .header-dropdown .btn .arrow-icon,
+  :deep(.export-menu .btn .arrow-icon) {
     font-size: 12px;
-  }
-
-  :deep(.delete-item) {
-    color: var(--el-color-danger);
   }
 }
 
@@ -638,15 +665,22 @@ async function onProjectFromLiteratureCreated(projectId: number) {
   cursor: pointer;
   transition: all 0.3s ease;
   position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 200px;
   
   &:hover {
     transform: translateY(-2px);
     box-shadow: 0 8px 24px var(--coffee-shadow-hover);
     border-color: var(--coffee-border);
     
-    .more-icon,
     .drag-handle {
       opacity: 1;
+    }
+
+    .doc-action-btn {
+      background: var(--coffee-bg-warm);
+      border-color: var(--coffee-border-light);
     }
   }
   
@@ -679,38 +713,22 @@ async function onProjectFromLiteratureCreated(projectId: number) {
     }
     
     .drag-handle {
-      position: absolute;
-      top: 12px;
-      right: 44px;
       font-size: 18px;
       color: var(--coffee-text-light);
       padding: 6px;
       border-radius: 6px;
-      opacity: 0;
+      opacity: 0.45;
       transition: all 0.2s;
       cursor: grab;
       
       &:hover {
+        opacity: 1;
         background: var(--coffee-shadow);
         color: var(--coffee-primary);
       }
       
       &:active {
         cursor: grabbing;
-      }
-    }
-    
-    .more-icon {
-      font-size: 18px;
-      color: var(--coffee-text-light);
-      padding: 6px;
-      border-radius: 6px;
-      opacity: 0;
-      transition: all 0.2s;
-      
-      &:hover {
-        background: var(--coffee-shadow);
-        color: var(--coffee-primary);
       }
     }
   }
@@ -736,19 +754,98 @@ async function onProjectFromLiteratureCreated(projectId: number) {
     -webkit-box-orient: vertical;
     min-height: 44px;
     margin-bottom: 16px;
+    flex: 1;
   }
   
-  .doc-meta {
+  .doc-footer {
     display: flex;
     align-items: center;
-    gap: 6px;
-    font-size: 13px;
-    color: var(--coffee-text-light);
+    justify-content: space-between;
+    gap: 10px;
+    height: 36px;
     padding-top: 12px;
     border-top: 1px solid var(--coffee-divider);
+    margin-top: auto;
+    box-sizing: content-box;
+  }
+
+  .doc-meta {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 28px;
+    font-size: 12px;
+    color: var(--coffee-text-light);
+    white-space: nowrap;
+    flex-shrink: 0;
     
     .el-icon {
+      font-size: 13px;
+    }
+  }
+
+  .doc-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 28px;
+    margin-left: auto;
+    flex-shrink: 0;
+  }
+
+  .doc-action-btn {
+    height: 28px;
+    padding: 0 8px;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--coffee-text-muted);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    cursor: pointer;
+    transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+    font-size: 12px;
+    line-height: 1;
+    white-space: nowrap;
+
+    .el-icon {
       font-size: 14px;
+    }
+
+    span {
+      font-weight: 500;
+    }
+
+    &:hover {
+      background: var(--coffee-bg-warm);
+      border-color: var(--coffee-border);
+      color: var(--coffee-primary);
+    }
+
+    &.primary {
+      color: var(--coffee-primary-dark);
+      background: color-mix(in srgb, var(--coffee-primary-light) 55%, transparent);
+      border-color: color-mix(in srgb, var(--coffee-primary) 22%, transparent);
+
+      &:hover {
+        background: color-mix(in srgb, var(--coffee-primary-light) 80%, transparent);
+        border-color: color-mix(in srgb, var(--coffee-primary) 35%, transparent);
+        color: var(--coffee-primary);
+        box-shadow: 0 2px 8px color-mix(in srgb, var(--coffee-primary) 18%, transparent);
+      }
+    }
+
+    &.danger {
+      color: var(--coffee-text-muted);
+
+      &:hover {
+        background: rgba(245, 108, 108, 0.1);
+        border-color: rgba(245, 108, 108, 0.28);
+        color: #f56c6c;
+        box-shadow: none;
+      }
     }
   }
 }
@@ -816,6 +913,17 @@ async function onProjectFromLiteratureCreated(projectId: number) {
 
   .documents-grid {
     grid-template-columns: 1fr;
+  }
+
+  .doc-card {
+    .doc-action-btn {
+      width: 28px;
+      padding: 0;
+
+      span {
+        display: none;
+      }
+    }
   }
 
   .drag-handle {

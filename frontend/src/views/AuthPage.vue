@@ -178,7 +178,7 @@ async function handleSubmit() {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, #fdf8f3 0%, #f8ece0 50%, #f2dec8 100%);
+  background: linear-gradient(135deg, var(--coffee-bg) 0%, var(--coffee-bg-warm) 50%, var(--coffee-divider) 100%);
   position: relative;
   overflow: hidden;
 }
@@ -228,7 +228,7 @@ async function handleSubmit() {
 }
 
 .auth-card {
-  background: rgba(255, 255, 255, 0.95);
+  background: var(--coffee-bg-card);
   backdrop-filter: blur(10px);
   border-radius: 24px;
   padding: 40px;
@@ -257,9 +257,9 @@ async function handleSubmit() {
 .auth-form {
   .el-input {
     --el-input-border-radius: 12px;
-    --el-input-bg-color: #fdfbf7;
-    --el-input-border-color: #e8dcd0;
-    --el-input-hover-border-color: #c4a77d;
+    --el-input-bg-color: var(--coffee-bg);
+    --el-input-border-color: var(--coffee-border);
+    --el-input-hover-border-color: var(--coffee-primary-light);
     --el-input-focus-border-color: var(--coffee-primary-light);
     
     :deep(.el-input__wrapper) {
@@ -281,7 +281,7 @@ async function handleSubmit() {
   text-align: center;
   margin-top: 24px;
   padding-top: 20px;
-  border-top: 1px solid #f2e9e0;
+  border-top: 1px solid var(--coffee-border-light);
   
   p {
     color: #a67c52;

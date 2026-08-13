@@ -755,7 +755,7 @@ onMounted(() => {
 }
 
 .character-item {
-  background: white;
+  background: var(--coffee-bg-card);
   padding: 10px;
   border-radius: 6px;
 }

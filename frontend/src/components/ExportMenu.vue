@@ -1,69 +1,67 @@
 <template>
   <div class="export-menu">
-    <el-dropdown v-if="showButton" trigger="click" @command="handleExport">
-      <el-button class="btn">
+    <el-dropdown v-if="showButton" trigger="click" placement="bottom-end" popper-class="coffee-dropdown" @command="handleExport">
+      <el-button :class="buttonClass">
         <el-icon><Download /></el-icon>
         <span>导出</span>
         <el-icon class="arrow-icon"><ArrowDown /></el-icon>
       </el-button>
       <template #dropdown>
-        <el-dropdown-menu class="export-dropdown">
-          <!-- 项目页：仅显示导出项目 -->
+        <el-dropdown-menu class="coffee-dropdown-menu">
           <template v-if="mode === 'project'">
             <el-dropdown-item command="project">
-              <div class="export-option">
-                <el-icon><Folder /></el-icon>
-                <div class="option-info">
-                  <span class="option-title">导出整个项目</span>
-                  <span class="option-desc">Markdown 格式，包含所有文档</span>
+              <div class="dd-item">
+                <span class="dd-icon"><el-icon><Folder /></el-icon></span>
+                <div class="dd-meta">
+                  <span class="dd-title">导出整个项目</span>
+                  <span class="dd-desc">Markdown，包含所有文档</span>
                 </div>
               </div>
             </el-dropdown-item>
             <el-dropdown-item command="project-json">
-              <div class="export-option">
-                <el-icon><Folder /></el-icon>
-                <div class="option-info">
-                  <span class="option-title">导出为项目包 (JSON)</span>
-                  <span class="option-desc">可导入为新项目</span>
+              <div class="dd-item">
+                <span class="dd-icon"><el-icon><Folder /></el-icon></span>
+                <div class="dd-meta">
+                  <span class="dd-title">导出为项目包</span>
+                  <span class="dd-desc">JSON，可导入为新项目</span>
                 </div>
               </div>
             </el-dropdown-item>
           </template>
-          <!-- 文档页：仅显示文档导出，不显示导出项目 -->
           <template v-else>
             <el-dropdown-item command="markdown">
-              <div class="export-option">
-                <el-icon><Document /></el-icon>
-                <div class="option-info">
-                  <span class="option-title">Markdown</span>
-                  <span class="option-desc">通用标记格式</span>
+              <div class="dd-item">
+                <span class="dd-icon"><el-icon><Document /></el-icon></span>
+                <div class="dd-meta">
+                  <span class="dd-title">Markdown</span>
+                  <span class="dd-desc">通用标记格式</span>
                 </div>
               </div>
             </el-dropdown-item>
             <el-dropdown-item command="pdf">
-              <div class="export-option">
-                <el-icon><Collection /></el-icon>
-                <div class="option-info">
-                  <span class="option-title">PDF</span>
-                  <span class="option-desc">适合打印和分享</span>
+              <div class="dd-item">
+                <span class="dd-icon"><el-icon><Collection /></el-icon></span>
+                <div class="dd-meta">
+                  <span class="dd-title">PDF</span>
+                  <span class="dd-desc">适合打印和分享</span>
                 </div>
               </div>
             </el-dropdown-item>
             <el-dropdown-item command="docx">
-              <div class="export-option">
-                <el-icon><Files /></el-icon>
-                <div class="option-info">
-                  <span class="option-title">Word 文档</span>
-                  <span class="option-desc">DOCX 格式，可编辑</span>
+              <div class="dd-item">
+                <span class="dd-icon"><el-icon><Files /></el-icon></span>
+                <div class="dd-meta">
+                  <span class="dd-title">Word 文档</span>
+                  <span class="dd-desc">DOCX 格式，可编辑</span>
                 </div>
               </div>
             </el-dropdown-item>
             <el-dropdown-item command="txt">
-              <div class="export-option">
-                <el-icon><Document /></el-icon>
-                <div class="option-info">
-                  <span class="option-title">纯文本</span>
-                  <span class="option-desc">仅文本内容</span>
+              <div class="dd-item">
+                <span class="dd-icon"><el-icon><Document /></el-icon></span>
+                <div class="dd-meta">
+                  <span class="dd-title">纯文本</span>
+                  <span class="dd-desc">仅导出文本内容</span>
                 </div>
               </div>
             </el-dropdown-item>
@@ -106,12 +104,13 @@ const props = withDefaults(
   defineProps<{
     mode?: 'project' | 'document'
     showButton?: boolean
+    buttonClass?: string
     documentId?: number
     projectId?: number
     documentTitle?: string
     projectTitle?: string
   }>(),
-  { mode: 'document', showButton: true }
+  { mode: 'document', showButton: true, buttonClass: 'btn' }
 )
 
 const showSettings = ref(false)
@@ -190,43 +189,8 @@ defineExpose({
 
 <style scoped lang="scss">
 .export-menu {
-  display: inline-block;
-}
-
-.export-dropdown {
-  .el-dropdown-menu__item {
-    padding: 0;
-  }
-}
-
-.export-option {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 12px;
-  padding: 12px 16px;
-  min-width: 200px;
-  
-  .el-icon {
-    font-size: 20px;
-    color: var(--coffee-primary);
-  }
-  
-  .option-info {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    
-    .option-title {
-      font-size: 14px;
-      font-weight: 500;
-      color: var(--coffee-text);
-    }
-    
-    .option-desc {
-      font-size: 12px;
-      color: var(--coffee-text-light);
-    }
-  }
 }
 
 .form-hint {

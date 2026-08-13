@@ -85,10 +85,14 @@ python start.py
 cp .env.docker .env
 # 编辑 .env，配置你的 AI API Key
 
-docker-compose up -d
+# Windows
+.\deploy.bat
+
+# macOS / Linux
+chmod +x deploy.sh && ./deploy.sh
 ```
 
-访问 http://localhost:5173
+访问 http://localhost:8080（后端 API：http://localhost:9000）。详见 [DOCKER_DEPLOY.md](./DOCKER_DEPLOY.md)。
 
 ---
 

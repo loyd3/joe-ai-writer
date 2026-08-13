@@ -86,6 +86,16 @@
             type="button"
             class="toolbar-btn ai-btn"
             @mousedown.prevent
+            @click="emitFormatStyleSelected"
+            title="AI 一键调整样式：只优化结构排版，不改内容"
+          >
+            <el-icon><SetUp /></el-icon>
+            <span>调整样式</span>
+          </button>
+          <button
+            type="button"
+            class="toolbar-btn ai-btn"
+            @mousedown.prevent
             @click="emitReviseSelected"
             title="AI 修改（选中多个块）"
           >
@@ -265,6 +275,10 @@
           <button type="button" class="toolbar-btn ai-btn" @click.stop="emitPolish(row.index)" title="AI 润色">
             <el-icon><Brush /></el-icon>
             <span>AI 润色</span>
+          </button>
+          <button type="button" class="toolbar-btn ai-btn" @click.stop="emitFormatStyle(row.index)" title="AI 一键调整样式：只优化结构排版，不改内容">
+            <el-icon><SetUp /></el-icon>
+            <span>调整样式</span>
           </button>
           <span class="toolbar-divider" />
           <button type="button" class="toolbar-btn format-btn" :disabled="previewMode" :class="{ active: isFormatActive(row.index, 'bold') }" @click.stop="applyFormat(row.index, 'bold')" title="加粗 (Ctrl+B)">
@@ -473,6 +487,10 @@
               <el-icon><Brush /></el-icon>
               <span>AI 润色</span>
             </button>
+            <button type="button" class="context-item ai-item" @click="handleContextAction('formatStyle')">
+              <el-icon><SetUp /></el-icon>
+              <span>AI 调整样式</span>
+            </button>
           </div>
           <div v-if="!previewMode" class="context-menu-divider" />
           <div v-if="!previewMode" class="context-menu-section">
@@ -566,7 +584,7 @@
 import { ref, computed, nextTick, onMounted, onUnmounted, watch } from 'vue'
 import type { Block } from '@/stores/project'
 import { ElMessage } from 'element-plus'
-import { Plus, MoreFilled, Top, ChatDotRound, List, Document, Delete, EditPen, Brush, Rank, Operation, Minus, RefreshLeft, RefreshRight, DocumentCopy, Scissor, Close, MagicStick, Picture, ArrowUp, ArrowDown } from '@element-plus/icons-vue'
+import { Plus, MoreFilled, Top, ChatDotRound, List, Document, Delete, EditPen, Brush, Rank, Operation, Minus, RefreshLeft, RefreshRight, DocumentCopy, Scissor, Close, MagicStick, Picture, ArrowUp, ArrowDown, SetUp } from '@element-plus/icons-vue'
 
 const props = defineProps<{
   modelValue: Block[]
@@ -579,6 +597,8 @@ const emit = defineEmits<{
   (e: 'update:modelValue', value: Block[]): void
   (e: 'polish', payload: { index: number; text: string }): void
   (e: 'polish-selected', payload: { indices: number[]; text: string }): void
+  (e: 'format-style', payload: { index: number; text: string }): void
+  (e: 'format-style-selected', payload: { indices: number[]; text: string }): void
   (e: 'revise-selected', payload: { indices: number[]; text: string }): void
   (e: 'expand-selected', payload: { indices: number[]; text: string }): void
   (e: 'generate-image-for-selection', payload: { indices: number[]; text: string }): void
@@ -1536,6 +1556,9 @@ function handleContextAction(action: string) {
       break
     case 'polish':
       emitPolish(idx)
+      break
+    case 'formatStyle':
+      emitFormatStyle(idx)
       break
     case 'formatBold':
       applyFormat(idx, 'bold')
@@ -2509,6 +2532,23 @@ function emitPolish(index: number) {
   emit('polish', { index, text })
 }
 
+function emitFormatStyle(index: number) {
+  const block = props.modelValue[index]
+  if (!block) return
+
+  if (selectedBlocks.value.size > 1 && selectedBlocks.value.has(index)) {
+    emitFormatStyleSelected()
+    return
+  }
+
+  const text = block?.content ? stripHtml(block.content) : ''
+  if (!text.trim()) {
+    ElMessage.warning('请先输入要调整样式的内容')
+    return
+  }
+  emit('format-style', { index, text })
+}
+
 function emitPolishSelected() {
   const indices = Array.from(selectedBlocks.value).sort((a, b) => a - b)
   if (indices.length === 0) return
@@ -2531,6 +2571,31 @@ function emitPolishSelected() {
   clearBlockSelection()
   emit('polish-selected', { indices, text })
   // 恢复焦点
+  if (focusTarget >= 0 && focusTarget < props.modelValue.length) {
+    nextTick(() => focusBlock(focusTarget, { focus: false }))
+  }
+}
+
+function emitFormatStyleSelected() {
+  const indices = Array.from(selectedBlocks.value).sort((a, b) => a - b)
+  if (indices.length === 0) return
+
+  const parts = indices
+    .map(i => {
+      const b = props.modelValue[i]
+      return b?.content ? stripHtml(b.content) : ''
+    })
+    .filter(t => t.trim())
+
+  const text = parts.join('\n\n')
+  if (!text.trim()) {
+    ElMessage.warning('请先输入要调整样式的内容')
+    return
+  }
+
+  const focusTarget = indices[0]
+  clearBlockSelection()
+  emit('format-style-selected', { indices, text })
   if (focusTarget >= 0 && focusTarget < props.modelValue.length) {
     nextTick(() => focusBlock(focusTarget, { focus: false }))
   }
@@ -3092,11 +3157,11 @@ defineExpose({ getImageInsertAfterIndex, flushPendingSync, focusBlock })
   &[data-type="code"] {
     font-family: 'Fira Code', 'Monaco', 'Consolas', monospace;
     font-size: 14px;
-    background: #f5f5f5;
+    background: var(--coffee-bg-warm);
     padding: 16px;
     border-radius: 8px;
     white-space: pre-wrap;
-    color: #333;
+    color: var(--coffee-text);
     
     &:empty::before {
       content: '// 代码块';
@@ -3678,7 +3743,7 @@ defineExpose({ getImageInsertAfterIndex, flushPendingSync, focusBlock })
   max-width: 100%;
   height: auto;
   border-radius: 8px;
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
+  box-shadow: var(--app-shadow-md);
 }
 .block-image-placeholder {
   padding: 24px;

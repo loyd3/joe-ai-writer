@@ -2,11 +2,25 @@
   <el-dialog
     v-model="visible"
     title="主题设置"
-    width="420px"
+    width="440px"
     class="theme-dialog"
     :close-on-click-modal="true"
     @closed="onClosed"
   >
+    <div class="theme-section">
+      <div class="section-label">外观模式</div>
+      <el-radio-group :model-value="themeStore.mode" class="mode-group" @change="onModeChange">
+        <el-radio-button value="light">
+          <el-icon><Sunny /></el-icon> 浅色
+        </el-radio-button>
+        <el-radio-button value="dark">
+          <el-icon><Moon /></el-icon> 深色
+        </el-radio-button>
+        <el-radio-button value="system">
+          <el-icon><Monitor /></el-icon> 跟随系统
+        </el-radio-button>
+      </el-radio-group>
+    </div>
     <div class="theme-section">
       <div class="section-label">预设主题</div>
       <div class="preset-list">
@@ -49,7 +63,8 @@
 
 <script setup lang="ts">
 import { ref, watch } from 'vue'
-import { useThemeStore, THEME_PRESETS } from '@/stores/theme'
+import { Sunny, Moon, Monitor } from '@element-plus/icons-vue'
+import { useThemeStore, THEME_PRESETS, type ThemeMode } from '@/stores/theme'
 
 const props = defineProps<{
   modelValue: boolean
@@ -85,6 +100,10 @@ watch(
 )
 watch(visible, (v) => emit('update:modelValue', v))
 
+function onModeChange(val: string | number | boolean | undefined) {
+  themeStore.setMode(val as ThemeMode)
+}
+
 function onCustomColorChange(val: string | undefined) {
   const v = (val ?? (customColorLocal.value || '')).trim()
   if (!v) return
@@ -112,6 +131,23 @@ function onClosed() {
   font-weight: 600;
   color: var(--coffee-text);
   margin-bottom: 10px;
+}
+
+.mode-group {
+  width: 100%;
+  display: flex;
+
+  :deep(.el-radio-button) {
+    flex: 1;
+
+    .el-radio-button__inner {
+      width: 100%;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+    }
+  }
 }
 
 .preset-list {

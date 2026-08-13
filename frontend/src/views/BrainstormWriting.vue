@@ -895,7 +895,7 @@ onMounted(() => {
 
 .left-panel {
   .section {
-    background: #fff;
+    background: var(--coffee-bg-card);
     border-radius: 12px;
     padding: 16px;
     margin-bottom: 16px;
@@ -943,7 +943,7 @@ onMounted(() => {
   padding: 6px 12px;
   border: 1px solid #e0e0e0;
   border-radius: 16px;
-  background: #fff;
+  background: var(--coffee-bg-card);
   cursor: pointer;
   font-size: 13px;
   transition: all 0.2s;
@@ -1012,7 +1012,7 @@ onMounted(() => {
 }
 
 .right-panel {
-  background: #fff;
+  background: var(--coffee-bg-card);
   border-radius: 12px;
   padding: 24px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
@@ -1092,7 +1092,7 @@ onMounted(() => {
       padding: 6px 12px;
       border: 1px solid #d9d9d9;
       border-radius: 4px;
-      background: #fff;
+      background: var(--coffee-bg-card);
       font-size: 14px;
       cursor: pointer;
 
@@ -1137,7 +1137,7 @@ onMounted(() => {
     color: #666;
     margin-bottom: 16px;
     padding: 8px 12px;
-    background: #fff;
+    background: var(--coffee-bg-card);
     border-radius: 4px;
     border-left: 3px solid #409eff;
   }
@@ -1392,7 +1392,7 @@ onMounted(() => {
 }
 
 .delete-icon-btn {
-  background: #fff;
+  background: var(--coffee-bg-card);
   border: 1px solid #e0e0e0;
   border-radius: 6px;
   padding: 4px 8px;
