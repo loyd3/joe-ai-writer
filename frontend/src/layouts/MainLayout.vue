@@ -74,45 +74,35 @@
         <!-- 用户信息区 -->
         <div class="user-section">
           <el-divider class="coffee-divider" />
-          <div class="user-row">
-            <button
-              type="button"
-              class="mode-toggle"
-              :title="themeStore.isDark() ? '切换为浅色模式' : '切换为深色模式'"
-              @click="themeStore.toggleMode()"
-            >
-              <el-icon><Moon v-if="themeStore.isDark()" /><Sunny v-else /></el-icon>
-            </button>
-            <el-dropdown trigger="click" @command="handleUserCommand" class="user-dropdown-wrap">
-              <div class="user-info">
-                <div class="user-avatar">
-                  <el-avatar v-if="authStore.currentUser?.avatar_url" :size="36" :src="sidebarAvatarUrl" />
-                  <el-icon v-else><UserFilled /></el-icon>
-                </div>
-                <div class="user-meta">
-                  <span class="username">{{ authStore.currentUser?.username }}</span>
-                  <span class="user-role">创作者</span>
-                </div>
-                <el-icon class="arrow-icon"><ArrowDown /></el-icon>
+          <el-dropdown trigger="click" @command="handleUserCommand">
+            <div class="user-info">
+              <div class="user-avatar">
+                <el-avatar v-if="authStore.currentUser?.avatar_url" :size="36" :src="sidebarAvatarUrl" />
+                <el-icon v-else><UserFilled /></el-icon>
               </div>
-              <template #dropdown>
-                <el-dropdown-menu class="user-dropdown">
-                  <el-dropdown-item command="profile">
-                    <el-icon><User /></el-icon> 个人中心
-                  </el-dropdown-item>
-                  <el-dropdown-item command="aiConfig">
-                    <el-icon><Cpu /></el-icon> AI 模型配置
-                  </el-dropdown-item>
-                  <el-dropdown-item command="settings">
-                    <el-icon><Setting /></el-icon> 主题设置
-                  </el-dropdown-item>
-                  <el-dropdown-item divided command="logout">
-                    <el-icon><SwitchButton /></el-icon> 退出登录
-                  </el-dropdown-item>
-                </el-dropdown-menu>
-              </template>
-            </el-dropdown>
-          </div>
+              <div class="user-meta">
+                <span class="username">{{ authStore.currentUser?.username }}</span>
+                <span class="user-role">创作者</span>
+              </div>
+              <el-icon class="arrow-icon"><ArrowDown /></el-icon>
+            </div>
+            <template #dropdown>
+              <el-dropdown-menu class="user-dropdown">
+                <el-dropdown-item command="profile">
+                  <el-icon><User /></el-icon> 个人中心
+                </el-dropdown-item>
+                <el-dropdown-item command="aiConfig">
+                  <el-icon><Cpu /></el-icon> AI 模型配置
+                </el-dropdown-item>
+                <el-dropdown-item command="settings">
+                  <el-icon><Setting /></el-icon> 主题设置
+                </el-dropdown-item>
+                <el-dropdown-item divided command="logout">
+                  <el-icon><SwitchButton /></el-icon> 退出登录
+                </el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
         </div>
       </el-aside>
       
@@ -150,7 +140,6 @@
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
-import { useThemeStore } from '@/stores/theme'
 import { computed } from 'vue'
 import ProjectSidebar from '@/components/ProjectSidebar.vue'
 import ThemeSettingsDialog from '@/components/ThemeSettingsDialog.vue'
@@ -158,12 +147,11 @@ import GlobalSearch from '@/components/GlobalSearch.vue'
 import AIConfigPanel from '@/components/AIConfigPanel.vue'
 import ProfileCenter from '@/components/ProfileCenter.vue'
 import { API_BASE_URL } from '@/api'
-import { EditPen, UserFilled, ArrowDown, User, Setting, SwitchButton, Cpu, HomeFilled, DataLine, TrendCharts, MagicStick, Lightning, Promotion, Sunny, Moon } from '@element-plus/icons-vue'
+import { EditPen, UserFilled, ArrowDown, User, Setting, SwitchButton, Cpu, HomeFilled, DataLine, TrendCharts, MagicStick, Lightning, Promotion } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
 const router = useRouter()
 const authStore = useAuthStore()
-const themeStore = useThemeStore()
 const showSettingsDialog = ref(false)
 const showAIConfigDrawer = ref(false)
 const showProfileDrawer = ref(false)
@@ -225,18 +213,19 @@ async function handleUserCommand(command: string) {
 }
 
 .sidebar {
-  background: var(--coffee-bg-warm);
+  background: linear-gradient(180deg, var(--coffee-bg) 0%, var(--coffee-bg-warm) 100%);
   border-right: 1px solid var(--coffee-border);
   display: flex;
   flex-direction: column;
+  box-shadow: 4px 0 20px var(--coffee-sidebar-shadow);
 }
 
 .logo {
-  height: 60px;
+  height: 70px;
   display: flex;
   align-items: center;
-  padding: 0 20px;
-  gap: 10px;
+  padding: 0 24px;
+  gap: 12px;
   border-bottom: 1px solid var(--coffee-border-light);
   cursor: pointer;
   transition: background 0.2s;
@@ -246,24 +235,24 @@ async function handleUserCommand(command: string) {
   }
 
   .logo-icon {
-    width: 34px;
-    height: 34px;
+    width: 40px;
+    height: 40px;
     background: var(--coffee-gradient-primary);
-    border-radius: 8px;
+    border-radius: 10px;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 17px;
+    font-size: 20px;
     color: #fff;
   }
-
+  
   .logo-text-wrap {
     display: flex;
     flex-direction: column;
-    gap: 1px;
+    gap: 2px;
   }
   .logo-text {
-    font-size: 16px;
+    font-size: 18px;
     font-weight: 700;
     color: var(--coffee-text);
     letter-spacing: 1px;
@@ -295,16 +284,16 @@ async function handleUserCommand(command: string) {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 8px 12px;
-  border-radius: 8px;
+  padding: 10px 12px;
+  border-radius: 10px;
   cursor: pointer;
   transition: all 0.2s ease;
-  margin-bottom: 2px;
+  margin-bottom: 4px;
   color: var(--coffee-text-secondary);
   font-size: 14px;
 
   .el-icon {
-    font-size: 17px;
+    font-size: 18px;
   }
 
   &:hover {
@@ -313,7 +302,7 @@ async function handleUserCommand(command: string) {
   }
 
   &.active {
-    background: rgba(var(--coffee-primary-rgb), 0.1);
+    background: var(--coffee-selection);
     color: var(--coffee-primary);
     font-weight: 500;
   }
@@ -321,55 +310,21 @@ async function handleUserCommand(command: string) {
 
 .user-section {
   padding: 0 16px 16px;
-
+  
   .coffee-divider {
     margin: 8px 0 16px;
     border-color: var(--coffee-border);
   }
 }
 
-.user-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.mode-toggle {
-  width: 40px;
-  height: 40px;
-  flex-shrink: 0;
-  border: none;
-  border-radius: 10px;
-  background: transparent;
-  color: var(--coffee-text-muted);
-  font-size: 18px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  transition: all 0.2s;
-
-  &:hover {
-    background: var(--coffee-bg-hover);
-    color: var(--coffee-primary);
-  }
-}
-
-.user-dropdown-wrap {
-  flex: 1;
-  min-width: 0;
-  width: 100%;
-}
-
 .user-info {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 10px 12px;
-  width: 100%;
-  border-radius: 10px;
+  padding: 12px;
+  border-radius: 12px;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all 0.3s ease;
   
   &:hover {
     background: var(--coffee-bg-hover);

@@ -882,7 +882,7 @@ onMounted(() => {
   }
 
   .subtitle {
-    color: #666;
+    color: var(--coffee-text-secondary);
     font-size: 14px;
   }
 }
@@ -904,7 +904,7 @@ onMounted(() => {
     h3 {
       font-size: 16px;
       margin-bottom: 12px;
-      color: #333;
+      color: var(--coffee-text);
     }
   }
 }
@@ -923,13 +923,13 @@ onMounted(() => {
 .refresh-btn {
   font-size: 12px;
   padding: 4px 10px;
-  background: #f0f0f0;
+  background: var(--coffee-bg-warm);
   border: none;
   border-radius: 4px;
   cursor: pointer;
 
   &:hover {
-    background: #e0e0e0;
+    background: var(--coffee-border-light);
   }
 }
 
@@ -941,7 +941,7 @@ onMounted(() => {
 
 .category-btn {
   padding: 6px 12px;
-  border: 1px solid #e0e0e0;
+  border: 1px solid var(--coffee-border);
   border-radius: 16px;
   background: var(--coffee-bg-card);
   cursor: pointer;
@@ -949,8 +949,8 @@ onMounted(() => {
   transition: all 0.2s;
 
   &:hover {
-    border-color: #409eff;
-    color: #409eff;
+    border-color: var(--coffee-primary);
+    color: var(--coffee-primary);
   }
 
   &.active {
@@ -967,20 +967,20 @@ onMounted(() => {
 
 .brainstorm-card {
   padding: 12px;
-  border: 1px solid #e8e8e8;
+  border: 1px solid var(--coffee-border);
   border-radius: 8px;
   margin-bottom: 8px;
   cursor: pointer;
   transition: all 0.2s;
 
   &:hover {
-    border-color: #409eff;
-    box-shadow: 0 2px 8px rgba(64, 158, 255, 0.15);
+    border-color: var(--coffee-primary);
+    box-shadow: 0 2px 8px rgba(var(--coffee-primary-rgb), 0.15);
   }
 
   &.selected {
-    border-color: #409eff;
-    background: #f0f9ff;
+    border-color: var(--coffee-primary);
+    background: rgba(var(--coffee-primary-rgb), 0.08);
   }
 
   .card-header {
@@ -993,9 +993,9 @@ onMounted(() => {
   .category-tag {
     font-size: 11px;
     padding: 2px 8px;
-    background: #f0f0f0;
+    background: var(--coffee-bg-warm);
     border-radius: 4px;
-    color: #666;
+    color: var(--coffee-text-secondary);
   }
 
   .heat {
@@ -1006,7 +1006,7 @@ onMounted(() => {
   h4 {
     font-size: 14px;
     line-height: 1.5;
-    color: #333;
+    color: var(--coffee-text);
     margin: 0;
   }
 }
@@ -1025,7 +1025,7 @@ onMounted(() => {
   align-items: center;
   justify-content: center;
   height: 400px;
-  color: #999;
+  color: var(--coffee-text-muted);
 
   .empty-icon {
     font-size: 64px;
@@ -1039,7 +1039,7 @@ onMounted(() => {
 
   .hint {
     font-size: 14px;
-    color: #bbb;
+    color: var(--coffee-text-light);
   }
 }
 
@@ -1047,7 +1047,7 @@ onMounted(() => {
   .selected-brainstorm {
     margin-bottom: 20px;
     padding-bottom: 20px;
-    border-bottom: 1px solid #e8e8e8;
+    border-bottom: 1px solid var(--coffee-border);
 
     .brainstorm-header {
       .category-badge {
@@ -1063,7 +1063,7 @@ onMounted(() => {
       h2 {
         font-size: 20px;
         line-height: 1.5;
-        color: #333;
+        color: var(--coffee-text);
         margin: 0;
       }
     }
@@ -1075,7 +1075,7 @@ onMounted(() => {
   gap: 24px;
   margin-bottom: 20px;
   padding: 16px;
-  background: #f8f9fa;
+  background: var(--coffee-bg-warm);
   border-radius: 8px;
 
   .setting-item {
@@ -1085,12 +1085,12 @@ onMounted(() => {
 
     label {
       font-size: 14px;
-      color: #666;
+      color: var(--coffee-text-secondary);
     }
 
     select {
       padding: 6px 12px;
-      border: 1px solid #d9d9d9;
+      border: 1px solid var(--coffee-border);
       border-radius: 4px;
       background: var(--coffee-bg-card);
       font-size: 14px;
@@ -1098,7 +1098,7 @@ onMounted(() => {
 
       &:focus {
         outline: none;
-        border-color: #409eff;
+        border-color: var(--coffee-primary);
       }
     }
   }
@@ -1117,29 +1117,29 @@ onMounted(() => {
   h3 {
     font-size: 16px;
     margin-bottom: 12px;
-    color: #333;
+    color: var(--coffee-text);
   }
 }
 
 .outline-content {
-  background: #f8f9fa;
+  background: var(--coffee-bg-warm);
   border-radius: 8px;
   padding: 16px;
 
   h4 {
     font-size: 16px;
-    color: #409eff;
+    color: var(--coffee-primary);
     margin-bottom: 12px;
   }
 
   .angle {
     font-size: 14px;
-    color: #666;
+    color: var(--coffee-text-secondary);
     margin-bottom: 16px;
     padding: 8px 12px;
     background: var(--coffee-bg-card);
     border-radius: 4px;
-    border-left: 3px solid #409eff;
+    border-left: 3px solid var(--coffee-primary);
   }
 
   .outline-section-item {
@@ -1147,7 +1147,7 @@ onMounted(() => {
 
     h5 {
       font-size: 14px;
-      color: #333;
+      color: var(--coffee-text);
       margin-bottom: 6px;
     }
 
@@ -1157,7 +1157,7 @@ onMounted(() => {
 
       li {
         font-size: 13px;
-        color: #666;
+        color: var(--coffee-text-secondary);
         margin-bottom: 4px;
       }
     }
@@ -1166,13 +1166,13 @@ onMounted(() => {
   .keywords {
     margin-top: 16px;
     padding-top: 12px;
-    border-top: 1px solid #e8e8e8;
+    border-top: 1px solid var(--coffee-border);
 
     .keyword-tag {
       display: inline-block;
       padding: 2px 8px;
-      background: #e6f7ff;
-      color: #1890ff;
+      background: rgba(var(--coffee-primary-rgb), 0.08);
+      color: var(--coffee-primary);
       border-radius: 4px;
       font-size: 12px;
       margin-right: 8px;
@@ -1189,7 +1189,7 @@ onMounted(() => {
 
     h3 {
       font-size: 16px;
-      color: #333;
+      color: var(--coffee-text);
       margin: 0;
     }
 
@@ -1201,13 +1201,13 @@ onMounted(() => {
 }
 
 .article-content {
-  background: #fafafa;
+  background: var(--coffee-bg-warm);
   border-radius: 8px;
   padding: 24px;
 
   h1 {
     font-size: 22px;
-    color: #333;
+    color: var(--coffee-text);
     margin-bottom: 12px;
   }
 
@@ -1215,20 +1215,20 @@ onMounted(() => {
     display: flex;
     gap: 16px;
     font-size: 13px;
-    color: #999;
+    color: var(--coffee-text-muted);
     margin-bottom: 20px;
     padding-bottom: 16px;
-    border-bottom: 1px solid #e8e8e8;
+    border-bottom: 1px solid var(--coffee-border);
   }
 
   .article-body {
     line-height: 1.9;
-    color: #333;
+    color: var(--coffee-text);
     font-size: 15px;
 
     :deep(h1), :deep(h2), :deep(h3) {
       margin: 24px 0 12px;
-      color: #303133;
+      color: var(--coffee-text);
     }
 
     :deep(h2) { font-size: 19px; }
@@ -1240,11 +1240,11 @@ onMounted(() => {
     }
 
     :deep(blockquote) {
-      border-left: 4px solid #409eff;
+      border-left: 4px solid var(--coffee-primary);
       padding: 10px 16px;
       margin: 16px 0;
-      color: #606266;
-      background: #f0f5ff;
+      color: var(--coffee-text-secondary);
+      background: rgba(var(--coffee-primary-rgb), 0.08);
       border-radius: 0 6px 6px 0;
     }
 
@@ -1257,15 +1257,15 @@ onMounted(() => {
 
     :deep(hr) {
       border: none;
-      border-top: 1px solid #ebeef5;
+      border-top: 1px solid var(--coffee-border-light);
       margin: 20px 0;
     }
   }
 }
 
 .outline-raw {
-  background: #f5f7fa;
-  border: 1px solid #e4e7ed;
+  background: var(--coffee-bg-warm);
+  border: 1px solid var(--coffee-border);
   border-radius: 8px;
   padding: 16px;
   font-size: 13px;
@@ -1279,13 +1279,13 @@ onMounted(() => {
 .outline-streaming {
   margin-top: 16px;
   padding: 16px;
-  background: #fafafa;
-  border: 1px solid #e8e8e8;
+  background: var(--coffee-bg-warm);
+  border: 1px solid var(--coffee-border);
   border-radius: 8px;
 
   h3 {
     font-size: 16px;
-    color: #333;
+    color: var(--coffee-text);
     margin: 0 0 12px;
   }
 }
@@ -1305,14 +1305,14 @@ onMounted(() => {
 // 保存对话框样式
 .save-dialog-content {
   .dialog-tip {
-    color: #666;
+    color: var(--coffee-text-secondary);
     margin-bottom: 20px;
   }
 
   .section-title {
     font-weight: 500;
     margin-bottom: 12px;
-    color: #333;
+    color: var(--coffee-text);
   }
 
   .project-list {
@@ -1330,7 +1330,7 @@ onMounted(() => {
       transition: background-color 0.2s;
 
       &:hover {
-        background-color: #f5f5f5;
+        background-color: var(--coffee-bg-warm);
       }
     }
   }
@@ -1343,19 +1343,19 @@ onMounted(() => {
     margin-bottom: 20px;
 
     .divider-text {
-      color: #999;
+      color: var(--coffee-text-muted);
       font-size: 13px;
     }
   }
 
   .article-preview {
-    background-color: #f8f9fa;
+    background-color: var(--coffee-bg-warm);
     padding: 16px;
     border-radius: 8px;
 
     .preview-content {
       p {
-        color: #666;
+        color: var(--coffee-text-secondary);
         font-size: 13px;
         margin-top: 8px;
       }
@@ -1393,7 +1393,7 @@ onMounted(() => {
 
 .delete-icon-btn {
   background: var(--coffee-bg-card);
-  border: 1px solid #e0e0e0;
+  border: 1px solid var(--coffee-border);
   border-radius: 6px;
   padding: 4px 8px;
   cursor: pointer;
@@ -1407,7 +1407,7 @@ onMounted(() => {
 
 .custom-concept {
   margin: 8px 0 0;
-  color: #606266;
+  color: var(--coffee-text-secondary);
   font-size: 13px;
   line-height: 1.6;
 }

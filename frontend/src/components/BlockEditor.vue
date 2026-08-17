@@ -3157,11 +3157,11 @@ defineExpose({ getImageInsertAfterIndex, flushPendingSync, focusBlock })
   &[data-type="code"] {
     font-family: 'Fira Code', 'Monaco', 'Consolas', monospace;
     font-size: 14px;
-    background: var(--coffee-bg-warm);
+    background: #f5f5f5;
     padding: 16px;
     border-radius: 8px;
     white-space: pre-wrap;
-    color: var(--coffee-text);
+    color: #333;
     
     &:empty::before {
       content: '// 代码块';
@@ -3743,7 +3743,7 @@ defineExpose({ getImageInsertAfterIndex, flushPendingSync, focusBlock })
   max-width: 100%;
   height: auto;
   border-radius: 8px;
-  box-shadow: var(--app-shadow-md);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
 }
 .block-image-placeholder {
   padding: 24px;
