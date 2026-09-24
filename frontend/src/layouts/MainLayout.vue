@@ -367,10 +367,13 @@ async function handleUserCommand(command: string) {
 }
 
 .main-content {
-  padding: 0;
+  padding: 0 !important;
   background: var(--coffee-gradient-light);
-  overflow-y: auto; /* 内容超出时主区域可滚动 */
+  height: 100%;
   min-height: 0;
+  overflow-y: auto;
+  box-sizing: border-box;
+  position: relative;
 }
 
 /* 下拉菜单样式 */

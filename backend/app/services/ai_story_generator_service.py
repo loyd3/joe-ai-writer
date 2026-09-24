@@ -468,12 +468,13 @@ class AIStoryGeneratorService:
             raw_characters = flat
         converted_characters = []
         
-        for char in raw_characters:
+        for i, char in enumerate(raw_characters):
             if isinstance(char, dict):
                 # 构建 description：组合 role, age, appearance 等信息
                 description_parts = []
-                if char.get("role"):
-                    description_parts.append(f"角色定位：{char['role']}")
+                role_label = char.get("role") or ""
+                if role_label:
+                    description_parts.append(f"角色定位：{role_label}")
                 if char.get("age"):
                     description_parts.append(f"年龄：{char['age']}")
                 if char.get("appearance"):
@@ -483,22 +484,79 @@ class AIStoryGeneratorService:
                 
                 description = "；".join(description_parts) if description_parts else char.get("name", "未命名角色")
                 
+                # 映射到角色卡 role 字段
+                mapped_role = "配角"
+                if "主角" in str(role_label) or str(role_label).lower() in ("protagonist", "main"):
+                    mapped_role = "主角"
+                elif "反派" in str(role_label) or "antagonist" in str(role_label).lower():
+                    mapped_role = "反派"
+                elif "重要" in str(role_label):
+                    mapped_role = "重要配角"
+
                 converted_characters.append({
                     "name": char.get("name", "未命名角色"),
                     "description": description,
-                    "personality": char.get("personality") or char.get("personality", ""),
+                    "personality": char.get("personality") or "",
                     "background": char.get("background", ""),
-                    "goals": char.get("goals") or char.get("goal", "")
+                    "goals": char.get("goals") or char.get("goal", ""),
+                    "role": mapped_role,
+                    "avatar": "",
+                    "color": "",
                 })
+
+        # 大纲 → 故事线阶段缩略
+        outline = story_data.get("outline") or []
+        stages = []
+        for item in outline:
+            if isinstance(item, dict):
+                stages.append({
+                    "title": item.get("title") or item.get("act") or "",
+                    "summary": item.get("description") or item.get("content") or "",
+                })
+
+        plot_points = story_data.get("plot_points") or []
+        key_points = []
+        for p in plot_points:
+            if isinstance(p, str):
+                key_points.append({"title": p[:40], "summary": p})
+            elif isinstance(p, dict):
+                key_points.append({
+                    "title": str(p.get("title") or p.get("name") or "")[:40],
+                    "summary": str(p.get("summary") or p.get("description") or p.get("content") or ""),
+                })
+
+        raw_world = story_data.get("world_building") or {}
+        world_items = []
+        if isinstance(raw_world, dict):
+            for k, v in raw_world.items():
+                if k == "categories":
+                    continue
+                world_items.append({"title": str(k), "content": "" if v is None else str(v)})
+
+        world_building = {
+            "categories": [
+                {"name": "综合设定", "items": world_items},
+                {"name": "时代背景", "items": []},
+                {"name": "地理环境", "items": []},
+                {"name": "力量/规则", "items": []},
+                {"name": "社会结构", "items": []},
+                {"name": "文化习俗", "items": []},
+            ]
+        }
         
         memory = {
-            "outline": story_data.get("outline", []),
+            "outline": outline,
             "characters": converted_characters,
-            "storyline": story_data.get("core_theme", ""),
-            "world_building": story_data.get("world_building", {}),
-            "writing_style": story_data.get("writing_style", {}).get("tone", ""),
+            "storyline": {
+                "summary": story_data.get("core_theme", "") or "",
+                "stages": stages,
+            },
+            "world_building": world_building,
+            "writing_style": (story_data.get("writing_style") or {}).get("tone", "")
+                if isinstance(story_data.get("writing_style"), dict)
+                else (story_data.get("writing_style") or ""),
+            "key_points": key_points,
             "notes": f"""基于主题「{story_data.get('input_theme', '')}」生成的故事设定
-类型：{story_data.get('genre', '')}
-关键情节点：{json.dumps(story_data.get('plot_points', []), ensure_ascii=False)}"""
+类型：{story_data.get('genre', '')}"""
         }
         return memory

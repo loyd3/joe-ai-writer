@@ -7,7 +7,8 @@ import type {
   AIRequest, AIAssistResponse, AIChatRequest, AIGenerateRequest, AIBatchGenerateRequest,
   LiteraryAnalysisRequest, LiteraryAnalysisResult, CreateProjectFromLiteratureRequest,
   Template, TemplateCreate,
-  AIConfig, Theme
+  AIConfig, Theme, AIRewriteFromMemoryRequest, AIRebuildFromMemoryRequest,
+  StyleAgent, StyleAgentPreset, StyleAgentCreate, StyleAgentUpdate,
 } from './types'
 
 // API 基础 URL 配置
@@ -292,7 +293,42 @@ export const documentApi = {
 // ========== 项目设定 API ==========
 export const memoryApi = {
   get: (projectId: number) => api.get<AIMemory>(`/projects/${projectId}/memory`),
-  update: (projectId: number, data: AIMemoryUpdate) => api.put<AIMemory>(`/projects/${projectId}/memory`, data)
+  update: (projectId: number, data: AIMemoryUpdate) => api.put<AIMemory>(`/projects/${projectId}/memory`, data),
+  assist: (
+    projectId: number,
+    data: {
+      field: string
+      mode?: 'auto' | 'generate' | 'expand' | 'refine'
+      current_value?: string
+      instruction?: string
+      extra?: Record<string, any>
+    }
+  ) =>
+    api.post<{ result: string; field: string; mode: string }>(
+      `/projects/${projectId}/memory/assist`,
+      data,
+      { timeout: 120000 }
+    )
+}
+
+// ========== 文风智能体 API ==========
+export const styleAgentApi = {
+  listPresets: () => api.get<StyleAgentPreset[]>('/style-agent-presets'),
+  list: (projectId: number) =>
+    api.get<StyleAgent[]>(`/projects/${projectId}/style-agents`),
+  create: (projectId: number, data: StyleAgentCreate) =>
+    api.post<StyleAgent>(`/projects/${projectId}/style-agents`, data),
+  fromPreset: (projectId: number, presetKey: string, setDefault = false) =>
+    api.post<StyleAgent>(`/projects/${projectId}/style-agents/from-preset`, {
+      preset_key: presetKey,
+      set_default: setDefault,
+    }),
+  update: (projectId: number, agentId: number, data: StyleAgentUpdate) =>
+    api.put<StyleAgent>(`/projects/${projectId}/style-agents/${agentId}`, data),
+  setDefault: (projectId: number, agentId: number) =>
+    api.post<StyleAgent>(`/projects/${projectId}/style-agents/${agentId}/set-default`),
+  delete: (projectId: number, agentId: number) =>
+    api.delete(`/projects/${projectId}/style-agents/${agentId}`),
 }
 
 // ========== AI 写作 API ==========
@@ -324,6 +360,30 @@ export const aiApi = {
   generateFromMemoryStream: (data: AIGenerateRequest) => {
     const token = localStorage.getItem('token')
     return fetch(`${API_BASE_URL}/api/ai/generate-from-memory/stream`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify(data)
+    })
+  },
+  /** 设定变更后按最新设定重写文档（流式） */
+  rewriteFromMemoryStream: (data: AIRewriteFromMemoryRequest) => {
+    const token = localStorage.getItem('token')
+    return fetch(`${API_BASE_URL}/api/ai/rewrite-from-memory/stream`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify(data)
+    })
+  },
+  /** 设定大改：重梳大纲并生成新文档（流式） */
+  rebuildFromMemoryStream: (data: AIRebuildFromMemoryRequest) => {
+    const token = localStorage.getItem('token')
+    return fetch(`${API_BASE_URL}/api/ai/rebuild-from-memory/stream`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

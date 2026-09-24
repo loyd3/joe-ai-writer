@@ -16,9 +16,13 @@
             <el-icon><Plus /></el-icon>
             <span>新建文档</span>
           </el-button>
-          <el-button class="btn btn-lg" @click="showMemoryDrawer = true">
+          <el-button class="btn btn-lg" @click="goSettings">
             <el-icon><Collection /></el-icon>
             <span>项目设定</span>
+          </el-button>
+          <el-button class="btn btn-lg" @click="goWritingStyle">
+            <el-icon><Brush /></el-icon>
+            <span>文风设置</span>
           </el-button>
           <el-dropdown trigger="click" placement="bottom-end" popper-class="coffee-dropdown" @command="handleProjectMoreCommand" class="header-dropdown">
             <el-button class="btn btn-lg">
@@ -183,17 +187,6 @@
       </div>
     </div>
 
-    <!-- 项目设定抽屉 -->
-    <el-drawer
-      v-model="showMemoryDrawer"
-      title="项目设定管理"
-      size="520px"
-      class="memory-drawer"
-      :destroy-on-close="false"
-    >
-      <ProjectSettingsManager :project-id="Number(projectId)" />
-    </el-drawer>
-
     <!-- 新建文档对话框 -->
     <el-dialog 
       v-model="showCreateDocDialog" 
@@ -256,7 +249,7 @@
       <div v-else class="no-outline-tip">
         <el-empty description="暂无大纲数据">
           <p>请先在「项目设定」中创建大纲，才能使用 AI 自动写作功能</p>
-          <el-button type="primary" @click="openMemoryDrawer">前往项目设定</el-button>
+          <el-button type="primary" @click="goSettings">前往项目设定</el-button>
         </el-empty>
       </div>
     </el-drawer>
@@ -319,10 +312,9 @@ import { useRoute, useRouter } from 'vue-router'
 import { useProjectStore, type Document } from '@/stores/project'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import draggable from 'vuedraggable'
-import ProjectSettingsManager from '@/components/ProjectSettingsManager.vue'
 import AIAutoWrite from '@/components/AIAutoWrite.vue'
 import LiteratureAnalyzer from '@/components/LiteratureAnalyzer.vue'
-import { ArrowLeft, ArrowDown, Collection, Plus, Document as DocumentIcon, MoreFilled, Edit, Delete, Calendar, Upload, Rank, InfoFilled, EditPen, Reading } from '@element-plus/icons-vue'
+import { ArrowLeft, ArrowDown, Collection, Plus, Document as DocumentIcon, MoreFilled, Edit, Delete, Calendar, Upload, Rank, InfoFilled, EditPen, Reading, Brush } from '@element-plus/icons-vue'
 import ExportMenu from '@/components/ExportMenu.vue'
 import TemplateLibrary from '@/components/TemplateLibrary.vue'
 
@@ -334,7 +326,6 @@ const projectId = computed(() => route.params.id as string)
 const project = computed(() => store.currentProject)
 const documents = computed(() => store.currentProject?.documents || [])
 
-const showMemoryDrawer = ref(false)
 const showAutoWriteDrawer = ref(false)
 const showLiteratureAnalyzer = ref(false)
 const showTemplateLibrary = ref(false)
@@ -528,9 +519,13 @@ async function onDragEnd() {
   }
 }
 
-function openMemoryDrawer() {
+function goSettings() {
   showAutoWriteDrawer.value = false
-  showMemoryDrawer.value = true
+  router.push(`/project/${projectId.value}/settings`)
+}
+
+function goWritingStyle() {
+  router.push(`/project/${projectId.value}/writing-style`)
 }
 
 async function onDocumentCreated(docId: number) {
@@ -852,25 +847,6 @@ async function onProjectFromLiteratureCreated(projectId: number) {
 
 .custom-empty {
   padding: 60px 20px;
-}
-
-:deep(.memory-drawer) {
-  .el-drawer__header {
-    padding: 20px 24px;
-    border-bottom: 1px solid var(--coffee-border-light);
-    margin-bottom: 0;
-    
-    span {
-      font-size: 18px;
-      font-weight: 600;
-      color: var(--coffee-text);
-    }
-  }
-  
-  .el-drawer__body {
-    padding: 0;
-    background: var(--coffee-bg);
-  }
 }
 
 :deep(.delete-item) {

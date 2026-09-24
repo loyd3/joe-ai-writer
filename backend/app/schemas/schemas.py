@@ -1,5 +1,5 @@
 import uuid
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, model_validator
 from typing import List, Optional, Dict, Any
 from datetime import datetime
 
@@ -66,37 +66,97 @@ class ThemeUpdate(BaseModel):
 
 # ========== AI Memory Schemas ==========
 class Character(BaseModel):
-    name: str
-    description: str
+    name: str = ""
+    description: str = ""
     personality: Optional[str] = None
     background: Optional[str] = None
     goals: Optional[str] = None
+    role: Optional[str] = None
+    avatar: Optional[str] = None
+    color: Optional[str] = None
+
+class StoryStage(BaseModel):
+    title: str = ""
+    summary: str = ""
+
+class StorylineData(BaseModel):
+    summary: str = ""
+    stages: List[StoryStage] = []
+
+class KeyPointItem(BaseModel):
+    title: str = ""
+    summary: str = ""
+
+class WorldItem(BaseModel):
+    title: str = ""
+    content: str = ""
+
+class WorldCategory(BaseModel):
+    name: str = ""
+    items: List[WorldItem] = []
+
+class WorldBuildingData(BaseModel):
+    categories: List[WorldCategory] = []
 
 class AIMemoryBase(BaseModel):
     outline: List[Dict[str, Any]] = []
-    storyline: Optional[str] = None
+    storyline: Optional[Any] = None  # StorylineData | str（兼容旧数据）
     characters: List[Character] = []
-    world_building: Dict[str, Any] = {}
+    world_building: Any = {}  # WorldBuildingData | 旧扁平 dict
     writing_style: Optional[str] = None
-    key_points: List[str] = []
+    key_points: List[Any] = []  # KeyPointItem | str
     notes: Optional[str] = None
 
 class AIMemoryUpdate(BaseModel):
     outline: Optional[List[Dict[str, Any]]] = None
-    storyline: Optional[str] = None
+    storyline: Optional[Any] = None
     characters: Optional[List[Character]] = None
-    world_building: Optional[Dict[str, Any]] = None
+    world_building: Optional[Any] = None
     writing_style: Optional[str] = None
-    key_points: Optional[List[str]] = None
+    key_points: Optional[List[Any]] = None
     notes: Optional[str] = None
 
 class AIMemoryResponse(AIMemoryBase):
     id: int
     project_id: int
     updated_at: datetime
-    
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_payload(cls, data: Any):
+        from app.services.memory_normalize import memory_orm_to_dict, normalize_memory_fields
+        if data is None:
+            return data
+        if hasattr(data, "project_id") and hasattr(data, "outline"):
+            return memory_orm_to_dict(data)
+        if isinstance(data, dict):
+            fields = normalize_memory_fields(
+                outline=data.get("outline"),
+                storyline=data.get("storyline"),
+                characters=data.get("characters"),
+                world_building=data.get("world_building"),
+                writing_style=data.get("writing_style"),
+                key_points=data.get("key_points"),
+                notes=data.get("notes"),
+            )
+            return {**data, **fields}
+        return data
+
     class Config:
         from_attributes = True
+
+class MemoryAssistRequest(BaseModel):
+    """项目设定单字段 AI 辅助"""
+    field: str = Field(..., description="字段类型，如 storyline / outline_title / character_description")
+    mode: str = Field(default="auto", description="auto | generate | expand | refine")
+    current_value: Optional[str] = None
+    instruction: Optional[str] = None
+    extra: Optional[Dict[str, Any]] = None
+
+class MemoryAssistResponse(BaseModel):
+    result: str
+    field: str
+    mode: str
 
 # ========== Document Schemas ==========
 class Block(BaseModel):
@@ -156,6 +216,7 @@ class AIRequest(BaseModel):
     action: str  # 'guide', 'revise', 'polish', 'continue', 'brainstorm', 'expand', 'format_style'
     selected_text: Optional[str] = None
     instruction: Optional[str] = None
+    style_agent_id: Optional[int] = Field(None, description="文风智能体 ID，空则用项目默认")
 
 class AIStreamResponse(BaseModel):
     content: str
@@ -169,6 +230,7 @@ class AIChatRequest(BaseModel):
     document_id: int
     messages: List[ChatMessage]
     include_memory: bool = True
+    style_agent_id: Optional[int] = Field(None, description="文风智能体 ID，空则用项目默认")
 
 
 class AIGenerateFromMemoryRequest(BaseModel):
@@ -178,6 +240,28 @@ class AIGenerateFromMemoryRequest(BaseModel):
     generate_type: str = "opening"  # opening | continue | outline_section | scene | custom
     custom_instruction: Optional[str] = None  # generate_type=custom 时使用
     current_content: Optional[str] = None  # 续写时传入当前文档末尾内容
+    style_agent_id: Optional[int] = None
+
+
+class AIRewriteFromMemoryRequest(BaseModel):
+    """设定变更后，按最新设定重写正文（在原文档上对齐改写）"""
+    project_id: int
+    document_ids: Optional[List[int]] = None  # 空则重写项目下全部文档
+    rewrite_mode: str = "align"  # full | align | characters | world | style
+    custom_instruction: Optional[str] = None
+    apply_to_documents: bool = True  # True 时直接写回文档；False 仅预览（单文档时）
+    style_agent_id: Optional[int] = None
+
+
+class AIRebuildFromMemoryRequest(BaseModel):
+    """设定大改后：重新梳理大纲，并按新结构生成文档"""
+    project_id: int
+    chapter_count: Optional[int] = Field(default=None, ge=2, le=30)
+    words_per_chapter: int = Field(default=1500, ge=500, le=8000)
+    custom_instruction: Optional[str] = None
+    archive_old_docs: bool = True  # True：旧文档归档到「设定变更前旧稿」；False：删除旧文档
+    update_outline: bool = True  # 把梳理后的新大纲写回项目设定
+    style_agent_id: Optional[int] = None
 
 class AIGenerateChapterRequest(BaseModel):
     """生成单个章节的请求"""
@@ -194,6 +278,57 @@ class AIBatchGenerateRequest(BaseModel):
     max_tokens_per_chapter: int = Field(default=8000, ge=500, le=32000)  # 每章字数限制
     continue_on_complete: bool = True  # 完成后是否继续下一章
     custom_instruction: Optional[str] = None  # 全局额外要求
+    style_agent_id: Optional[int] = None
+
+
+# ========== 文风智能体 ==========
+class StyleAgentConfig(BaseModel):
+    tone: str = "自然克制"
+    pov: str = "第三人称有限"
+    pace: str = "适中"
+    sentence: str = "长短交错"
+    diction: str = "白话"
+    dialogue_ratio: str = "中"
+    detail_level: str = "适中"
+    taboo: List[str] = []
+    custom_text: str = ""
+    samples: List[str] = []
+
+
+class StyleAgentCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=100)
+    description: Optional[str] = None
+    config: Optional[Dict[str, Any]] = None
+    preset_key: Optional[str] = None
+    is_default: bool = False
+
+
+class StyleAgentFromPreset(BaseModel):
+    preset_key: str
+    set_default: bool = False
+
+
+class StyleAgentUpdate(BaseModel):
+    name: Optional[str] = Field(None, min_length=1, max_length=100)
+    description: Optional[str] = None
+    config: Optional[Dict[str, Any]] = None
+    is_default: Optional[bool] = None
+
+
+class StyleAgentResponse(BaseModel):
+    id: int
+    project_id: int
+    name: str
+    description: str = ""
+    preset_key: Optional[str] = None
+    config: Dict[str, Any] = {}
+    is_default: bool = False
+    compiled_preview: Optional[str] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
 
 class AIGenerateProgress(BaseModel):
     """批量生成进度"""

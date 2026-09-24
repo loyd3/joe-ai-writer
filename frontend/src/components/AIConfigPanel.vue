@@ -39,6 +39,7 @@
             <el-icon v-if="p.id === 'deepseek'"><ChromeFilled /></el-icon>
             <el-icon v-else-if="p.id === 'openai'"><Open /></el-icon>
             <el-icon v-else-if="p.id === 'siliconflow'"><Cpu /></el-icon>
+            <el-icon v-else-if="p.id === 'yxai'"><MagicStick /></el-icon>
             <el-icon v-else><Link /></el-icon>
             {{ p.name }}
           </el-radio-button>
@@ -203,6 +204,13 @@
         <p>2. 注册/登录账号</p>
         <p>3. 进入「API 密钥」页面创建密钥</p>
       </div>
+      <div v-else-if="form.provider === 'yxai'" class="help-content">
+        <p>1. 访问 <el-link href="https://yxai.chat" target="_blank" type="primary">意心 AI 平台</el-link>（无需 VPN）</p>
+        <p>2. 注册/登录账号并完成认证</p>
+        <p>3. 在控制台创建 API Key，复制到上方输入框</p>
+        <p>4. 默认地址为 <code>https://yxai.chat/v1</code>，兼容 OpenAI Chat Completions</p>
+        <p>文档：<el-link href="https://yxai.chat/docs/platform-overview" target="_blank" type="primary">平台概览</el-link></p>
+      </div>
       <div v-else class="help-content">
         <p>请输入兼容 OpenAI API 格式的自定义端点地址</p>
       </div>
@@ -336,7 +344,8 @@ function onProviderChange() {
     const recommendedModel = provider.models.find(m => 
       (provider.id === 'deepseek' && m === 'deepseek-chat') ||
       (provider.id === 'openai' && m === 'gpt-4') ||
-      (provider.id === 'siliconflow' && m.includes('DeepSeek-V3'))
+      (provider.id === 'siliconflow' && m.includes('DeepSeek-V3')) ||
+      (provider.id === 'yxai' && m === 'deepseek-flash')
     )
     form.value.model = recommendedModel || provider.models[0]
   }
@@ -510,6 +519,12 @@ async function resetToDefault() {
 
 :deep(.provider-siliconflow) {
   background: linear-gradient(135deg, #fc4a1a 0%, #f7b733 100%);
+  color: white;
+  font-weight: bold;
+}
+
+:deep(.provider-yxai) {
+  background: linear-gradient(135deg, #5b6cfa 0%, #8b5cf6 100%);
   color: white;
   font-weight: bold;
 }

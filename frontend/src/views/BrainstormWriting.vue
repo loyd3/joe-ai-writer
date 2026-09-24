@@ -33,11 +33,14 @@
         <div class="section">
           <div class="section-header">
             <h3>🔥 热门脑洞</h3>
-            <el-button class="btn" @click="fetchTrendingBrainstorms">
-              🔄 刷新
+            <el-button class="btn" :loading="loadingTrending" @click="fetchTrendingBrainstorms">
+              🔄 AI 换一批
             </el-button>
           </div>
-          <div class="brainstorm-list">
+          <div v-if="loadingTrending" class="trending-loading">
+            <p>AI 正在脑洞中，请稍候…</p>
+          </div>
+          <div v-else class="brainstorm-list">
             <div
               v-for="(item, index) in trendingBrainstorms"
               :key="index"
@@ -46,9 +49,21 @@
             >
               <div class="card-header">
                 <span class="category-tag">{{ item.category }}</span>
-                <span class="heat">🔥 {{ formatHeat(item.heat) }}</span>
+                <div class="card-actions">
+                  <span class="heat">🔥 {{ formatHeat(item.heat) }}</span>
+                  <button
+                    class="save-icon-btn"
+                    title="收藏此脑洞"
+                    @click.stop="saveBrainstorm(item, 'trending')"
+                  >
+                    ⭐
+                  </button>
+                </div>
               </div>
               <h4>{{ item.title }}</h4>
+              <p v-if="item.concept" class="card-concept">
+                {{ item.concept.length > 60 ? item.concept.slice(0, 60) + '…' : item.concept }}
+              </p>
             </div>
           </div>
         </div>
@@ -68,51 +83,34 @@
           </el-button>
         </div>
 
-        <!-- 自定义脑洞 -->
+        <!-- 我的脑洞（收藏 + 自定义） -->
         <div class="section">
           <div class="section-header">
-            <h3>🧩 自定义脑洞</h3>
-          </div>
-
-          <div class="custom-form">
-            <el-input
-              v-model="customTitle"
-              placeholder="脑洞标题（可选）"
-              clearable
-            />
-            <el-input
-              v-model="customConcept"
-              type="textarea"
-              :rows="4"
-              placeholder="核心概念/设定（必填）"
-              show-word-limit
-            />
-          </div>
-
-          <div class="custom-actions">
+            <h3>⭐ 我的脑洞</h3>
             <el-button
-              class="btn btn-primary btn-block"
-              :disabled="!customConcept.trim()"
-              @click="addCustomBrainstorm"
+              class="btn"
+              size="small"
+              :disabled="!selectedBrainstorm?.concept"
+              @click="saveBrainstorm(selectedBrainstorm, 'manual')"
             >
-              ➕ 添加自定义脑洞
+              收藏当前
             </el-button>
           </div>
 
-          <div v-if="customBrainstorms.length > 0" class="custom-list">
+          <div v-if="savedBrainstorms.length > 0" class="custom-list">
             <div
-              v-for="(item, index) in customBrainstorms"
+              v-for="(item, index) in savedBrainstorms"
               :key="item.id || index"
               class="brainstorm-card custom-brain-card"
-              :class="{ selected: selectedBrainstorm?.id ? selectedBrainstorm?.id === item.id : selectedBrainstorm?.concept === item.concept }"
+              :class="{ selected: isSavedSelected(item) }"
               @click="selectBrainstorm(item)"
             >
               <div class="card-header">
-                <span class="category-tag">自定义</span>
+                <span class="category-tag">{{ item.category || '收藏' }}</span>
                 <button
                   class="delete-icon-btn"
-                  title="删除"
-                  @click.stop="deleteCustomBrainstorm(index)"
+                  title="取消收藏"
+                  @click.stop="removeSavedBrainstorm(item, index)"
                 >
                   删除
                 </button>
@@ -123,9 +121,32 @@
               </p>
             </div>
           </div>
-
           <div v-else class="custom-empty">
-            <p class="hint">还没有自定义脑洞</p>
+            <p class="hint">还没有收藏。可对热门脑洞点 ⭐，或点「收藏当前」</p>
+          </div>
+
+          <div class="custom-form" style="margin-top: 12px">
+            <el-input
+              v-model="customTitle"
+              placeholder="脑洞标题（可选）"
+              clearable
+            />
+            <el-input
+              v-model="customConcept"
+              type="textarea"
+              :rows="3"
+              placeholder="或自己写一个核心概念/设定后保存"
+              show-word-limit
+            />
+          </div>
+          <div class="custom-actions">
+            <el-button
+              class="btn btn-primary btn-block"
+              :disabled="!customConcept.trim()"
+              @click="addCustomBrainstorm"
+            >
+              ➕ 保存为新脑洞
+            </el-button>
           </div>
         </div>
       </div>
@@ -145,6 +166,19 @@
               <span class="category-badge">{{ selectedBrainstorm.category }}</span>
               <h2>{{ selectedBrainstorm.title }}</h2>
             </div>
+            <p v-if="selectedBrainstorm.concept" class="selected-concept">
+              {{ selectedBrainstorm.concept }}
+            </p>
+            <div class="selected-actions">
+              <el-button
+                class="btn"
+                size="small"
+                :disabled="isCurrentSaved"
+                @click="saveBrainstorm(selectedBrainstorm, 'manual')"
+              >
+                {{ isCurrentSaved ? '✓ 已收藏' : '⭐ 收藏此脑洞' }}
+              </el-button>
+            </div>
           </div>
 
           <!-- 写作设置 -->
@@ -162,9 +196,9 @@
             <div class="setting-item">
               <label>文章长度：</label>
               <select v-model="wordCount">
-                <option value="short">短文 (~1000字)</option>
-                <option value="medium">中篇 (~1500字)</option>
-                <option value="long">长文 (~2500字)</option>
+                <option value="short">短文 / 约3章</option>
+                <option value="medium">中篇 / 约5章</option>
+                <option value="long">长文 / 约8章</option>
               </select>
             </div>
           </div>
@@ -188,7 +222,32 @@
               <span v-else>📝 生成文章</span>
             </el-button>
             <el-button class="btn" @click="quickGenerate">
-              ⚡ 一键生成
+              ⚡ 一键生成文章
+            </el-button>
+            <el-button
+              class="btn btn-primary"
+              type="success"
+              :loading="generatingProject"
+              :disabled="generatingProject"
+              @click="generateProject"
+            >
+              📁 生成项目（提纲+设定+分章）
+            </el-button>
+          </div>
+
+          <!-- 项目生成进度 -->
+          <div v-if="generatingProject || projectProgressLogs.length" class="project-progress">
+            <h3>📁 项目生成进度</h3>
+            <p v-if="projectProgressMessage" class="progress-current">{{ projectProgressMessage }}</p>
+            <ul class="progress-log">
+              <li v-for="(log, i) in projectProgressLogs" :key="i">{{ log }}</li>
+            </ul>
+            <el-button
+              v-if="createdProjectId && !generatingProject"
+              class="btn btn-primary"
+              @click="goToProject"
+            >
+              打开项目
             </el-button>
           </div>
 
@@ -352,6 +411,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
@@ -364,13 +424,21 @@ import type { Block } from '@/api/types'
 marked.setOptions({ breaks: false, gfm: true })
 
 const authStore = useAuthStore()
+const router = useRouter()
 
 // 状态
 const categories = ref([])
 const trendingBrainstorms = ref([])
+const loadingTrending = ref(false)
 const selectedCategory = ref(null)
 const selectedBrainstorm = ref(null)
-const customBrainstorms = ref<Array<{ id: string; title: string; category: string; concept: string }>>([])
+const savedBrainstorms = ref<Array<{
+  id?: number | string
+  title: string
+  category: string
+  concept: string
+  source?: string
+}>>([])
 const customTitle = ref('')
 const customConcept = ref('')
 const writingStyle = ref('幽默风趣')
@@ -379,6 +447,10 @@ const outline = ref(null)
 const article = ref(null)
 const generatingOutline = ref(false)
 const generatingArticle = ref(false)
+const generatingProject = ref(false)
+const projectProgressMessage = ref('')
+const projectProgressLogs = ref<string[]>([])
+const createdProjectId = ref<number | null>(null)
 const outlineStreamText = ref('')
 const outlineStreamPreview = computed(() => {
   const text = outlineStreamText.value || ''
@@ -463,18 +535,21 @@ const fetchCategories = async () => {
   }
 }
 
-// 获取热门脑洞
+// 获取热门脑洞（AI 生成）
 const fetchTrendingBrainstorms = async () => {
+  loadingTrending.value = true
   try {
-    const params: Record<string, any> = { limit: 20 }
+    const params: Record<string, any> = { limit: 8 }
     if (selectedCategory.value) {
       params.category = selectedCategory.value
     }
-    const res = await api.get('/brainstorm/trending', { params })
+    const res = await api.get('/brainstorm/trending', { params, timeout: 120000 })
     trendingBrainstorms.value = res.data
   } catch (error) {
     console.error('获取热门脑洞失败:', error)
-    ElMessage.error('获取热门脑洞失败')
+    ElMessage.error('AI 生成热门脑洞失败，请稍后重试')
+  } finally {
+    loadingTrending.value = false
   }
 }
 
@@ -492,26 +567,138 @@ const selectBrainstorm = (brainstorm) => {
 }
 
 const CUSTOM_BRAINS_KEY = 'brainstorm_custom_brainstorms_v1'
+const SAVED_BRAINS_KEY = 'brainstorm_saved_v1'
 
-function loadCustomBrainstorms() {
+const isCurrentSaved = computed(() => {
+  const c = selectedBrainstorm.value?.concept?.trim()
+  if (!c) return false
+  return savedBrainstorms.value.some((s) => s.concept?.trim() === c)
+})
+
+function isSavedSelected(item: { id?: number | string; concept?: string }) {
+  const sel = selectedBrainstorm.value
+  if (!sel) return false
+  if (item.id != null && sel.id != null && String(item.id) === String(sel.id)) return true
+  return !!item.concept && item.concept === sel.concept
+}
+
+function loadLocalSaved() {
   try {
-    const raw = localStorage.getItem(CUSTOM_BRAINS_KEY)
-    if (!raw) return
-    const arr = JSON.parse(raw)
-    if (Array.isArray(arr)) {
-      customBrainstorms.value = arr
+    const raw = localStorage.getItem(SAVED_BRAINS_KEY)
+    if (!raw) {
+      // 兼容旧版「自定义脑洞」本地数据
+      const legacy = localStorage.getItem(CUSTOM_BRAINS_KEY)
+      if (legacy) {
+        const arr = JSON.parse(legacy)
+        if (Array.isArray(arr)) savedBrainstorms.value = arr
+      }
+      return
     }
+    const arr = JSON.parse(raw)
+    if (Array.isArray(arr)) savedBrainstorms.value = arr
   } catch {
     // ignore
   }
 }
 
-function persistCustomBrainstorms() {
+function persistLocalSaved() {
   try {
-    localStorage.setItem(CUSTOM_BRAINS_KEY, JSON.stringify(customBrainstorms.value))
+    localStorage.setItem(SAVED_BRAINS_KEY, JSON.stringify(savedBrainstorms.value))
   } catch {
     // ignore
   }
+}
+
+async function loadSavedBrainstorms() {
+  loadLocalSaved()
+  if (!authStore.isLoggedIn) return
+  try {
+    const res = await api.get('/brainstorm/saved')
+    const list = res.data?.brainstorms
+    if (Array.isArray(list)) {
+      savedBrainstorms.value = list
+      persistLocalSaved()
+    }
+  } catch (e) {
+    console.log('加载收藏脑洞失败，使用本地缓存', e)
+  }
+}
+
+async function saveBrainstorm(
+  item: { title?: string; category?: string; concept?: string } | null,
+  source = 'manual'
+) {
+  if (!item?.concept?.trim()) {
+    ElMessage.warning('没有可收藏的核心概念')
+    return
+  }
+  const concept = item.concept.trim()
+  const title = (item.title || '').trim() || `收藏脑洞｜${concept.slice(0, 12)}`
+  const category = item.category || '收藏'
+
+  if (savedBrainstorms.value.some((s) => s.concept?.trim() === concept)) {
+    ElMessage.info('这个脑洞已经收藏过了')
+    return
+  }
+
+  if (authStore.isLoggedIn) {
+    try {
+      const res = await api.post('/brainstorm/saved', {
+        title,
+        category,
+        concept,
+        source,
+      })
+      const saved = res.data?.brainstorm
+      if (saved) {
+        if (!res.data.duplicated) {
+          savedBrainstorms.value = [saved, ...savedBrainstorms.value]
+          persistLocalSaved()
+        }
+        ElMessage.success(res.data.duplicated ? '已在收藏中' : '已收藏，下次可直接选用')
+        return
+      }
+    } catch (e) {
+      console.error('服务端收藏失败，改存本地', e)
+    }
+  }
+
+  const localItem = {
+    id: crypto.randomUUID(),
+    title,
+    category,
+    concept,
+    source,
+  }
+  savedBrainstorms.value = [localItem, ...savedBrainstorms.value]
+  persistLocalSaved()
+  ElMessage.success(authStore.isLoggedIn ? '已收藏（本地）' : '已收藏到本机，登录后可云端同步')
+}
+
+async function removeSavedBrainstorm(
+  item: { id?: number | string; concept?: string },
+  index: number
+) {
+  const id = item.id
+  if (authStore.isLoggedIn && typeof id === 'number') {
+    try {
+      await api.delete(`/brainstorm/saved/${id}`)
+    } catch (e) {
+      console.error('删除服务端收藏失败', e)
+      ElMessage.error('删除失败')
+      return
+    }
+  }
+
+  savedBrainstorms.value = savedBrainstorms.value.filter((_, i) => i !== index)
+  persistLocalSaved()
+
+  if (isSavedSelected(item)) {
+    selectedBrainstorm.value = null
+    outline.value = null
+    article.value = null
+  }
+  ElMessage.success('已取消收藏')
 }
 
 function addCustomBrainstorm() {
@@ -519,45 +706,22 @@ function addCustomBrainstorm() {
   if (!concept) return
 
   const title = customTitle.value.trim() || `自定义脑洞｜${concept.slice(0, 10)}`
-
-  const item = {
-    id: crypto.randomUUID(),
-    title,
-    category: '自定义',
-    concept,
-  }
-
-  customBrainstorms.value = [item, ...customBrainstorms.value]
-  persistCustomBrainstorms()
-
   customTitle.value = ''
   customConcept.value = ''
 
-  selectBrainstorm(item)
-  ElMessage.success('已添加并选中自定义脑洞')
-}
-
-function deleteCustomBrainstorm(index: number) {
-  const removed = customBrainstorms.value[index]
-  if (!removed) return
-
-  customBrainstorms.value = customBrainstorms.value.filter((_, i) => i !== index)
-  persistCustomBrainstorms()
-
-  if (selectedBrainstorm.value?.id && selectedBrainstorm.value?.id === removed.id) {
-    selectedBrainstorm.value = null
-    outline.value = null
-    article.value = null
-  }
-
-  ElMessage.success('已删除自定义脑洞')
+  saveBrainstorm({ title, category: '自定义', concept }, 'manual').then(() => {
+    const found = savedBrainstorms.value.find((s) => s.concept === concept)
+    if (found) selectBrainstorm(found)
+  })
 }
 
 // 随机生成脑洞
 const generateRandomBrainstorm = async () => {
   try {
+    ElMessage.info('AI 正在生成随机脑洞…')
     const res = await api.get('/brainstorm/random', {
-      params: { category: selectedCategory.value }
+      params: { category: selectedCategory.value },
+      timeout: 120000,
     })
     selectBrainstorm(res.data)
     ElMessage.success('已生成随机脑洞')
@@ -569,9 +733,13 @@ const generateRandomBrainstorm = async () => {
 
 // 从热点生成
 const generateFromHotTopics = async () => {
+  loadingTrending.value = true
   try {
-    ElMessage.info('正在从热点生成脑洞...')
-    const res = await api.get('/brainstorm/from-hot-topics', { params: { limit: 5 } })
+    ElMessage.info('AI 正在结合热点脑洞…')
+    const res = await api.get('/brainstorm/from-hot-topics', {
+      params: { limit: 5 },
+      timeout: 120000,
+    })
     if (res.data.brainstorms?.length > 0) {
       trendingBrainstorms.value = res.data.brainstorms
       ElMessage.success(`已生成 ${res.data.brainstorms.length} 个脑洞`)
@@ -579,6 +747,8 @@ const generateFromHotTopics = async () => {
   } catch (error) {
     console.error('从热点生成失败:', error)
     ElMessage.error('从热点生成脑洞失败')
+  } finally {
+    loadingTrending.value = false
   }
 }
 
@@ -755,6 +925,104 @@ const quickGenerate = async () => {
   }
 }
 
+// 脑洞 → 新项目（提纲+设定+分章）
+const generateProject = async () => {
+  if (!selectedBrainstorm.value) {
+    ElMessage.warning('请先选择一个脑洞')
+    return
+  }
+  if (!authStore.isLoggedIn) {
+    ElMessage.warning('请先登录后再生成项目')
+    return
+  }
+  if (!selectedBrainstorm.value.concept?.trim()) {
+    ElMessage.warning('该脑洞缺少核心概念，请换一个或添加自定义脑洞')
+    return
+  }
+
+  generatingProject.value = true
+  projectProgressLogs.value = []
+  projectProgressMessage.value = '开始生成…'
+  createdProjectId.value = null
+
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/brainstorm/generate-project/stream`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${localStorage.getItem('token')}`,
+      },
+      body: JSON.stringify({
+        title: selectedBrainstorm.value.title,
+        concept: selectedBrainstorm.value.concept,
+        category: selectedBrainstorm.value.category,
+        style: writingStyle.value,
+        word_count: wordCount.value,
+      }),
+    })
+
+    if (!response.ok || !response.body) {
+      throw new Error('生成项目失败')
+    }
+
+    const reader = response.body.getReader()
+    const decoder = new TextDecoder()
+    let sseBuffer = ''
+
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+
+      sseBuffer += decoder.decode(value, { stream: true })
+      const lines = sseBuffer.split('\n')
+      sseBuffer = lines.pop() || ''
+
+      for (const rawLine of lines) {
+        const line = rawLine.trim()
+        if (!line.startsWith('data: ')) continue
+        const data = line.slice(6).trim()
+        if (!data || data === '[DONE]') continue
+
+        try {
+          const evt = JSON.parse(data) as {
+            type: string
+            message?: string
+            project_id?: number
+            project_title?: string
+          }
+          if (evt.message) {
+            projectProgressMessage.value = evt.message
+            projectProgressLogs.value = [...projectProgressLogs.value, evt.message].slice(-20)
+          }
+          if (evt.type === 'project_created' && evt.project_id) {
+            createdProjectId.value = evt.project_id
+          }
+          if (evt.type === 'complete' && evt.project_id) {
+            createdProjectId.value = evt.project_id
+            ElMessage.success(evt.message || '项目生成完成')
+          }
+          if (evt.type === 'error') {
+            ElMessage.error(evt.message || '生成失败')
+          }
+        } catch {
+          // ignore non-json
+        }
+      }
+    }
+  } catch (error) {
+    console.error('生成项目失败:', error)
+    ElMessage.error('生成项目失败')
+  } finally {
+    generatingProject.value = false
+  }
+}
+
+const goToProject = () => {
+  if (createdProjectId.value) {
+    router.push(`/project/${createdProjectId.value}`)
+  }
+}
+
 // 渲染文章 Markdown
 const renderedArticle = computed(() => {
   if (!article.value?.content) return ''
@@ -859,7 +1127,7 @@ const saveArticle = async () => {
 onMounted(() => {
   fetchCategories()
   fetchTrendingBrainstorms()
-  loadCustomBrainstorms()
+  loadSavedBrainstorms()
 })
 </script>
 
@@ -1003,12 +1271,42 @@ onMounted(() => {
     color: #ff6b6b;
   }
 
+  .card-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .save-icon-btn {
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    font-size: 14px;
+    padding: 0 2px;
+    opacity: 0.7;
+    &:hover { opacity: 1; transform: scale(1.1); }
+  }
+
   h4 {
     font-size: 14px;
     line-height: 1.5;
     color: var(--coffee-text);
     margin: 0;
   }
+
+  .card-concept {
+    margin: 8px 0 0;
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--coffee-text-muted);
+  }
+}
+
+.trending-loading {
+  padding: 24px;
+  text-align: center;
+  color: var(--coffee-text-muted);
+  font-size: 13px;
 }
 
 .right-panel {
@@ -1067,6 +1365,48 @@ onMounted(() => {
         margin: 0;
       }
     }
+
+    .selected-concept {
+      margin: 12px 0 0;
+      font-size: 14px;
+      line-height: 1.6;
+      color: var(--coffee-text-secondary);
+    }
+
+    .selected-actions {
+      margin-top: 12px;
+    }
+  }
+}
+
+.project-progress {
+  margin-top: 20px;
+  padding: 16px;
+  background: var(--coffee-bg-warm);
+  border-radius: 8px;
+  border: 1px solid var(--coffee-border);
+
+  h3 {
+    margin: 0 0 8px;
+    font-size: 15px;
+    color: var(--coffee-text);
+  }
+
+  .progress-current {
+    margin: 0 0 10px;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--coffee-primary);
+  }
+
+  .progress-log {
+    margin: 0 0 12px;
+    padding-left: 18px;
+    max-height: 180px;
+    overflow-y: auto;
+    font-size: 12px;
+    color: var(--coffee-text-muted);
+    line-height: 1.7;
   }
 }
 

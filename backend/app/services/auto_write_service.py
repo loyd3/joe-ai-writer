@@ -8,6 +8,7 @@ from typing import AsyncGenerator, Optional, Dict, Any, List
 from app.services.llm_service import LLMService
 from app.services.document_service import DocumentService
 from app.services.project_service import ProjectService
+from app.services.ai_writing_service import AIWritingService
 
 
 class AutoWriteService:
@@ -334,11 +335,14 @@ class AutoWriteService:
 ## 写作要求
 1. 直接输出章节正文内容，不要包含"第X章"或章节标题
 2. 情节要有吸引力，节奏紧凑，避免拖沓
-3. 人物对话要自然，符合角色性格
-4. 场景描写要生动，让读者有画面感
+3. 人物对话要自然，符合角色性格，可有打断与口语
+4. 场景描写要具体可感，用行动推进，少贴情绪标签
 5. 字数控制在{target_word_count}字左右
 6. 确保与前一章内容连贯（如有提供摘要）
 7. 在关键点处自然展开，不要生硬堆砌
+8. 写得像人手：句长参差，信息有取舍，结尾可留白
+
+{AIWritingService.ANTI_AI_STYLE_RULES}
 
 请开始创作：
 """

@@ -26,6 +26,18 @@ const router = createRouter({
           component: () => import('@/views/ProjectView.vue')
         },
         {
+          path: 'project/:id/settings',
+          name: 'project-settings',
+          component: () => import('@/views/ProjectSettingsView.vue'),
+          meta: { title: '项目设定' }
+        },
+        {
+          path: 'project/:id/writing-style',
+          name: 'writing-style',
+          component: () => import('@/views/WritingStyleView.vue'),
+          meta: { title: '文风设置' }
+        },
+        {
           path: 'document/:id',
           name: 'document',
           component: () => import('@/views/DocumentEditor.vue')

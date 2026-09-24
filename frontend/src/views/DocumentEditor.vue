@@ -27,20 +27,28 @@
           <span>保存</span>
         </el-button>
         <el-button
+          v-if="document?.project_id"
+          class="btn"
+          @click="goProjectSettings"
+        >
+          <el-icon><Collection /></el-icon>
+          <span>项目设定</span>
+        </el-button>
+        <el-button
+          v-if="document?.project_id"
+          class="btn"
+          @click="goWritingStyle"
+        >
+          <el-icon><Brush /></el-icon>
+          <span>文风设置</span>
+        </el-button>
+        <el-button
           class="btn"
           :type="showChatPanel ? 'primary' : 'default'"
           @click="showChatPanel = !showChatPanel"
         >
           <el-icon><ChatDotRound /></el-icon>
           <span>AI 助手</span>
-        </el-button>
-        <el-button
-          class="btn"
-          :type="previewMode ? 'primary' : 'default'"
-          @click="previewMode = !previewMode"
-        >
-          <el-icon><View /></el-icon>
-          <span>{{ previewMode ? '退出预览' : '预览' }}</span>
         </el-button>
         <el-dropdown trigger="click" placement="bottom-end" popper-class="coffee-dropdown" @command="handleMoreCommand" class="header-dropdown">
           <el-button class="btn">
@@ -86,41 +94,12 @@
                   </div>
                 </div>
               </el-dropdown-item>
-            </el-dropdown-menu>
-          </template>
-        </el-dropdown>
-        <el-dropdown trigger="click" placement="bottom-end" popper-class="coffee-dropdown" @command="handleMoreCommand" class="header-dropdown">
-          <el-button class="btn">
-            <el-icon><Picture /></el-icon>
-            <span>插图</span>
-            <el-icon class="arrow-icon"><ArrowDown /></el-icon>
-          </el-button>
-          <template #dropdown>
-            <el-dropdown-menu class="coffee-dropdown-menu">
-              <el-dropdown-item command="image-full" :disabled="!content.length">
+              <el-dropdown-item command="rewrite-settings">
                 <div class="dd-item">
-                  <span class="dd-icon"><el-icon><Picture /></el-icon></span>
+                  <span class="dd-icon"><el-icon><RefreshRight /></el-icon></span>
                   <div class="dd-meta">
-                    <span class="dd-title">AI 插图（全文）</span>
-                    <span class="dd-desc">根据全文生成配图</span>
-                  </div>
-                </div>
-              </el-dropdown-item>
-              <el-dropdown-item command="image-url">
-                <div class="dd-item">
-                  <span class="dd-icon"><el-icon><Link /></el-icon></span>
-                  <div class="dd-meta">
-                    <span class="dd-title">插入网络图片</span>
-                    <span class="dd-desc">粘贴图片链接插入正文</span>
-                  </div>
-                </div>
-              </el-dropdown-item>
-              <el-dropdown-item command="image-upload">
-                <div class="dd-item">
-                  <span class="dd-icon"><el-icon><Upload /></el-icon></span>
-                  <div class="dd-meta">
-                    <span class="dd-title">上传本地图片</span>
-                    <span class="dd-desc">从电脑选择图片插入</span>
+                    <span class="dd-title">根据设定重写</span>
+                    <span class="dd-desc">设定改了，对齐已有正文</span>
                   </div>
                 </div>
               </el-dropdown-item>
@@ -235,7 +214,6 @@
           <BlockEditor 
             ref="blockEditorRef"
             v-model="content"
-            :preview-mode="previewMode"
             @update:modelValue="onContentChange"
             @content-dirty="onContentChange"
             @polish="onPolish"
@@ -244,7 +222,7 @@
             @format-style-selected="onFormatStyleSelected"
             @revise-selected="onReviseSelected"
             @expand-selected="onExpandSelected"
-            @generate-image-for-selection="onGenerateImageForSelection"
+            @ask-ai="onAskAi"
           />
         </div>
       </div>
@@ -253,6 +231,7 @@
         v-if="showChatPanel"
         ref="aiChatRef"
         :document-id="Number(documentId)"
+        :project-id="document?.project_id || project?.id"
         @insert="insertText"
         @insert-blocks="insertBlocksFromAi"
         @preview="onAiPreview"
@@ -296,6 +275,22 @@
       />
     </el-drawer>
 
+    <el-drawer
+      v-model="showRewriteDrawer"
+      title="根据设定重写"
+      size="520px"
+      direction="rtl"
+      class="generate-drawer"
+      destroy-on-close
+    >
+      <AIRewriteFromSettings
+        v-if="document?.project_id"
+        :project-id="document.project_id"
+        :document-id="Number(documentId)"
+        @done="onRewriteDone"
+      />
+    </el-drawer>
+
     <PublishDialog
       v-model="showPublishDialog"
       :document-id="Number(documentId)"
@@ -304,7 +299,7 @@
     <VideoScriptDialog
       v-model="showVideoScriptDialog"
       :document-id="Number(documentId)"
-      :raw-blocks="blocksSnapshotForImageApi()"
+      :raw-blocks="blocksSnapshot()"
     />
 
     <SplitDocumentDialog
@@ -315,14 +310,6 @@
       :document-id="Number(documentId)"
       :document-title="documentTitle"
       @done="onSplitDone"
-    />
-
-    <input
-      ref="documentImageUploadRef"
-      type="file"
-      accept="image/jpeg,image/jpg,image/png,image/gif,image/webp"
-      class="doc-hidden-file-input"
-      @change="onDocumentImageFileChange"
     />
   </div>
 </template>
@@ -336,6 +323,7 @@ import BlockEditor from '@/components/BlockEditor.vue'
 import AIChatPanel from '@/components/AIChatPanel.vue'
 import AIExtract from '@/components/AIExtract.vue'
 import AIGenerateFromMemory from '@/components/AIGenerateFromMemory.vue'
+import AIRewriteFromSettings from '@/components/AIRewriteFromSettings.vue'
 import ExportMenu from '@/components/ExportMenu.vue'
 import PublishDialog from '@/components/PublishDialog.vue'
 import VideoScriptDialog from '@/components/VideoScriptDialog.vue'
@@ -343,7 +331,7 @@ import SplitDocumentDialog from '@/components/SplitDocumentDialog.vue'
 import { parseFormattedTextToBlocks } from '@/utils/formatToBlocks'
 import { ElMessageBox } from 'element-plus'
 import { aiApi } from '@/api'
-import { ArrowLeft, ArrowRight, ArrowDown, ChatDotRound, Check, Loading, CircleCheck, MoreFilled, Edit, Delete, Aim, MagicStick, Files, Promotion, Picture, Link, Upload, View, VideoCamera, Film, SetUp } from '@element-plus/icons-vue'
+import { ArrowLeft, ArrowRight, ArrowDown, ChatDotRound, Check, Loading, CircleCheck, MoreFilled, Edit, Delete, Aim, MagicStick, Files, Promotion, VideoCamera, Film, SetUp, Collection, RefreshRight, Brush } from '@element-plus/icons-vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -359,13 +347,12 @@ const saving = ref(false)
 const showChatPanel = ref(true)
 const showExtractDrawer = ref(false)
 const showGenerateDrawer = ref(false)
+const showRewriteDrawer = ref(false)
 const hasChanges = ref(false)
 /** AI 预览块：插入到文档末尾，仅用于阅读与 diff 接受/拒绝；未接受前不应自动保存 */
 const aiPreviewId = ref<string | null>(null)
 const AI_PREVIEW_KEY = '__ai_preview_id'
 const lastSaved = ref<Date | null>(null)
-/** 预览模式：正文不可直接编辑，仍可调整块结构、AI、撤销等 */
-const previewMode = ref(false)
 const aiChatRef = ref<{
   polishWithText: (text: string, blockIndex?: number) => Promise<void>
   polishWithSelectedText: (text: string, blockIndices: number[]) => Promise<void>
@@ -373,14 +360,16 @@ const aiChatRef = ref<{
   formatStyleWithSelectedText: (text: string, blockIndices: number[]) => Promise<void>
   reviseWithSelectedText: (text: string, blockIndices: number[]) => Promise<void>
   expandWithSelectedText: (text: string, blockIndices: number[]) => Promise<void>
+  attachContext: (payload: { text: string; blockIndex?: number; blockIndices?: number[] }) => void
 } | null>(null)
-const blockEditorRef = ref<{ getImageInsertAfterIndex: () => number; flushPendingSync: () => void; focusBlock: (index: number, opts?: { cursor?: 'start' | 'end' | number; align?: 'start' | 'nearest'; behavior?: ScrollBehavior; focus?: boolean; preventScroll?: boolean; force?: boolean }) => void } | null>(null)
+const blockEditorRef = ref<{
+  flushPendingSync: () => void
+  focusBlock: (index: number, opts?: { cursor?: 'start' | 'end' | number; align?: 'start' | 'nearest'; behavior?: ScrollBehavior; focus?: boolean; preventScroll?: boolean; force?: boolean }) => void
+  getInsertAfterIndex: () => number
+} | null>(null)
 const showPublishDialog = ref(false)
 const showVideoScriptDialog = ref(false)
 const showSplitDialog = ref(false)
-const generatingImage = ref(false)
-const uploadingImage = ref(false)
-const documentImageUploadRef = ref<HTMLInputElement | null>(null)
 
 let autoSaveInterval: number | null = null
 const tocCollapsed = ref(true)
@@ -417,9 +406,9 @@ function jumpToTocItem(index: number) {
     blockEditorRef.value?.focusBlock(index, {
       align: 'start',
       behavior: 'auto',
-      focus: !previewMode.value,
+      focus: true,
       cursor: 'start',
-      force: !previewMode.value,
+      force: true,
     })
   })
 }
@@ -466,6 +455,14 @@ watch(documentId, () => {
   loadDocument()
 })
 
+async function onRewriteDone(payload: { documentIds: number[] }) {
+  const cur = Number(documentId.value)
+  if (payload.documentIds.includes(cur)) {
+    await loadDocument()
+    ElMessage.success('当前文档已按最新设定更新')
+  }
+}
+
 async function loadDocument() {
   await store.fetchDocument(Number(documentId.value))
   if (document.value) {
@@ -481,32 +478,33 @@ function onContentChange() {
   hasChanges.value = true
 }
 
-function onPolish(payload: { index: number; text: string }) {
+/** 打开 AI 面板并等待组件挂载后再调用（v-if 时单次 nextTick 可能拿不到 ref） */
+async function withAiChat(run: (api: NonNullable<typeof aiChatRef.value>) => void | Promise<void>) {
   showChatPanel.value = true
-  nextTick(() => {
-    aiChatRef.value?.polishWithText(payload.text, payload.index)
-  })
+  await nextTick()
+  if (!aiChatRef.value) await nextTick()
+  const api = aiChatRef.value
+  if (!api) {
+    ElMessage.warning('AI 助手面板未就绪，请稍后重试')
+    return
+  }
+  await run(api)
+}
+
+function onPolish(payload: { index: number; text: string }) {
+  withAiChat(api => api.polishWithText(payload.text, payload.index))
 }
 
 function onPolishSelected(payload: { indices: number[]; text: string }) {
-  showChatPanel.value = true
-  nextTick(() => {
-    aiChatRef.value?.polishWithSelectedText(payload.text, payload.indices)
-  })
+  withAiChat(api => api.polishWithSelectedText(payload.text, payload.indices))
 }
 
 function onFormatStyle(payload: { index: number; text: string }) {
-  showChatPanel.value = true
-  nextTick(() => {
-    aiChatRef.value?.formatStyleWithText(payload.text, payload.index)
-  })
+  withAiChat(api => api.formatStyleWithText(payload.text, payload.index))
 }
 
 function onFormatStyleSelected(payload: { indices: number[]; text: string }) {
-  showChatPanel.value = true
-  nextTick(() => {
-    aiChatRef.value?.formatStyleWithSelectedText(payload.text, payload.indices)
-  })
+  withAiChat(api => api.formatStyleWithSelectedText(payload.text, payload.indices))
 }
 
 /** 对整篇文档做仅排版优化 */
@@ -521,23 +519,25 @@ function onFormatStyleDocument() {
     return
   }
   const indices = targets.map(({ i }) => i)
-  showChatPanel.value = true
-  nextTick(() => {
-    aiChatRef.value?.formatStyleWithSelectedText(text, indices)
-  })
+  withAiChat(api => api.formatStyleWithSelectedText(text, indices))
 }
 
 function onReviseSelected(payload: { indices: number[]; text: string }) {
-  showChatPanel.value = true
-  nextTick(() => {
-    aiChatRef.value?.reviseWithSelectedText(payload.text, payload.indices)
-  })
+  withAiChat(api => api.reviseWithSelectedText(payload.text, payload.indices))
 }
 
 function onExpandSelected(payload: { indices: number[]; text: string }) {
-  showChatPanel.value = true
-  nextTick(() => {
-    aiChatRef.value?.expandWithSelectedText(payload.text, payload.indices)
+  withAiChat(api => api.expandWithSelectedText(payload.text, payload.indices))
+}
+
+/** 把段落贴到 AI 对话框，便于自由提修改要求 */
+function onAskAi(payload: { text: string; index?: number; indices?: number[] }) {
+  withAiChat(api => {
+    api.attachContext({
+      text: payload.text,
+      blockIndex: payload.index,
+      blockIndices: payload.indices,
+    })
   })
 }
 
@@ -574,6 +574,18 @@ function goBack() {
   }
 }
 
+function goProjectSettings() {
+  const pid = document.value?.project_id || project.value?.id
+  if (!pid) return
+  router.push(`/project/${pid}/settings`)
+}
+
+function goWritingStyle() {
+  const pid = document.value?.project_id || project.value?.id
+  if (!pid) return
+  router.push(`/project/${pid}/writing-style`)
+}
+
 function handleMoreCommand(command: string) {
   if (command === 'format-style') {
     onFormatStyleDocument()
@@ -581,14 +593,10 @@ function handleMoreCommand(command: string) {
     openSplitDialog()
   } else if (command === 'extract') {
     showExtractDrawer.value = true
-  } else if (command === 'image-full') {
-    void generateAndInsertArticleImage()
-  } else if (command === 'image-url') {
-    void promptInsertImageUrl()
-  } else if (command === 'image-upload') {
-    triggerDocumentImageUpload()
   } else if (command === 'generate') {
     showGenerateDrawer.value = true
+  } else if (command === 'rewrite-settings') {
+    showRewriteDrawer.value = true
   } else if (command === 'publish') {
     showPublishDialog.value = true
   } else if (command === 'video-script') {
@@ -676,84 +684,51 @@ async function handleDocCommand(command: string) {
   }
 }
 
-function insertText(text: string) {
-  const startIndex = content.value.length
+type InsertPos = 'cursor' | 'end'
+
+function resolveInsertAt(position: InsertPos = 'cursor'): number {
+  if (position === 'end') return content.value.length
+  const after = blockEditorRef.value?.getInsertAfterIndex?.()
+  if (typeof after === 'number') return Math.max(0, after + 1)
+  return content.value.length
+}
+
+function normalizeIncomingBlocks(blocks: Block[]): Block[] {
+  return blocks.map(b => ({
+    id: b.id && String(b.id).length ? String(b.id) : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`,
+    type: b.type || 'paragraph',
+    content: typeof b.content === 'string' ? b.content : '',
+    props: b.props && typeof b.props === 'object' ? { ...b.props } : {},
+  }))
+}
+
+function insertText(text: string, position: InsertPos = 'cursor') {
   const blocks = parseFormattedTextToBlocks(text, 'doc')
   if (blocks.length) {
-    content.value.push(...blocks)
-  } else {
-    content.value.push({
-      id: Date.now().toString(),
-      type: 'paragraph',
-      content: text,
-      props: {}
-    })
+    insertBlocksFromAi(blocks, position)
+    return
   }
+  insertBlocksFromAi([{
+    id: Date.now().toString(),
+    type: 'paragraph',
+    content: text,
+    props: {}
+  }], position)
+}
+
+/** AI 助手返回的 blocks 插入到光标处或文末 */
+function insertBlocksFromAi(blocks: Block[], position: InsertPos = 'cursor') {
+  if (!blocks?.length) return
+  const normalized = normalizeIncomingBlocks(blocks)
+  const at = resolveInsertAt(position)
+  content.value.splice(at, 0, ...normalized)
   hasChanges.value = true
   nextTick(() => {
-    blockEditorRef.value?.focusBlock?.(startIndex, { cursor: 'end', align: 'nearest' })
+    blockEditorRef.value?.focusBlock?.(at, { cursor: 'end', align: 'nearest' })
   })
 }
 
-function getImageInsertAfterIndexFromEditor(): number {
-  const fn = blockEditorRef.value?.getImageInsertAfterIndex
-  if (typeof fn === 'function') return fn()
-  const n = content.value.length
-  if (n === 0) return -1
-  return n - 1
-}
-
-function triggerDocumentImageUpload() {
-  documentImageUploadRef.value?.click()
-}
-
-async function onDocumentImageFileChange(ev: Event) {
-  const input = ev.target as HTMLInputElement
-  const file = input.files?.[0]
-  input.value = ''
-  if (!file) return
-  if (!file.type.startsWith('image/')) {
-    ElMessage.warning('请选择图片文件')
-    return
-  }
-  uploadingImage.value = true
-  try {
-    const res = await aiApi.uploadDocumentImage(Number(documentId.value), file)
-    const data = res.data as { url?: string }
-    if (!data?.url) {
-      ElMessage.warning('上传失败')
-      return
-    }
-    const after = getImageInsertAfterIndexFromEditor()
-    insertBlocksAfterIndex(after, [{ id: '', type: 'image', content: '', props: { src: data.url, alt: '' } }])
-    ElMessage.success('图片已插入到当前位置之后，记得保存')
-  } catch (e) {
-    console.error(e)
-  } finally {
-    uploadingImage.value = false
-  }
-}
-
-async function promptInsertImageUrl() {
-  try {
-    const res = await ElMessageBox.prompt('请输入图片地址（http/https）', '插入网络图片', {
-      confirmButtonText: '插入',
-      cancelButtonText: '取消',
-      inputPlaceholder: 'https://example.com/image.png',
-      inputPattern: /^https?:\/\/.+/i,
-      inputErrorMessage: '请输入以 http:// 或 https:// 开头的地址',
-    })
-    const url = String((res as { value?: string }).value ?? '').trim()
-    if (!url) return
-    const after = getImageInsertAfterIndexFromEditor()
-    insertBlocksAfterIndex(after, [{ id: '', type: 'image', content: '', props: { src: url, alt: '' } }])
-    ElMessage.success('图片已插入到当前位置之后，记得保存')
-  } catch {
-    // 取消
-  }
-}
-
-function blocksSnapshotForImageApi(): Block[] {
+function blocksSnapshot(): Block[] {
   try {
     return JSON.parse(JSON.stringify(content.value)) as Block[]
   } catch {
@@ -775,7 +750,7 @@ async function convertToFilmScript() {
     if (hasChanges.value) await saveDocument()
     const res = await aiApi.convertToFilmScript({
       document_id: Number(documentId.value),
-      blocks: blocksSnapshotForImageApi(),
+      blocks: blocksSnapshot(),
     })
     const data = res.data?.data
     if (!data?.script_text) throw new Error('empty script')
@@ -803,104 +778,6 @@ function messageFromAxiosError(e: unknown, fallback: string): string {
     return (d[0] as { msg: string }).msg
   }
   return fallback
-}
-
-async function onGenerateImageForSelection(payload: { indices: number[]; text: string }) {
-  const { indices, text } = payload
-  if (!indices.length || !text.trim()) return
-  generatingImage.value = true
-  try {
-    const res = await aiApi.generateArticleImage({
-      document_id: Number(documentId.value),
-      context_text: text,
-      style: '',
-      extra_hint: '',
-      blocks: blocksSnapshotForImageApi(),
-    })
-    const data = res.data as {
-      success?: boolean
-      block?: Block
-    }
-    if (data?.block) {
-      const after = Math.max(...indices)
-      insertBlocksAfterIndex(after, [data.block])
-      ElMessage.success('插图已插入到选中段落之后，记得保存')
-    } else {
-      ElMessage.warning('未返回插图数据')
-    }
-  } catch (e) {
-    console.error(e)
-    ElMessage.error(messageFromAxiosError(e, '生成插图失败'))
-  } finally {
-    generatingImage.value = false
-  }
-}
-
-function insertBlocksAfterIndex(afterIndex: number, blocks: Block[]) {
-  if (!blocks?.length) return
-  const normalize = (b: Block): Block => ({
-    id: b.id && String(b.id).length ? String(b.id) : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`,
-    type: b.type || 'paragraph',
-    content: typeof b.content === 'string' ? b.content : '',
-    props: b.props && typeof b.props === 'object' ? { ...b.props } : {},
-  })
-  const normalized = blocks.map(normalize)
-  const next = [...content.value]
-  const at = Math.max(0, Math.min(afterIndex + 1, next.length))
-  next.splice(at, 0, ...normalized)
-  content.value = next
-  hasChanges.value = true
-}
-
-/** 根据当前文档正文调用后端文生图，插入 image 块到文末 */
-async function generateAndInsertArticleImage() {
-  if (!content.value.length) {
-    ElMessage.warning('请先撰写一些正文，再生成插图')
-    return
-  }
-  generatingImage.value = true
-  try {
-    const res = await aiApi.generateArticleImage({
-      document_id: Number(documentId.value),
-      style: '',
-      extra_hint: '',
-      blocks: blocksSnapshotForImageApi(),
-    })
-    const data = res.data as {
-      success?: boolean
-      block?: Block
-      prompt?: string
-      image_url?: string
-    }
-    if (data?.block) {
-      insertBlocksFromAi([data.block])
-      ElMessage.success('插图已插入到文档末尾，记得保存')
-    } else {
-      ElMessage.warning('未返回插图数据')
-    }
-  } catch (e: unknown) {
-    console.error(e)
-    ElMessage.error(messageFromAxiosError(e, '生成插图失败'))
-  } finally {
-    generatingImage.value = false
-  }
-}
-
-/** AI 助手返回的 blocks（与后端 / 脑洞写作解析一致）直接插入文档末尾 */
-function insertBlocksFromAi(blocks: Block[]) {
-  if (!blocks?.length) return
-  const startIndex = content.value.length
-  const normalize = (b: Block): Block => ({
-    id: b.id && String(b.id).length ? String(b.id) : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`,
-    type: b.type || 'paragraph',
-    content: typeof b.content === 'string' ? b.content : '',
-    props: b.props && typeof b.props === 'object' ? { ...b.props } : {},
-  })
-  content.value.push(...blocks.map(normalize))
-  hasChanges.value = true
-  nextTick(() => {
-    blockEditorRef.value?.focusBlock?.(startIndex, { cursor: 'end', align: 'nearest' })
-  })
 }
 
 function removeAiPreviewBlocks() {
@@ -946,8 +823,14 @@ function replaceText(
   rewrittenBlocks?: Block[],
   blockIndices?: number[]
 ) {
+  // 单块「划词」改写：走单块路径（支持只替换选中片段）
+  if (blockIndices?.length === 1) {
+    blockIndex = blockIndices[0]
+    blockIndices = undefined
+  }
+
   // 多选块：把 AI 输出的 blocks 替换到选中的块集合上
-  if (blockIndices?.length) {
+  if (blockIndices && blockIndices.length > 1) {
     const indices = Array.from(new Set(blockIndices))
       .filter(i => i >= 0 && i < content.value.length)
       .sort((a, b) => a - b)
@@ -981,6 +864,48 @@ function replaceText(
   // AI 改写类操作通常会返回「编辑器块格式」文本。
   // 这里优先把改写结果解析为 Block，并用新块替换当前块，以确保块类型/样式匹配编辑器。
   if (blockIndex != null && blockIndex >= 0 && blockIndex < content.value.length) {
+    const block = content.value[blockIndex]
+    const old = oldText || ''
+    const plain = stripHtmlToText(block.content || '')
+    const isPartial =
+      !!old.trim() &&
+      plain.includes(old.trim()) &&
+      plain.trim() !== old.trim()
+
+    // 划词改写：只替换段落内选中片段，避免整块被拆掉
+    if (isPartial) {
+      let replacement = newText
+      const sourceBlocks = rewrittenBlocks?.length ? rewrittenBlocks : parseFormattedTextToBlocks(newText, 'doc')
+      if (sourceBlocks.length === 1) {
+        replacement = sourceBlocks[0].content || newText
+      } else if (sourceBlocks.length > 1) {
+        replacement = sourceBlocks.map(b => stripHtmlToText(b.content || '')).filter(Boolean).join('\n')
+      }
+      let nextContent = block.content || ''
+      if (old && nextContent.includes(old)) {
+        nextContent = nextContent.replace(old, replacement)
+      } else {
+        const oldTrim = old.trim()
+        const idx = plain.indexOf(oldTrim)
+        if (idx >= 0) {
+          const nextPlain =
+            plain.slice(0, idx) +
+            stripHtmlToText(replacement) +
+            plain.slice(idx + oldTrim.length)
+          nextContent = nextPlain
+        } else {
+          nextContent = replacement
+        }
+      }
+      content.value[blockIndex] = { ...block, content: nextContent }
+      hasChanges.value = true
+      removeAiPreviewBlocks()
+      nextTick(() => {
+        blockEditorRef.value?.focusBlock?.(blockIndex, { cursor: 'end', align: 'nearest' })
+      })
+      return
+    }
+
     const blocks = rewrittenBlocks?.length ? rewrittenBlocks : parseFormattedTextToBlocks(newText, 'doc')
     if (blocks.length) {
       // 接受后：用 AI 结果替换选中块，并移除末尾预览内容。
@@ -1347,15 +1272,6 @@ onUnmounted(() => {
   .save-status span {
     display: none;
   }
-}
-
-.doc-hidden-file-input {
-  position: absolute;
-  width: 0;
-  height: 0;
-  opacity: 0;
-  pointer-events: none;
-  overflow: hidden;
 }
 
 </style>

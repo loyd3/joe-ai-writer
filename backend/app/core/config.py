@@ -34,7 +34,7 @@ class Settings(BaseSettings):
     db_pool_recycle: int = 3600
 
     # AI Provider Configuration (支持多个大模型)
-    ai_provider: Literal["openai", "deepseek", "siliconflow", "custom"] = "deepseek"
+    ai_provider: Literal["openai", "deepseek", "siliconflow", "yxai", "custom"] = "deepseek"
 
     # OpenAI 配置
     openai_api_key: str = ""
@@ -50,6 +50,11 @@ class Settings(BaseSettings):
     siliconflow_api_key: str = ""
     siliconflow_base_url: str = "https://api.siliconflow.cn/v1"
     siliconflow_model: str = "deepseek-ai/DeepSeek-V3"
+
+    # 意心 YXAI 配置（OpenAI 兼容，https://yxai.chat）
+    yxai_api_key: str = ""
+    yxai_base_url: str = "https://yxai.chat/v1"
+    yxai_model: str = "deepseek-flash"
 
     # 自定义 API 配置
     custom_api_key: str = ""

@@ -56,17 +56,35 @@ class AIMemory(Base):
     project_id = Column(Integer, ForeignKey("projects.id"), unique=True, nullable=False)
     
     # 结构化记忆数据
-    outline = Column(JSON, default=list)  # 文章大纲
-    storyline = Column(Text, nullable=True)  # 故事线概述
-    characters = Column(JSON, default=list)  # 角色设定列表
-    world_building = Column(JSON, default=dict)  # 世界观设定
+    outline = Column(JSON, default=list)  # 文章大纲 [{title, description}]
+    storyline = Column(JSON, nullable=True)  # { summary, stages: [{title, summary}] }
+    characters = Column(JSON, default=list)  # 角色卡列表
+    world_building = Column(JSON, default=dict)  # { categories: [{ name, items }] }
     writing_style = Column(Text, nullable=True)  # 写作风格偏好
-    key_points = Column(JSON, default=list)  # 关键情节点
+    key_points = Column(JSON, default=list)  # [{title, summary}]
     notes = Column(Text, nullable=True)  # 其他备注
     
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
     project = relationship("Project", back_populates="ai_memory")
+
+
+class WritingStyleAgent(Base):
+    """项目级文风智能体 — 结构化文风设定，写作时注入 prompt"""
+    __tablename__ = "writing_style_agents"
+
+    id = Column(Integer, primary_key=True, index=True)
+    project_id = Column(Integer, ForeignKey("projects.id"), nullable=False, index=True)
+    name = Column(String(100), nullable=False)
+    description = Column(Text, nullable=True)
+    preset_key = Column(String(64), nullable=True)  # 来自内置预设时记录
+    config = Column(JSON, default=dict)  # 结构化文风参数
+    is_default = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    project = relationship("Project")
+
 
 class AIInteraction(Base):
     """AI 交互历史记录（与 database/init.sql 中 ai_interactions 表结构一致）"""
@@ -173,3 +191,18 @@ class ArticleOutline(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     
     article = relationship("Article")
+
+
+class SavedBrainstorm(Base):
+    """用户收藏的脑洞，供下次创作选用"""
+    __tablename__ = "saved_brainstorms"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    title = Column(String(255), nullable=False)
+    category = Column(String(64), default="自定义")
+    concept = Column(Text, nullable=False)
+    source = Column(String(32), default="manual")  # manual | trending | random | hot
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    user = relationship("User")

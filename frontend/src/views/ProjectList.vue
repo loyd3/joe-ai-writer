@@ -327,7 +327,7 @@ async function saveProject() {
 
 .projects-grid {
   margin-top: 8px;
-  gap: 10px;
+  gap: 20px;
 }
 
 .project-card {

@@ -1,6 +1,6 @@
 """
 统一 AI 客户端 - 支持多模型提供商
-支持: OpenAI, DeepSeek, SiliconFlow, 自定义 API
+支持: OpenAI, DeepSeek, SiliconFlow, 意心(YXAI), 自定义 API
 支持从数据库 system_configs 表或配置文件读取配置（数据库优先）
 """
 
@@ -111,6 +111,10 @@ class AIClient:
             api_key = self.settings.siliconflow_api_key
             base_url = self.settings.siliconflow_base_url or "https://api.siliconflow.cn/v1"
             model = self.settings.siliconflow_model or "deepseek-ai/DeepSeek-V3"
+        elif provider == "yxai":
+            api_key = self.settings.yxai_api_key
+            base_url = self.settings.yxai_base_url or "https://yxai.chat/v1"
+            model = self.settings.yxai_model or "deepseek-flash"
         elif provider == "custom":
             api_key = self.settings.custom_api_key
             base_url = self.settings.custom_base_url
@@ -223,6 +227,7 @@ class AIClient:
         "deepseek": 8192,
         "openai": 16384,
         "siliconflow": 8192,
+        "yxai": 64000,  # 意心聚合多模型，上下文普遍较大
         "custom": 64000,  # 支持长文本润色，如 Claude 3.5 Sonnet 等
     }
 
@@ -232,6 +237,7 @@ class AIClient:
             "openai": "https://api.openai.com/v1",
             "deepseek": "https://api.deepseek.com/v1",
             "siliconflow": "https://api.siliconflow.cn/v1",
+            "yxai": "https://yxai.chat/v1",
             "custom": "",
         }
         return urls.get(provider, "")

@@ -79,16 +79,16 @@ const visible = ref(props.modelValue)
 const customColorLocal = ref(themeStore.customColor)
 
 const predefineColors = [
-  '#a65e2e',
+  '#8F4E22',
+  '#B04F6A',
+  '#3F9575',
+  '#6B5899',
+  '#457FA0',
   '#C46B83',
   '#5AAF8F',
   '#8574B2',
+  '#A65E2E',
   '#5E9AB8',
-  '#D4889D',
-  '#78C4A6',
-  '#A090C8',
-  '#C48A6A',
-  '#7DB2CC',
 ]
 
 watch(

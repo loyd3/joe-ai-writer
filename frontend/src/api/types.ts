@@ -95,28 +95,60 @@ export interface Character {
   personality?: string
   background?: string
   goals?: string
+  role?: string
+  avatar?: string
+  color?: string
+}
+
+export interface StoryStage {
+  title: string
+  summary: string
+}
+
+export interface StorylineData {
+  summary: string
+  stages: StoryStage[]
+}
+
+export interface KeyPointItem {
+  title: string
+  summary: string
+}
+
+export interface WorldItem {
+  title: string
+  content: string
+}
+
+export interface WorldCategory {
+  name: string
+  items: WorldItem[]
+}
+
+export interface WorldBuildingData {
+  categories: WorldCategory[]
 }
 
 export interface AIMemory {
   id: number
   project_id: number
   outline: Array<{ title: string; description?: string }>
-  storyline?: string
+  storyline?: string | StorylineData
   characters: Character[]
-  world_building: Record<string, any>
+  world_building: Record<string, any> | WorldBuildingData
   writing_style?: string
-  key_points: string[]
+  key_points: Array<string | KeyPointItem>
   notes?: string
   updated_at: string
 }
 
 export interface AIMemoryUpdate {
   outline?: Array<{ title: string; description?: string }>
-  storyline?: string
+  storyline?: string | StorylineData
   characters?: Character[]
-  world_building?: Record<string, any>
+  world_building?: Record<string, any> | WorldBuildingData
   writing_style?: string
-  key_points?: string[]
+  key_points?: Array<string | KeyPointItem>
   notes?: string
 }
 
@@ -126,6 +158,7 @@ export interface AIRequest {
   action: 'guide' | 'revise' | 'polish' | 'continue' | 'brainstorm' | 'expand' | 'summarize' | 'format_style'
   selected_text?: string
   instruction?: string
+  style_agent_id?: number
 }
 
 /** 非流式 /ai/assist：正文 + 格式标识 + 与脑洞写作一致的块结构 */
@@ -144,6 +177,7 @@ export interface AIChatRequest {
   document_id: number
   messages: ChatMessage[]
   include_memory?: boolean
+  style_agent_id?: number
 }
 
 export interface AIGenerateRequest {
@@ -152,6 +186,26 @@ export interface AIGenerateRequest {
   generate_type: 'opening' | 'continue' | 'outline_section' | 'scene' | 'custom'
   custom_instruction?: string
   current_content?: string
+  style_agent_id?: number
+}
+
+export interface AIRewriteFromMemoryRequest {
+  project_id: number
+  document_ids?: number[]
+  rewrite_mode?: 'full' | 'align' | 'characters' | 'world' | 'style'
+  custom_instruction?: string
+  apply_to_documents?: boolean
+  style_agent_id?: number
+}
+
+export interface AIRebuildFromMemoryRequest {
+  project_id: number
+  chapter_count?: number
+  words_per_chapter?: number
+  custom_instruction?: string
+  archive_old_docs?: boolean
+  update_outline?: boolean
+  style_agent_id?: number
 }
 
 // 批量/多轮次 AI 写作
@@ -167,6 +221,56 @@ export interface AIBatchGenerateRequest {
   max_tokens_per_chapter: number
   continue_on_complete: boolean
   custom_instruction?: string
+  style_agent_id?: number
+}
+
+/** 文风智能体 */
+export interface StyleAgentConfig {
+  tone: string
+  pov: string
+  pace: string
+  sentence: string
+  diction: string
+  dialogue_ratio: string
+  detail_level: string
+  taboo: string[]
+  custom_text: string
+  samples: string[]
+}
+
+export interface StyleAgent {
+  id: number
+  project_id: number
+  name: string
+  description?: string
+  preset_key?: string | null
+  config: StyleAgentConfig
+  is_default: boolean
+  compiled_preview?: string
+  created_at?: string
+  updated_at?: string
+}
+
+export interface StyleAgentPreset {
+  key: string
+  name: string
+  description: string
+  config: StyleAgentConfig
+}
+
+export interface StyleAgentCreate {
+  name: string
+  description?: string
+  config?: Partial<StyleAgentConfig>
+  preset_key?: string
+  is_default?: boolean
+}
+
+export interface StyleAgentUpdate {
+  name?: string
+  description?: string
+  config?: Partial<StyleAgentConfig>
+  is_default?: boolean
 }
 
 export interface AIGenerateProgress {
@@ -265,7 +369,7 @@ export interface DocumentVersion {
 
 // 系统配置
 export interface AIConfig {
-  provider: 'openai' | 'deepseek' | 'siliconflow' | 'custom'
+  provider: 'openai' | 'deepseek' | 'siliconflow' | 'yxai' | 'custom'
   model?: string
   api_key?: string
   base_url?: string

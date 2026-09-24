@@ -12,6 +12,8 @@ from app.schemas.schemas import (
     AIRequest,
     AIChatRequest,
     AIGenerateFromMemoryRequest,
+    AIRewriteFromMemoryRequest,
+    AIRebuildFromMemoryRequest,
     AIBatchGenerateRequest,
     LiteraryAnalysisRequest,
     CreateProjectFromLiteratureRequest,
@@ -35,6 +37,11 @@ from app.services.video_script_service import VideoScriptService
 from app.services.film_script_service import FilmScriptService
 
 router = APIRouter(prefix="/api/ai", tags=["ai"])
+
+
+def _sse_data(payload: str) -> str:
+    """将字符串打包为单个 SSE 事件；内嵌换行拆成多行 data:，避免截断正文。"""
+    return "".join(f"data: {line}\n" for line in str(payload).split("\n")) + "\n"
 
 
 class GenerateArticleImageRequest(BaseModel):
@@ -80,7 +87,7 @@ class ConvertToFilmScriptRequest(BaseModel):
 
 
 def check_document_access(db: Session, document_id: int, user_id: int):
-    """检查用户是否有权限访问文档"""
+    """检查用户是否有权限访问文档，返回 Document"""
     document = db.query(Document).filter(Document.id == document_id).first()
     if not document:
         raise HTTPException(status_code=404, detail="Document not found")
@@ -91,6 +98,7 @@ def check_document_access(db: Session, document_id: int, user_id: int):
     ).first()
     if not project:
         raise HTTPException(status_code=403, detail="Access denied")
+    return document
     
     return document
 
@@ -199,13 +207,13 @@ async def ai_assist_stream(
         buf: list[str] = []
         async for chunk in AIWritingService.stream_request(db, request, content, current_user["id"]):
             buf.append(chunk)
-            yield f"data: {chunk}\n\n"
+            yield _sse_data(chunk)
         full = "".join(buf)
         blocks = _assist_blocks_from_text(full)
         if blocks:
             meta = json.dumps({"format": "markdown", "blocks": blocks}, ensure_ascii=False)
-            yield f"data: [ASSIST_META]{meta}\n\n"
-        yield "data: [DONE]\n\n"
+            yield _sse_data(f"[ASSIST_META]{meta}")
+        yield _sse_data("[DONE]")
     
     return StreamingResponse(generate(), media_type="text/event-stream")
 
@@ -222,16 +230,21 @@ async def ai_chat_stream(
     async def generate():
         buf: list[str] = []
         async for chunk in AIWritingService.chat(
-            db, request.document_id, request.messages, request.include_memory, current_user["id"]
+            db,
+            request.document_id,
+            request.messages,
+            request.include_memory,
+            current_user["id"],
+            style_agent_id=request.style_agent_id,
         ):
             buf.append(chunk)
-            yield f"data: {chunk}\n\n"
+            yield _sse_data(chunk)
         full = "".join(buf)
         blocks = _assist_blocks_from_text(full)
         if blocks:
             meta = json.dumps({"format": "markdown", "blocks": blocks}, ensure_ascii=False)
-            yield f"data: [ASSIST_META]{meta}\n\n"
-        yield "data: [DONE]\n\n"
+            yield _sse_data(f"[ASSIST_META]{meta}")
+        yield _sse_data("[DONE]")
     
     return StreamingResponse(generate(), media_type="text/event-stream")
 
@@ -253,8 +266,66 @@ async def ai_generate_from_memory_stream(
             custom_instruction=request.custom_instruction,
             current_content=request.current_content,
             user_id=current_user["id"],
+            style_agent_id=request.style_agent_id,
         ):
             yield f"data: {chunk}\n\n"
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(generate(), media_type="text/event-stream")
+
+
+@router.post("/rewrite-from-memory/stream")
+async def ai_rewrite_from_memory_stream(
+    request: AIRewriteFromMemoryRequest,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    """设定变更后，按最新设定重写一篇或多篇文档（流式进度）"""
+    check_project_owner(db, request.project_id, current_user["id"])
+
+    if request.document_ids:
+        for did in request.document_ids:
+            check_document_access(db, did, current_user["id"])
+
+    async def generate():
+        async for payload in AIWritingService.rewrite_documents_from_memory(
+            db,
+            project_id=request.project_id,
+            document_ids=request.document_ids,
+            rewrite_mode=request.rewrite_mode,
+            custom_instruction=request.custom_instruction,
+            apply_to_documents=request.apply_to_documents,
+            user_id=current_user["id"],
+            style_agent_id=request.style_agent_id,
+        ):
+            yield f"data: {payload}\n\n"
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(generate(), media_type="text/event-stream")
+
+
+@router.post("/rebuild-from-memory/stream")
+async def ai_rebuild_from_memory_stream(
+    request: AIRebuildFromMemoryRequest,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    """设定大改：重新梳理大纲并生成新文档（旧稿可归档）"""
+    check_project_owner(db, request.project_id, current_user["id"])
+
+    async def generate():
+        async for payload in AIWritingService.rebuild_project_from_memory(
+            db,
+            project_id=request.project_id,
+            chapter_count=request.chapter_count,
+            words_per_chapter=request.words_per_chapter,
+            custom_instruction=request.custom_instruction,
+            archive_old_docs=request.archive_old_docs,
+            update_outline=request.update_outline,
+            user_id=current_user["id"],
+            style_agent_id=request.style_agent_id,
+        ):
+            yield f"data: {payload}\n\n"
         yield "data: [DONE]\n\n"
 
     return StreamingResponse(generate(), media_type="text/event-stream")
@@ -267,7 +338,10 @@ async def ai_batch_generate_stream(
     current_user: dict = Depends(get_current_user)
 ):
     """批量/多轮次 AI 写作（流式），基于大纲自动逐章生成"""
-    check_document_access(db, request.document_id, current_user["id"])
+    doc = check_document_access(db, request.document_id, current_user["id"])
+    check_project_owner(db, request.project_id, current_user["id"])
+    if doc.project_id != request.project_id:
+        raise HTTPException(status_code=400, detail="文档不属于该项目")
 
     async def generate():
         async for chunk in AIWritingService.batch_generate(
@@ -279,6 +353,7 @@ async def ai_batch_generate_stream(
             continue_on_complete=request.continue_on_complete,
             custom_instruction=request.custom_instruction,
             user_id=current_user["id"],
+            style_agent_id=request.style_agent_id,
         ):
             yield f"data: {chunk}\n\n"
         yield "data: [DONE]\n\n"

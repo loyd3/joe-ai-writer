@@ -11,27 +11,27 @@ useThemeStore()
 /* ===== 全局样式变量 - 默认「墨蓝」浅色主题（theme store 初始化后按当前主题改写） ===== */
 :root {
   /* 主色调 RGB 分量（用于灵活 rgba） */
-  --coffee-primary-rgb: 79, 92, 213;
+  --coffee-primary-rgb: 62, 75, 196;
   /* 主色调 */
-  --coffee-primary: #4F5CD5;
-  --coffee-primary-light: #7680DE;
-  --coffee-primary-dark: #3F4AAA;
+  --coffee-primary: #3E4BC4;
+  --coffee-primary-light: #5C68D4;
+  --coffee-primary-dark: #323D8F;
 
   /* 背景色 */
-  --coffee-bg: #f7f7f8;
-  --coffee-bg-warm: #f0f0f3;
+  --coffee-bg: #f5f5f7;
+  --coffee-bg-warm: #ececf1;
   --coffee-bg-card: #ffffff;
 
   /* 文字色 */
-  --coffee-text: #1f2329;
-  --coffee-text-secondary: #4e5259;
-  --coffee-text-muted: #8b9096;
-  --coffee-text-light: #b4b8be;
+  --coffee-text: #15181d;
+  --coffee-text-secondary: #3a3e45;
+  --coffee-text-muted: #6b7078;
+  --coffee-text-light: #8e939a;
 
   /* 边框/分隔线 */
-  --coffee-border: #e3e4e8;
-  --coffee-border-light: #ececef;
-  --coffee-divider: #f1f1f3;
+  --coffee-border: #d5d6dc;
+  --coffee-border-light: #e3e4e8;
+  --coffee-divider: #ececef;
 
   /* 阴影 */
   --coffee-shadow: rgba(var(--coffee-primary-rgb), 0.08);
@@ -55,14 +55,14 @@ useThemeStore()
   --coffee-gradient-light: linear-gradient(135deg, var(--coffee-bg-warm) 0%, var(--coffee-divider) 100%);
 
   /* Element Plus 主色初值 */
-  --el-color-primary: #4F5CD5;
-  --el-color-primary-rgb: 79, 92, 213;
-  --el-color-primary-light-3: #828de0;
-  --el-color-primary-light-5: #a7aeea;
-  --el-color-primary-light-7: #cbcff4;
-  --el-color-primary-light-8: #dedffa;
-  --el-color-primary-light-9: #f1f2fd;
-  --el-color-primary-dark-2: #3f4aaa;
+  --el-color-primary: #3E4BC4;
+  --el-color-primary-rgb: 62, 75, 196;
+  --el-color-primary-light-3: #6e78d3;
+  --el-color-primary-light-5: #9ea4e2;
+  --el-color-primary-light-7: #c6c9ef;
+  --el-color-primary-light-8: #dbddf5;
+  --el-color-primary-light-9: #eff0fb;
+  --el-color-primary-dark-2: #323d8f;
 }
 
 * {
@@ -75,6 +75,7 @@ body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
   background: var(--coffee-bg);
   color: var(--coffee-text);
+  font-weight: 500;
   line-height: 1.6;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -129,12 +130,13 @@ body {
 
 .el-dialog__title {
   color: var(--coffee-text);
-  font-weight: 600;
+  font-weight: 700;
 }
 
 .el-dialog__body {
   padding: 24px;
   color: var(--coffee-text-secondary);
+  font-weight: 500;
 }
 
 .el-dialog__footer {

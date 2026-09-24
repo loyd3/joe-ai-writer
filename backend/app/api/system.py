@@ -30,7 +30,7 @@ class CurrentAIConfig(BaseModel):
 
 
 class AIConfigUpdate(BaseModel):
-    provider: Literal["openai", "deepseek", "siliconflow", "custom"]
+    provider: Literal["openai", "deepseek", "siliconflow", "yxai", "custom"]
     api_key: Optional[str] = None
     base_url: Optional[str] = None
     model: Optional[str] = None
@@ -61,6 +61,24 @@ AVAILABLE_PROVIDERS = [
             "deepseek-ai/DeepSeek-R1",
             "Qwen/Qwen2.5-72B-Instruct",
             "meta-llama/Llama-3.3-70B-Instruct",
+        ],
+    ),
+    AIProviderInfo(
+        id="yxai",
+        name="意心",
+        description="意心 AI 聚合平台，无需 VPN，OpenAI 兼容 API",
+        models=[
+            "deepseek-flash",
+            "kimi-k3",
+            "qwen3.8-max",
+            "glm-5.3",
+            "claude-sonnet-5",
+            "claude-opus-4-8",
+            "gpt-5.6-terra",
+            "gpt-5.6-sol",
+            "gemini-3.7-flash",
+            "MiniMax-M3",
+            "grok-4.6",
         ],
     ),
     AIProviderInfo(
@@ -123,6 +141,8 @@ def get_ai_config(
         current_model = settings.deepseek_model
     elif settings.ai_provider == "siliconflow":
         current_model = settings.siliconflow_model
+    elif settings.ai_provider == "yxai":
+        current_model = settings.yxai_model
     else:
         current_model = settings.custom_model
 
@@ -152,6 +172,7 @@ async def test_ai_connection(
             "openai": config.base_url or "https://api.openai.com/v1",
             "deepseek": config.base_url or "https://api.deepseek.com/v1",
             "siliconflow": config.base_url or "https://api.siliconflow.cn/v1",
+            "yxai": config.base_url or "https://yxai.chat/v1",
             "custom": config.base_url or ""
         }
         
@@ -239,6 +260,7 @@ async def network_test():
     hosts_to_test = [
         ("api.deepseek.com", "DeepSeek API"),
         ("api.openai.com", "OpenAI API"),
+        ("yxai.chat", "意心 YXAI"),
         ("www.google.com", "Google"),
         ("www.baidu.com", "Baidu"),
     ]
@@ -253,6 +275,7 @@ async def network_test():
     # 测试 HTTP 连接 (禁用 SSL)
     urls_to_test = [
         ("https://api.deepseek.com/v1/models", "DeepSeek API"),
+        ("https://yxai.chat/v1/models", "意心 YXAI"),
         ("https://www.baidu.com", "Baidu HTTPS"),
     ]
     
@@ -358,6 +381,7 @@ def get_user_ai_config(
         "model": settings.deepseek_model if settings.ai_provider == "deepseek" else 
                  settings.openai_model if settings.ai_provider == "openai" else
                  settings.siliconflow_model if settings.ai_provider == "siliconflow" else
+                 settings.yxai_model if settings.ai_provider == "yxai" else
                  settings.custom_model,
         "temperature": settings.ai_temperature,
         "max_tokens": settings.ai_max_tokens,
@@ -381,6 +405,7 @@ def save_user_ai_config(
             "openai": "https://api.openai.com/v1",
             "deepseek": "https://api.deepseek.com/v1",
             "siliconflow": "https://api.siliconflow.cn/v1",
+            "yxai": "https://yxai.chat/v1",
             "custom": ""
         }
         
@@ -388,6 +413,7 @@ def save_user_ai_config(
             "openai": "gpt-4",
             "deepseek": "deepseek-chat",
             "siliconflow": "deepseek-ai/DeepSeek-V3",
+            "yxai": "deepseek-flash",
             "custom": "custom"
         }
 

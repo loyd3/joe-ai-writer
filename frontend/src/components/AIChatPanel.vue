@@ -10,6 +10,23 @@
           <span>随时为您提供创作灵感</span>
         </div>
       </div>
+      <div v-if="styleAgents.length" class="style-picker">
+        <span class="style-label">文风</span>
+        <el-select
+          v-model="selectedStyleAgentId"
+          size="small"
+          placeholder="默认"
+          clearable
+          style="width: 140px"
+        >
+          <el-option
+            v-for="a in styleAgents"
+            :key="a.id"
+            :label="a.is_default ? `${a.name}（默认）` : a.name"
+            :value="a.id"
+          />
+        </el-select>
+      </div>
     </div>
 
     <div class="quick-actions">
@@ -60,9 +77,26 @@
                 <el-icon><View /></el-icon> 预览修改
               </el-button>
             </template>
-            <el-button link size="small" @click="insertToDoc(msg)">
-              <el-icon><DocumentAdd /></el-icon> 插入文档
+            <el-button
+              v-if="canReplaceOriginal(msg)"
+              link
+              size="small"
+              type="primary"
+              @click="replaceOriginal(msg)"
+            >
+              <el-icon><Edit /></el-icon> 替换原文
             </el-button>
+            <el-dropdown trigger="click" @command="(cmd: string) => insertToDoc(msg, cmd as InsertPos)">
+              <el-button link size="small">
+                <el-icon><DocumentAdd /></el-icon> 插入文档
+              </el-button>
+              <template #dropdown>
+                <el-dropdown-menu>
+                  <el-dropdown-item command="cursor">插入到光标处</el-dropdown-item>
+                  <el-dropdown-item command="end">插入到文末</el-dropdown-item>
+                </el-dropdown-menu>
+              </template>
+            </el-dropdown>
             <el-button link size="small" @click="copyToClipboard(msg.content)">
               <el-icon><CopyDocument /></el-icon> 复制
             </el-button>
@@ -85,11 +119,26 @@
     </div>
 
     <div class="chat-input">
+      <div v-if="attachedContext" class="attached-context">
+        <div class="attached-head">
+          <span class="attached-title">已引用段落</span>
+          <button type="button" class="attached-clear" title="清除引用" @click="clearAttachedContext">×</button>
+        </div>
+        <div class="attached-preview">{{ attachedPreview }}</div>
+        <div class="attached-quick">
+          <el-button size="small" :disabled="loading" @click="runOnAttached('revise')">修改</el-button>
+          <el-button size="small" :disabled="loading" @click="runOnAttached('polish')">润色</el-button>
+          <el-button size="small" :disabled="loading" @click="runOnAttached('expand')">扩展</el-button>
+        </div>
+      </div>
       <el-input
+        ref="inputRef"
         v-model="inputMessage"
         type="textarea"
         :rows="3"
-        placeholder="输入你的问题或指令...&#10;选中文字后点击上方按钮可直接修改"
+        :placeholder="attachedContext
+          ? '针对上方引用提出修改要求，例如：语气更轻松、缩短一半…'
+          : '输入问题或指令…\n也可在正文点「送到助手」引用段落'"
         class="coffee-textarea"
         @keydown.enter.ctrl.prevent="sendMessage"
       />
@@ -116,16 +165,18 @@
 </template>
 
 <script setup lang="ts">
-import { ref, nextTick } from 'vue'
+import { ref, computed, nextTick, watch } from 'vue'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
-import { aiApi } from '@/api'
-import type { Block } from '@/api/types'
+import { aiApi, styleAgentApi } from '@/api'
+import type { Block, StyleAgent } from '@/api/types'
 import { ElMessage } from 'element-plus'
 import { Star, Compass, Edit, Brush, Right, User, DocumentAdd, CopyDocument, Promotion, InfoFilled, View, SetUp } from '@element-plus/icons-vue'
 import AIDiffViewer from './AIDiffViewer.vue'
 
 marked.setOptions({ gfm: true, breaks: true })
+
+type InsertPos = 'cursor' | 'end'
 
 type AssistChatMessage = {
   role: string
@@ -138,14 +189,25 @@ type AssistChatMessage = {
   blockIndices?: number[]
 }
 
+type AttachedContext = {
+  text: string
+  blockIndex?: number
+  blockIndices?: number[]
+}
+
 function feedSseChunk(chunk: string, acc: { buf: string }, onPayload: (data: string) => void) {
   acc.buf += chunk
-  const parts = acc.buf.split('\n')
-  acc.buf = parts.pop() ?? ''
-  for (const line of parts) {
-    if (line.startsWith('data: ')) {
-      onPayload(line.slice(6))
+  // 按 SSE 事件边界（空行）拆分；同一事件内多行 data: 需用 \n 拼接，否则会丢掉换行导致排版标记失效
+  const events = acc.buf.split('\n\n')
+  acc.buf = events.pop() ?? ''
+  for (const event of events) {
+    if (!event.trim()) continue
+    const dataLines: string[] = []
+    for (const line of event.split('\n')) {
+      if (line.startsWith('data: ')) dataLines.push(line.slice(6))
+      else if (line.startsWith('data:')) dataLines.push(line.slice(5))
     }
+    if (dataLines.length) onPayload(dataLines.join('\n'))
   }
 }
 
@@ -153,34 +215,68 @@ function flushSse(acc: { buf: string }, onPayload: (data: string) => void) {
   if (!acc.buf) return
   const tail = acc.buf
   acc.buf = ''
+  const dataLines: string[] = []
   for (const line of tail.split('\n')) {
-    if (line.startsWith('data: ')) {
-      onPayload(line.slice(6))
-    }
+    if (line.startsWith('data: ')) dataLines.push(line.slice(6))
+    else if (line.startsWith('data:')) dataLines.push(line.slice(5))
   }
+  if (dataLines.length) onPayload(dataLines.join('\n'))
 }
 
 const props = defineProps<{
   documentId: number
+  projectId?: number
 }>()
 
 const emit = defineEmits<{
-  (e: 'insert', text: string): void
-  (e: 'insertBlocks', blocks: Block[]): void
+  (e: 'insert', text: string, position?: InsertPos): void
+  (e: 'insertBlocks', blocks: Block[], position?: InsertPos): void
   (e: 'replace', oldText: string, newText: string, blockIndex?: number, blocks?: Block[], blockIndices?: number[]): void
   (e: 'preview', payload: { blockIndex?: number; blockIndices?: number[]; text: string; blocks?: Block[] }): void
   (e: 'previewCancel'): void
 }>()
 
+const styleAgents = ref<StyleAgent[]>([])
+const selectedStyleAgentId = ref<number | undefined>(undefined)
+
+async function loadStyleAgents() {
+  if (!props.projectId) return
+  try {
+    const { data } = await styleAgentApi.list(props.projectId)
+    styleAgents.value = Array.isArray(data) ? data : []
+    const def = styleAgents.value.find((a) => a.is_default)
+    selectedStyleAgentId.value = def?.id
+  } catch {
+    styleAgents.value = []
+  }
+}
+
+watch(
+  () => props.projectId,
+  () => loadStyleAgents(),
+  { immediate: true }
+)
+
 const messages = ref<AssistChatMessage[]>([
-  { role: 'assistant', content: '你好！我是你的 AI 写作助手。我可以帮你指导写作、修改润色、续写文章等。有什么可以帮你的吗？' }
+  { role: 'assistant', content: '你好！可以把正文「送到助手」后提修改要求，或用上方快捷按钮。生成结果可插入到光标处或文末。' }
 ])
 
 const inputMessage = ref('')
+const inputRef = ref<{ focus?: () => void; textarea?: HTMLTextAreaElement } | null>(null)
 const loading = ref(false)
 const streaming = ref(false)
 const streamingContent = ref('')
-const messagesContainer = ref<HTMLElement>()
+const messagesContainer = ref<HTMLElement | null>(null)
+
+const attachedContext = ref<AttachedContext | null>(null)
+/** 发送自由对话时暂存引用，便于回复后「替换原文」 */
+const pendingAskContext = ref<AttachedContext | null>(null)
+
+const attachedPreview = computed(() => {
+  const t = attachedContext.value?.text?.trim() || ''
+  if (t.length <= 120) return t
+  return `${t.slice(0, 120)}…`
+})
 
 // Diff 查看器状态（类似 Cursor：改写后展示对照，用户选择接受/拒绝）
 const diffVisible = ref(false)
@@ -195,6 +291,55 @@ const pendingReplaceBlockIndices = ref<number[] | undefined>(undefined)
 const pendingReplaceBlocks = ref<Block[] | undefined>(undefined)
 /** 是否在对话框中展示流式内容（Cursor 风格：改写类只展示在 diff/编辑器预览里） */
 const assistStreamDisplay = ref<'full' | 'minimal'>('full')
+
+function clearAttachedContext() {
+  attachedContext.value = null
+}
+
+function attachContext(payload: AttachedContext) {
+  const text = (payload.text || '').trim()
+  if (!text) {
+    ElMessage.warning('没有可引用的内容')
+    return
+  }
+  attachedContext.value = {
+    text,
+    blockIndex: payload.blockIndex,
+    blockIndices: payload.blockIndices,
+  }
+  nextTick(() => {
+    const el = inputRef.value?.textarea || (inputRef.value as any)?.$el?.querySelector?.('textarea')
+    el?.focus?.()
+  })
+  ElMessage.success('已引用到助手，可直接提修改要求')
+}
+
+function runOnAttached(action: string) {
+  const ctx = attachedContext.value
+  if (!ctx?.text.trim()) {
+    ElMessage.warning('请先引用段落')
+    return
+  }
+  void runAssistAction(action, ctx.text, ctx.blockIndex, ctx.blockIndices)
+}
+
+function canReplaceOriginal(msg: AssistChatMessage) {
+  if (!msg.content?.trim()) return false
+  if (msg.blockIndex != null && msg.blockIndex >= 0) return true
+  if (msg.blockIndices?.length) return true
+  return false
+}
+
+function replaceOriginal(msg: AssistChatMessage) {
+  const original = msg.originalText || ''
+  try {
+    emit('replace', original, msg.content, msg.blockIndex, msg.blocks, msg.blockIndices)
+    ElMessage.success('已替换原文')
+  } catch (e) {
+    console.error(e)
+    ElMessage.error('替换失败')
+  }
+}
 
 function showDiffForMessage(msg: AssistChatMessage) {
   diffOriginalText.value = msg.originalText || ''
@@ -245,26 +390,40 @@ function formatMessage(text: string): string {
 
 async function sendMessage() {
   if (!inputMessage.value.trim()) return
-  
-  const userMsg = inputMessage.value
+
+  const instruction = inputMessage.value.trim()
+  const ctx = attachedContext.value
+  let userMsg = instruction
+  if (ctx?.text.trim()) {
+    userMsg =
+      `请针对以下文稿内容进行修改或回答（优先直接给出可用正文）：\n\n` +
+      `---\n${ctx.text.trim()}\n---\n\n` +
+      `我的要求：${instruction}`
+    pendingAskContext.value = { ...ctx }
+  } else {
+    pendingAskContext.value = null
+  }
+
   messages.value.push({ role: 'user', content: userMsg })
   inputMessage.value = ''
   loading.value = true
   streaming.value = true
   streamingContent.value = ''
-  
+  assistStreamDisplay.value = 'full'
+
   scrollToBottom()
-  
+
   try {
     const response = await aiApi.chatStream({
       document_id: props.documentId,
       messages: messages.value.map(m => ({ role: m.role, content: m.content })),
-      include_memory: true
+      include_memory: true,
+      style_agent_id: selectedStyleAgentId.value,
     })
-    
+
     const reader = response.body?.getReader()
     if (!reader) throw new Error('No reader')
-    
+
     const decoder = new TextDecoder()
     const sseAcc = { buf: '' }
     let assistMeta: { format?: string; blocks?: Block[] } | null = null
@@ -273,11 +432,17 @@ async function sendMessage() {
       if (data === '[DONE]') {
         const meta = assistMeta
         assistMeta = null
+        const ask = pendingAskContext.value
+        pendingAskContext.value = null
         messages.value.push({
           role: 'assistant',
           content: streamingContent.value,
           format: meta?.format,
           blocks: meta?.blocks,
+          originalText: ask?.text,
+          blockIndex: ask?.blockIndex,
+          blockIndices: ask?.blockIndices,
+          actionType: ask ? 'revise' : undefined,
         })
         streamingContent.value = ''
         streaming.value = false
@@ -306,14 +471,19 @@ async function sendMessage() {
   } catch (error) {
     ElMessage.error('请求失败，请检查网络连接')
     streaming.value = false
+    pendingAskContext.value = null
   } finally {
     loading.value = false
   }
 }
 
 async function quickAction(action: string) {
-  const selection = window.getSelection()?.toString()
-  await runAssistAction(action, selection || undefined)
+  const fromAttach = attachedContext.value?.text?.trim()
+  const selection = window.getSelection()?.toString()?.trim()
+  const text = fromAttach || selection || undefined
+  const blockIndex = fromAttach ? attachedContext.value?.blockIndex : undefined
+  const blockIndices = fromAttach ? attachedContext.value?.blockIndices : undefined
+  await runAssistAction(action, text, blockIndex, blockIndices)
 }
 
 /** 由父组件调用：对指定文本执行润色（如从编辑器快捷栏「AI 润色」触发） */
@@ -380,7 +550,8 @@ async function runAssistAction(action: string, selectedText?: string, blockIndex
       document_id: props.documentId,
       action,
       selected_text: selectedText,
-      instruction: undefined
+      instruction: undefined,
+      style_agent_id: selectedStyleAgentId.value,
     })
     const reader = response.body?.getReader()
     if (!reader) throw new Error('No reader')
@@ -450,15 +621,16 @@ defineExpose({
   formatStyleWithSelectedText: (text: string, blockIndices: number[]) => formatStyleWithSelectedText(text, blockIndices),
   reviseWithSelectedText: (text: string, blockIndices: number[]) => reviseWithSelectedText(text, blockIndices),
   expandWithSelectedText: (text: string, blockIndices: number[]) => expandWithSelectedText(text, blockIndices),
+  attachContext,
 })
 
-function insertToDoc(msg: AssistChatMessage) {
+function insertToDoc(msg: AssistChatMessage, position: InsertPos = 'cursor') {
   if (msg.blocks?.length) {
-    emit('insertBlocks', msg.blocks)
+    emit('insertBlocks', msg.blocks, position)
   } else {
-    emit('insert', msg.content)
+    emit('insert', msg.content, position)
   }
-  ElMessage.success('已插入到文档末尾')
+  ElMessage.success(position === 'end' ? '已插入到文档末尾' : '已插入到光标处')
 }
 
 function copyToClipboard(text: string) {
@@ -491,6 +663,20 @@ function scrollToBottom() {
   padding: 20px;
   border-bottom: 1px solid var(--coffee-border);
   background: linear-gradient(135deg, var(--coffee-bg-warm) 0%, var(--coffee-bg) 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+
+  .style-picker {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    .style-label {
+      font-size: 12px;
+      color: var(--coffee-text-muted);
+      flex-shrink: 0;
+    }
+  }
   
   .header-title {
     display: flex;
@@ -719,6 +905,57 @@ function scrollToBottom() {
   padding: 16px 20px;
   border-top: 1px solid var(--coffee-border);
   background: var(--coffee-bg-card);
+}
+
+.attached-context {
+  margin-bottom: 10px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--coffee-border);
+  background: var(--coffee-bg-warm, var(--coffee-bg));
+}
+
+.attached-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.attached-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--coffee-primary);
+}
+
+.attached-clear {
+  border: none;
+  background: transparent;
+  color: var(--coffee-text-light);
+  cursor: pointer;
+  font-size: 18px;
+  line-height: 1;
+  padding: 0 4px;
+
+  &:hover {
+    color: var(--coffee-text);
+  }
+}
+
+.attached-preview {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--coffee-text);
+  white-space: pre-wrap;
+  max-height: 72px;
+  overflow: hidden;
+}
+
+.attached-quick {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
 }
 
 .coffee-textarea {

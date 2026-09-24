@@ -76,6 +76,16 @@
             type="button"
             class="toolbar-btn ai-btn"
             @mousedown.prevent
+            @click="emitAskAiSelected"
+            title="送到 AI 助手，可自由提出修改要求"
+          >
+            <el-icon><ChatDotRound /></el-icon>
+            <span>送到助手</span>
+          </button>
+          <button
+            type="button"
+            class="toolbar-btn ai-btn"
+            @mousedown.prevent
             @click="emitPolishSelected"
             title="AI 润色（选中多个块）"
           >
@@ -114,16 +124,6 @@
           </button>
           <button
             type="button"
-            class="toolbar-btn ai-btn"
-            @mousedown.prevent
-            @click="emitGenerateImageForSelection"
-            title="根据选中段落生成插图（Ctrl+点击多选）"
-          >
-            <el-icon><Picture /></el-icon>
-            <span>选中生成插图</span>
-          </button>
-          <button
-            type="button"
             class="toolbar-btn"
             :disabled="!canMoveUpMultiToolbar"
             @mousedown.prevent
@@ -151,6 +151,36 @@
           <button type="button" class="toolbar-btn" @mousedown.prevent @click="clearBlockSelection" title="取消选择 (Esc)">
             <el-icon><Close /></el-icon>
             <span>取消</span>
+          </button>
+        </div>
+      </Transition>
+    </Teleport>
+
+    <!-- 选中文字时的 AI 浮窗 -->
+    <Teleport to="body">
+      <Transition name="sel-ai-bubble">
+        <div
+          v-if="selectionAiBubble.visible"
+          class="selection-ai-bubble"
+          :style="selectionAiBubbleStyle"
+          @mousedown.prevent
+        >
+          <button type="button" class="sel-ai-btn primary" @click="onSelectionAiAsk" title="送到 AI 助手自由提问">
+            <el-icon><ChatDotRound /></el-icon>
+            <span>问 AI</span>
+          </button>
+          <span class="sel-ai-divider" />
+          <button type="button" class="sel-ai-btn" @click="onSelectionAiPolish" title="润色选中文字">
+            <el-icon><Brush /></el-icon>
+            <span>润色</span>
+          </button>
+          <button type="button" class="sel-ai-btn" @click="onSelectionAiRevise" title="修改选中文字">
+            <el-icon><EditPen /></el-icon>
+            <span>修改</span>
+          </button>
+          <button type="button" class="sel-ai-btn" @click="onSelectionAiExpand" title="扩展选中文字">
+            <el-icon><MagicStick /></el-icon>
+            <span>扩展</span>
           </button>
         </div>
       </Transition>
@@ -272,6 +302,10 @@
             <span>正文</span>
           </button>
           <span class="toolbar-divider" />
+          <button type="button" class="toolbar-btn ai-btn" @click.stop="emitAskAi(row.index)" title="送到 AI 助手，可自由提出修改要求">
+            <el-icon><ChatDotRound /></el-icon>
+            <span>送到助手</span>
+          </button>
           <button type="button" class="toolbar-btn ai-btn" @click.stop="emitPolish(row.index)" title="AI 润色">
             <el-icon><Brush /></el-icon>
             <span>AI 润色</span>
@@ -483,9 +517,17 @@
           </div>
           <div class="context-menu-divider" />
           <div class="context-menu-section">
+            <button type="button" class="context-item ai-item" @click="handleContextAction('askAi')">
+              <el-icon><ChatDotRound /></el-icon>
+              <span>送到 AI 助手</span>
+            </button>
             <button type="button" class="context-item ai-item" @click="handleContextAction('polish')">
               <el-icon><Brush /></el-icon>
               <span>AI 润色</span>
+            </button>
+            <button type="button" class="context-item ai-item" @click="handleContextAction('revise')">
+              <el-icon><EditPen /></el-icon>
+              <span>AI 修改</span>
             </button>
             <button type="button" class="context-item ai-item" @click="handleContextAction('formatStyle')">
               <el-icon><SetUp /></el-icon>
@@ -584,7 +626,7 @@
 import { ref, computed, nextTick, onMounted, onUnmounted, watch } from 'vue'
 import type { Block } from '@/stores/project'
 import { ElMessage } from 'element-plus'
-import { Plus, MoreFilled, Top, ChatDotRound, List, Document, Delete, EditPen, Brush, Rank, Operation, Minus, RefreshLeft, RefreshRight, DocumentCopy, Scissor, Close, MagicStick, Picture, ArrowUp, ArrowDown, SetUp } from '@element-plus/icons-vue'
+import { Plus, MoreFilled, Top, ChatDotRound, List, Document, Delete, EditPen, Brush, Rank, Operation, Minus, RefreshLeft, RefreshRight, DocumentCopy, Scissor, Close, MagicStick, ArrowUp, ArrowDown, SetUp } from '@element-plus/icons-vue'
 
 const props = defineProps<{
   modelValue: Block[]
@@ -601,7 +643,8 @@ const emit = defineEmits<{
   (e: 'format-style-selected', payload: { indices: number[]; text: string }): void
   (e: 'revise-selected', payload: { indices: number[]; text: string }): void
   (e: 'expand-selected', payload: { indices: number[]; text: string }): void
-  (e: 'generate-image-for-selection', payload: { indices: number[]; text: string }): void
+  /** 把段落贴到 AI 对话框，便于自由提修改要求 */
+  (e: 'ask-ai', payload: { text: string; index?: number; indices?: number[] }): void
   (e: 'toggleFocusMode'): void
   (e: 'replace', payload: { index: number; oldText: string; newText: string }): void
   /** 用户正在编辑（不等待防抖后的 v-model 同步），用于立即标记未保存 */
@@ -621,9 +664,16 @@ function clearContentEmitTimer() {
   }
 }
 
+/** 本地发出的内容指纹，用于区分外部更新（AI 应用等）与自身 emit，避免重复刷 DOM */
+function fingerprintBlocks(blocks: Block[]): string {
+  return blocks.map(b => `${b.id}\x1e${b.type}\x1e${b.content || ''}`).join('\x1f')
+}
+let lastLocalFingerprint = ''
+
 /** 结构变更、撤销重做等须立即同步 */
 function emitContentUpdateNow(blocks: Block[]) {
   clearContentEmitTimer()
+  lastLocalFingerprint = fingerprintBlocks(blocks)
   emit('update:modelValue', blocks)
 }
 
@@ -632,6 +682,7 @@ function scheduleContentUpdate(blocks: Block[]) {
   clearContentEmitTimer()
   contentEmitTimer = setTimeout(() => {
     contentEmitTimer = null
+    lastLocalFingerprint = fingerprintBlocks(blocks)
     emit('update:modelValue', blocks)
   }, CONTENT_EMIT_DEBOUNCE_MS)
 }
@@ -1036,6 +1087,21 @@ const blockRefs = ref<Map<number, HTMLElement>>(new Map())
 let focusBlurTimer: ReturnType<typeof setTimeout> | null = null
 /** 当前显示快捷栏的块索引，-1 为不显示。悬停 3s 或选中 3s 后赋值 */
 const toolbarVisibleIndex = ref(-1)
+
+/** 段落内选中文字时的 AI 浮窗 */
+const selectionAiBubble = ref({
+  visible: false,
+  x: 0,
+  y: 0,
+  text: '',
+  blockIndex: -1,
+})
+const selectionAiBubbleStyle = computed(() => ({
+  left: `${selectionAiBubble.value.x}px`,
+  top: `${selectionAiBubble.value.y}px`,
+}))
+let selectionBubbleRaf: number | null = null
+let pointerSelecting = false
 /** 右键快捷菜单状态 */
 const contextMenu = ref({ visible: false, x: 0, y: 0, blockIndex: -1 })
 const contextMenuRef = ref<HTMLElement | null>(null)
@@ -1425,9 +1491,128 @@ function handleMouseUp(index: number, event: MouseEvent) {
       selectedBlocks.value.add(i)
     }
     isMultiSelectMode.value = true
+    hideSelectionAiBubble()
   } else if (event.ctrlKey || event.metaKey || event.shiftKey) {
     toggleBlockSelection(index, event)
+    hideSelectionAiBubble()
+  } else {
+    // 块内划词：立刻弹出 AI 浮窗
+    scheduleSelectionAiBubble()
   }
+}
+
+function hideSelectionAiBubble() {
+  if (!selectionAiBubble.value.visible) return
+  selectionAiBubble.value = {
+    visible: false,
+    x: 0,
+    y: 0,
+    text: '',
+    blockIndex: -1,
+  }
+}
+
+function scheduleSelectionAiBubble() {
+  if (selectionBubbleRaf != null) cancelAnimationFrame(selectionBubbleRaf)
+  selectionBubbleRaf = requestAnimationFrame(() => {
+    selectionBubbleRaf = null
+    updateSelectionAiBubble()
+  })
+}
+
+function updateSelectionAiBubble() {
+  if (props.previewMode || pointerSelecting) {
+    hideSelectionAiBubble()
+    return
+  }
+  const sel = window.getSelection()
+  if (!sel || sel.rangeCount === 0) {
+    hideSelectionAiBubble()
+    return
+  }
+  const text = (sel.toString() || '').replace(/\u00a0/g, ' ').trim()
+  if (!text) {
+    hideSelectionAiBubble()
+    return
+  }
+  const range = sel.getRangeAt(0)
+  let startBlock = -1
+  let endBlock = -1
+  for (const [idx, el] of blockRefs.value) {
+    if (!el) continue
+    try {
+      if (range.intersectsNode(el)) {
+        if (startBlock === -1) startBlock = idx
+        endBlock = idx
+      }
+    } catch {
+      // intersectsNode 对部分节点可能抛错
+    }
+  }
+  // 跨块选区走多选工具栏，不显示划词浮窗
+  if (startBlock < 0 || startBlock !== endBlock) {
+    hideSelectionAiBubble()
+    return
+  }
+  const rect = range.getBoundingClientRect()
+  if (!rect || (rect.width === 0 && rect.height === 0)) {
+    hideSelectionAiBubble()
+    return
+  }
+  const bubbleW = 300
+  const bubbleH = 42
+  let x = rect.left + rect.width / 2 - bubbleW / 2
+  let y = rect.top - bubbleH - 10
+  x = Math.max(8, Math.min(x, window.innerWidth - bubbleW - 8))
+  if (y < 8) y = Math.min(rect.bottom + 10, window.innerHeight - bubbleH - 8)
+  selectionAiBubble.value = {
+    visible: true,
+    x,
+    y,
+    text,
+    blockIndex: startBlock,
+  }
+}
+
+function onSelectionAiAsk() {
+  const { text, blockIndex } = selectionAiBubble.value
+  if (!text.trim() || blockIndex < 0) return
+  flushPendingSync()
+  emit('ask-ai', { text, index: blockIndex })
+  hideSelectionAiBubble()
+}
+
+function onSelectionAiPolish() {
+  const { text, blockIndex } = selectionAiBubble.value
+  if (!text.trim() || blockIndex < 0) return
+  flushPendingSync()
+  emit('polish', { index: blockIndex, text })
+  hideSelectionAiBubble()
+}
+
+function onSelectionAiRevise() {
+  const { text, blockIndex } = selectionAiBubble.value
+  if (!text.trim() || blockIndex < 0) return
+  flushPendingSync()
+  emit('revise-selected', { indices: [blockIndex], text })
+  hideSelectionAiBubble()
+}
+
+function onSelectionAiExpand() {
+  const { text, blockIndex } = selectionAiBubble.value
+  if (!text.trim() || blockIndex < 0) return
+  flushPendingSync()
+  emit('expand-selected', { indices: [blockIndex], text })
+  hideSelectionAiBubble()
+}
+
+function onPointerDownForSelection() {
+  pointerSelecting = true
+}
+
+function onPointerUpForSelection() {
+  pointerSelecting = false
+  scheduleSelectionAiBubble()
 }
 
 // ========== 撤销重做系统 ==========
@@ -1468,7 +1653,7 @@ function undo() {
     const snapshot = history.value[historyIndex.value]
     emitContentUpdateNow(JSON.parse(JSON.stringify(snapshot)))
     nextTick(() => {
-      initBlockContents()
+      initBlockContents({ forceAll: true })
       isUndoing = false
     })
   }
@@ -1482,7 +1667,7 @@ function redo() {
     const snapshot = history.value[historyIndex.value]
     emitContentUpdateNow(JSON.parse(JSON.stringify(snapshot)))
     nextTick(() => {
-      initBlockContents()
+      initBlockContents({ forceAll: true })
       isUndoing = false
     })
   }
@@ -1557,6 +1742,12 @@ function handleContextAction(action: string) {
     case 'polish':
       emitPolish(idx)
       break
+    case 'revise':
+      emitRevise(idx)
+      break
+    case 'askAi':
+      emitAskAi(idx)
+      break
     case 'formatStyle':
       emitFormatStyle(idx)
       break
@@ -1602,6 +1793,10 @@ onMounted(() => {
   initBlockContents()
   document.addEventListener('selectionchange', onSelectionChange)
   document.addEventListener('click', closeContextMenu)
+  document.addEventListener('mousedown', onPointerDownForSelection, true)
+  document.addEventListener('mouseup', onPointerUpForSelection, true)
+  window.addEventListener('scroll', hideSelectionAiBubble, true)
+  window.addEventListener('resize', hideSelectionAiBubble)
 })
 
 onUnmounted(() => {
@@ -1611,6 +1806,14 @@ onUnmounted(() => {
   }
   document.removeEventListener('selectionchange', onSelectionChange)
   document.removeEventListener('click', closeContextMenu)
+  document.removeEventListener('mousedown', onPointerDownForSelection, true)
+  document.removeEventListener('mouseup', onPointerUpForSelection, true)
+  window.removeEventListener('scroll', hideSelectionAiBubble, true)
+  window.removeEventListener('resize', hideSelectionAiBubble)
+  if (selectionBubbleRaf != null) {
+    cancelAnimationFrame(selectionBubbleRaf)
+    selectionBubbleRaf = null
+  }
   if (hoverTimer) clearTimeout(hoverTimer)
   if (selectionTimer) clearTimeout(selectionTimer)
   if (leaveTimer) clearTimeout(leaveTimer)
@@ -1669,6 +1872,7 @@ function onSelectionChange() {
       selectionTimer = null
     }
     toolbarVisibleIndex.value = -1
+    hideSelectionAiBubble()
     return
   }
   const anchor = sel.anchorNode
@@ -1678,6 +1882,7 @@ function onSelectionChange() {
       selectionTimer = null
     }
     toolbarVisibleIndex.value = -1
+    hideSelectionAiBubble()
     return
   }
   let blockIndex = -1
@@ -1691,6 +1896,7 @@ function onSelectionChange() {
     if (selectionTimer) clearTimeout(selectionTimer)
     selectionTimer = null
     toolbarVisibleIndex.value = -1
+    hideSelectionAiBubble()
     return
   }
   if (selectionTimer) clearTimeout(selectionTimer)
@@ -1698,6 +1904,11 @@ function onSelectionChange() {
     selectionTimer = null
     toolbarVisibleIndex.value = blockIndex
   }, TOOLBAR_DELAY_MS)
+
+  // 划词浮窗：拖选过程中不闪，松手后由 mouseup 触发；键盘选区则即时更新
+  if (!pointerSelecting) {
+    scheduleSelectionAiBubble()
+  }
 }
 
 watch(
@@ -1743,6 +1954,15 @@ watch(
   }
 )
 
+/** 外部更新（AI 接受、加载文档等）：块数不变时也必须把 model 写回 contenteditable */
+watch(
+  () => fingerprintBlocks(props.modelValue),
+  (fp) => {
+    if (!fp || fp === lastLocalFingerprint) return
+    nextTick(() => initBlockContents({ forceAll: true }))
+  }
+)
+
 watch([virtualStart, virtualEnd], () => {
   nextTick(() => initBlockContents())
 })
@@ -1755,20 +1975,25 @@ function setBlockRef(el: unknown, index: number) {
   }
 }
 
-function initBlockContents() {
+/** 将块内容写入 contenteditable，避免 Vue 无法可靠 diff 可编辑 DOM */
+function writeBlockDom(el: HTMLElement, content: string) {
+  const raw = content || ''
+  const hasHtml = /<(b|i|u|strong|em)\b/i.test(raw)
+  if (!hasHtml) {
+    if (el.textContent !== raw) el.textContent = raw
+  } else {
+    if (el.innerHTML !== raw) el.innerHTML = raw
+  }
+}
+
+function initBlockContents(opts?: { forceAll?: boolean }) {
   // 仅同步当前已挂载的块，避免长文档初始化/滚动时遍历全量 blocks 造成卡顿
   for (const [index, el] of blockRefs.value) {
     const block = props.modelValue[index]
     if (!block || !el) continue
     // v-model 防抖期间父级 props 可能落后于 DOM，勿用旧 model 覆盖正在编辑的节点
-    if (document.activeElement === el) continue
-    const raw = block.content || ''
-    const hasHtml = /<(b|i|u|strong|em)\b/i.test(raw)
-    if (!hasHtml) {
-      if (el.textContent !== raw) el.textContent = raw
-    } else {
-      if (el.innerHTML !== raw) el.innerHTML = raw
-    }
+    if (!opts?.forceAll && document.activeElement === el) continue
+    writeBlockDom(el, block.content || '')
   }
 }
 
@@ -1921,6 +2146,9 @@ function handleEnter(index: number, event: Event) {
     beforeContent = text.slice(0, cursorPosition)
     afterContent = text.slice(cursorPosition)
   }
+  // 立即改写当前块 DOM，避免 length watch → initBlockContents 因仍聚焦而跳过同步，
+  // 随后全量 DOM 快照又把「未切开的全文」写回 model，造成换行内容重复。
+  writeBlockDom(target, beforeContent)
   const newBlocks = [...props.modelValue]
   newBlocks[index] = { ...newBlocks[index], content: beforeContent }
   const newBlock: Block = {
@@ -1934,6 +2162,8 @@ function handleEnter(index: number, event: Event) {
   saveHistory()
   nextTick(() => {
     const ni = index + 1
+    const newEl = blockRefs.value.get(ni)
+    if (newEl) writeBlockDom(newEl, afterContent)
     focusBlock(ni, { cursor: 'start', align: 'nearest', behavior: 'auto', focus: true })
   })
 }
@@ -1988,18 +2218,24 @@ function handleBackspace(index: number, event: Event) {
     event.preventDefault()
 
     const prevBlock = props.modelValue[index - 1]
-
-    // 将当前块内容合并到上一个块
-    const newContent = prevBlock.content + currentBlock.content
+    const prevEl = blockRefs.value.get(index - 1)
+    // 优先读 DOM，避免输入防抖未落盘时用旧 model 合并丢字
+    const prevContent = prevEl
+      ? sanitizeBlockContent(prevEl.innerHTML || '')
+      : (prevBlock.content || '')
+    const curContent = sanitizeBlockContent(target.innerHTML || '')
+    const mergeCursor = (prevEl?.textContent || stripHtml(prevContent) || '').length
+    const newContent = prevContent + curContent
     const newBlocks = [...props.modelValue]
     newBlocks[index - 1] = { ...prevBlock, content: newContent }
     newBlocks.splice(index, 1)
 
+    if (prevEl) writeBlockDom(prevEl, newContent)
     emitContentUpdateNow(newBlocks)
     saveHistory()
 
     nextTick(() => {
-      focusBlock(index - 1, { cursor: prevBlock.content.length, align: 'nearest', behavior: 'auto', focus: true })
+      focusBlock(index - 1, { cursor: mergeCursor, align: 'nearest', behavior: 'auto', focus: true })
     })
     return
   }
@@ -2524,12 +2760,63 @@ function emitPolish(index: number) {
     return
   }
 
-  const text = block?.content ? stripHtml(block.content) : ''
+  const text = getBlockPlainText(index)
   if (!text.trim()) {
     ElMessage.warning('请先输入要润色的内容')
     return
   }
+  flushPendingSync()
   emit('polish', { index, text })
+}
+
+function emitRevise(index: number) {
+  const block = props.modelValue[index]
+  if (!block) return
+
+  if (selectedBlocks.value.size > 1 && selectedBlocks.value.has(index)) {
+    emitReviseSelected()
+    return
+  }
+
+  const text = getBlockPlainText(index)
+  if (!text.trim()) {
+    ElMessage.warning('请先输入要修改的内容')
+    return
+  }
+  flushPendingSync()
+  emit('revise-selected', { indices: [index], text })
+}
+
+/** 把当前块（或选中块）贴到 AI 对话框 */
+function emitAskAi(index: number) {
+  const block = props.modelValue[index]
+  if (!block) return
+
+  if (selectedBlocks.value.size > 1 && selectedBlocks.value.has(index)) {
+    emitAskAiSelected()
+    return
+  }
+
+  const text = getBlockPlainText(index)
+  if (!text.trim()) {
+    ElMessage.warning('请先输入要讨论的内容')
+    return
+  }
+  flushPendingSync()
+  emit('ask-ai', { text, index })
+}
+
+function emitAskAiSelected() {
+  const indices = Array.from(selectedBlocks.value).sort((a, b) => a - b)
+  if (indices.length === 0) return
+  const text = collectSelectedPlainText(indices)
+  if (!text.trim()) {
+    ElMessage.warning('请先输入要讨论的内容')
+    return
+  }
+  clearBlockSelection()
+  flushPendingSync()
+  emit('ask-ai', { text, indices })
 }
 
 function emitFormatStyle(index: number) {
@@ -2541,26 +2828,38 @@ function emitFormatStyle(index: number) {
     return
   }
 
-  const text = block?.content ? stripHtml(block.content) : ''
+  const text = getBlockPlainText(index)
   if (!text.trim()) {
     ElMessage.warning('请先输入要调整样式的内容')
     return
   }
+  flushPendingSync()
   emit('format-style', { index, text })
+}
+
+/** 优先从 contenteditable 取纯文本，避免防抖未同步时读到空的 model */
+function getBlockPlainText(index: number): string {
+  const el = blockRefs.value.get(index)
+  if (el) {
+    const fromDom = (el.innerText || el.textContent || '').replace(/\u00a0/g, ' ').trim()
+    if (fromDom) return fromDom
+  }
+  const block = props.modelValue[index]
+  return block?.content ? stripHtml(block.content).trim() : ''
+}
+
+function collectSelectedPlainText(indices: number[]): string {
+  return indices
+    .map(i => getBlockPlainText(i))
+    .filter(t => t.trim())
+    .join('\n\n')
 }
 
 function emitPolishSelected() {
   const indices = Array.from(selectedBlocks.value).sort((a, b) => a - b)
   if (indices.length === 0) return
 
-  const parts = indices
-    .map(i => {
-      const b = props.modelValue[i]
-      return b?.content ? stripHtml(b.content) : ''
-    })
-    .filter(t => t.trim())
-
-  const text = parts.join('\n\n')
+  const text = collectSelectedPlainText(indices)
   if (!text.trim()) {
     ElMessage.warning('请先输入要润色的内容')
     return
@@ -2569,6 +2868,7 @@ function emitPolishSelected() {
   // 保存焦点位置，在 AI 操作后恢复
   const focusTarget = indices[0]
   clearBlockSelection()
+  flushPendingSync()
   emit('polish-selected', { indices, text })
   // 恢复焦点
   if (focusTarget >= 0 && focusTarget < props.modelValue.length) {
@@ -2580,14 +2880,7 @@ function emitFormatStyleSelected() {
   const indices = Array.from(selectedBlocks.value).sort((a, b) => a - b)
   if (indices.length === 0) return
 
-  const parts = indices
-    .map(i => {
-      const b = props.modelValue[i]
-      return b?.content ? stripHtml(b.content) : ''
-    })
-    .filter(t => t.trim())
-
-  const text = parts.join('\n\n')
+  const text = collectSelectedPlainText(indices)
   if (!text.trim()) {
     ElMessage.warning('请先输入要调整样式的内容')
     return
@@ -2595,6 +2888,7 @@ function emitFormatStyleSelected() {
 
   const focusTarget = indices[0]
   clearBlockSelection()
+  flushPendingSync()
   emit('format-style-selected', { indices, text })
   if (focusTarget >= 0 && focusTarget < props.modelValue.length) {
     nextTick(() => focusBlock(focusTarget, { focus: false }))
@@ -2605,14 +2899,7 @@ function emitReviseSelected() {
   const indices = Array.from(selectedBlocks.value).sort((a, b) => a - b)
   if (indices.length === 0) return
 
-  const parts = indices
-    .map(i => {
-      const b = props.modelValue[i]
-      return b?.content ? stripHtml(b.content) : ''
-    })
-    .filter(t => t.trim())
-
-  const text = parts.join('\n\n')
+  const text = collectSelectedPlainText(indices)
   if (!text.trim()) {
     ElMessage.warning('请先输入要修改的内容')
     return
@@ -2621,6 +2908,7 @@ function emitReviseSelected() {
   // 保存焦点位置，在 AI 操作后恢复
   const focusTarget = indices[0]
   clearBlockSelection()
+  flushPendingSync()
   emit('revise-selected', { indices, text })
   // 恢复焦点
   if (focusTarget >= 0 && focusTarget < props.modelValue.length) {
@@ -2632,14 +2920,7 @@ function emitExpandSelected() {
   const indices = Array.from(selectedBlocks.value).sort((a, b) => a - b)
   if (indices.length === 0) return
 
-  const parts = indices
-    .map(i => {
-      const b = props.modelValue[i]
-      return b?.content ? stripHtml(b.content) : ''
-    })
-    .filter(t => t.trim())
-
-  const text = parts.join('\n\n')
+  const text = collectSelectedPlainText(indices)
   if (!text.trim()) {
     ElMessage.warning('请先输入要扩展的内容')
     return
@@ -2648,35 +2929,8 @@ function emitExpandSelected() {
   // 保存焦点位置，在 AI 操作后恢复
   const focusTarget = indices[0]
   clearBlockSelection()
+  flushPendingSync()
   emit('expand-selected', { indices, text })
-  // 恢复焦点
-  if (focusTarget >= 0 && focusTarget < props.modelValue.length) {
-    nextTick(() => focusBlock(focusTarget, { focus: false }))
-  }
-}
-
-/** 仅根据多选块中的文字生成插图（跳过插图块） */
-function emitGenerateImageForSelection() {
-  const indices = Array.from(selectedBlocks.value).sort((a, b) => a - b)
-  if (indices.length === 0) return
-
-  const parts: string[] = []
-  for (const i of indices) {
-    const b = props.modelValue[i]
-    if (!b || b.type === 'image') continue
-    const c = b.content ? stripHtml(b.content).trim() : ''
-    if (c) parts.push(c)
-  }
-  const text = parts.join('\n\n')
-  if (!text.trim()) {
-    ElMessage.warning('选中的块没有可用文字（插图块已跳过）')
-    return
-  }
-
-  // 保存焦点位置，在操作后恢复
-  const focusTarget = indices[0]
-  clearBlockSelection()
-  emit('generate-image-for-selection', { indices, text })
   // 恢复焦点
   if (focusTarget >= 0 && focusTarget < props.modelValue.length) {
     nextTick(() => focusBlock(focusTarget, { focus: false }))
@@ -2731,7 +2985,18 @@ function applyFormat(index: number, command: 'bold' | 'italic' | 'underline') {
   if (props.previewMode) return
   const el = blockRefs.value.get(index)
   if (!el) return
-  el.focus()
+  // 工具栏已用 mousedown.prevent 保住选区；仅在未聚焦时再 focus，避免清掉选区导致格式无效
+  if (document.activeElement !== el) {
+    el.focus({ preventScroll: true })
+  }
+  const sel = window.getSelection()
+  if (!sel || sel.rangeCount === 0 || sel.toString().length === 0) {
+    // 无选区时对整块应用，避免点了按钮却毫无变化
+    const range = document.createRange()
+    range.selectNodeContents(el)
+    sel?.removeAllRanges()
+    sel?.addRange(range)
+  }
   document.execCommand(command, false)
   updateBlock(index)
 }
@@ -2871,10 +3136,10 @@ function getTextNodes(element: Node): Text[] {
 }
 
 /**
- * 供父组件插入图片等块时定位：多选时取最大下标，否则取当前焦点块，否则文末最后一块。
+ * 供父组件插入 AI 内容时定位：多选最大下标 / 焦点块 / 文末。
  * 空文档返回 -1（在父组件 splice 到开头）。
  */
-function getImageInsertAfterIndex(): number {
+function getInsertAfterIndex(): number {
   const n = props.modelValue.length
   if (n === 0) return -1
   if (selectedBlocks.value.size > 0) {
@@ -2995,7 +3260,7 @@ function focusBlock(index: number, opts?: {
   })
 }
 
-defineExpose({ getImageInsertAfterIndex, flushPendingSync, focusBlock })
+defineExpose({ flushPendingSync, focusBlock, getInsertAfterIndex })
 </script>
 
 <style scoped lang="scss">
@@ -3468,6 +3733,65 @@ defineExpose({ getImageInsertAfterIndex, flushPendingSync, focusBlock })
 }
 
 /* 右键快捷菜单 */
+.selection-ai-bubble {
+  position: fixed;
+  z-index: 3100;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 6px;
+  border-radius: 10px;
+  background: var(--coffee-bg-card, #fff);
+  border: 1px solid var(--coffee-border, #e5e0d8);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  user-select: none;
+}
+
+.sel-ai-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: none;
+  background: transparent;
+  color: var(--coffee-text, #3d3429);
+  font-size: 13px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  white-space: nowrap;
+
+  .el-icon {
+    font-size: 14px;
+  }
+
+  &:hover {
+    background: var(--coffee-bg-hover, #f5f0ea);
+  }
+
+  &.primary {
+    color: var(--coffee-primary, #8b6914);
+    font-weight: 600;
+  }
+}
+
+.sel-ai-divider {
+  width: 1px;
+  height: 18px;
+  background: var(--coffee-border, #e5e0d8);
+  margin: 0 2px;
+  flex-shrink: 0;
+}
+
+.sel-ai-bubble-enter-active,
+.sel-ai-bubble-leave-active {
+  transition: opacity 0.12s ease, transform 0.12s ease;
+}
+.sel-ai-bubble-enter-from,
+.sel-ai-bubble-leave-to {
+  opacity: 0;
+  transform: translateY(4px);
+}
+
 .context-menu {
   position: fixed;
   z-index: 10000;

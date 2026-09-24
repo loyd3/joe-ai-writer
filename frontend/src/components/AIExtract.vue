@@ -89,7 +89,7 @@
         </h4>
         <ul class="key-points">
           <li v-for="(point, index) in extractedData.key_points" :key="index">
-            {{ point }}
+            {{ typeof point === 'string' ? point : (point.title || point.summary || point) }}
           </li>
         </ul>
       </div>
@@ -139,7 +139,11 @@
     <!-- 故事主线（可选） -->
     <div v-if="extractedData?.storyline" class="storyline-result">
       <h4>故事主线</h4>
-      <div class="storyline-content">{{ extractedData.storyline }}</div>
+      <div class="storyline-content">{{
+        typeof extractedData.storyline === 'string'
+          ? extractedData.storyline
+          : (extractedData.storyline?.summary || JSON.stringify(extractedData.storyline))
+      }}</div>
     </div>
   </div>
 </template>
