@@ -18,6 +18,14 @@ export default defineConfig({
       '@': resolve(__dirname, 'src')
     }
   },
+  css: {
+    preprocessorOptions: {
+      scss: {
+        // 使用 Sass 现代 API，消除 legacy-js-api 弃用警告（无需额外装 sass-embedded）
+        api: 'modern',
+      },
+    },
+  },
   server: {
     port: 5173,
     host: true,

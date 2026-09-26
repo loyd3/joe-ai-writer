@@ -2,9 +2,10 @@
   <div class="style-agents-panel">
     <div class="panel-toolbar">
       <p class="hint">
-        为项目配置多套文风智能体。写作时可选其一；标记为「默认」的会自动注入生成请求。
+        系统级文风库，所有项目写作时可选用。标记为「默认」的会在未指定时自动注入；也可粘贴或上传多份范文自动提炼。
       </p>
       <div class="toolbar-actions">
+        <el-button @click="showExtract = true">从范文提炼</el-button>
         <el-dropdown trigger="click" @command="addFromPreset">
           <el-button type="primary" plain>
             <el-icon><Plus /></el-icon> 从预设添加
@@ -28,6 +29,64 @@
       </div>
     </div>
 
+    <el-dialog
+      v-model="showExtract"
+      title="从范文提炼文风"
+      width="640px"
+      class="coffee-dialog"
+      destroy-on-close
+      @closed="resetExtractForm"
+    >
+      <p class="extract-hint">
+        可粘贴文本，或一次选择多个 .txt / .md / .json 等文本文件。系统会从各文件分段采样（多文件最多约 12 段、合计约 3 万字语料）后综合提炼文风。
+      </p>
+      <el-input
+        v-model="extractName"
+        placeholder="文风名称（可选）"
+        class="coffee-input"
+        style="margin-bottom: 12px"
+      />
+      <div class="extract-files">
+        <input
+          ref="fileInputRef"
+          type="file"
+          multiple
+          accept=".txt,.md,.markdown,.text,.json,.csv,.html,.htm,.log"
+          class="file-input-hidden"
+          @change="onFilesPicked"
+        />
+        <el-button @click="triggerFilePick">选择文件（可多选）</el-button>
+        <span v-if="extractFiles.length" class="file-summary">
+          已选 {{ extractFiles.length }} 个 · 约 {{ extractFilesChars }} 字
+        </span>
+      </div>
+      <ul v-if="extractFiles.length" class="file-list">
+        <li v-for="(f, idx) in extractFiles" :key="f.id">
+          <span class="fname" :title="f.name">{{ f.name }}</span>
+          <span class="fmeta">{{ f.chars }} 字</span>
+          <button type="button" class="remove-btn" @click="removeExtractFile(idx)">移除</button>
+        </li>
+      </ul>
+      <el-input
+        v-model="extractText"
+        type="textarea"
+        :rows="8"
+        class="coffee-textarea"
+        placeholder="也可在此粘贴范文（可与文件同时使用）…"
+        style="margin-top: 12px"
+      />
+      <p class="extract-total">合计约 {{ totalExtractChars }} 字（建议 ≥ 200）</p>
+      <template #footer>
+        <el-button @click="showExtract = false">取消</el-button>
+        <el-button type="primary" plain :loading="extracting" @click="runExtract(false)">
+          提炼加入
+        </el-button>
+        <el-button type="primary" class="btn btn-primary" :loading="extracting" @click="runExtract(true)">
+          提炼并设为默认
+        </el-button>
+      </template>
+    </el-dialog>
+
     <div v-if="loading" class="empty-state">加载中…</div>
     <div v-else-if="!styleAgents.length" class="empty-state">
       暂无文风智能体，请从预设添加或创建空白智能体
@@ -44,6 +103,7 @@
         >
           <span class="name">{{ agent.name }}</span>
           <el-tag v-if="agent.is_default" size="small" type="success">默认</el-tag>
+          <el-tag v-if="agent.source === 'extract'" size="small" type="info">提炼</el-tag>
         </button>
       </aside>
 
@@ -185,10 +245,6 @@ import { Plus } from '@element-plus/icons-vue'
 import { styleAgentApi } from '@/api'
 import type { StyleAgent, StyleAgentPreset } from '@/api/types'
 
-const props = defineProps<{
-  projectId: number
-}>()
-
 const STYLE_TONES = ['自然克制', '冷峻疏离', '温暖细腻', '轻松幽默', '压抑紧张', '庄重开阔']
 const STYLE_POVS = ['第三人称有限', '第三人称全知', '第一人称', '第二人称']
 const STYLE_PACES = ['紧凑', '适中', '舒缓', '轻快']
@@ -203,6 +259,96 @@ const activeId = ref<number | null>(null)
 const loading = ref(false)
 const dirty = ref(false)
 const saving = ref(false)
+
+const showExtract = ref(false)
+const extractText = ref('')
+const extractName = ref('')
+const extracting = ref(false)
+const fileInputRef = ref<HTMLInputElement | null>(null)
+
+interface ExtractFileItem {
+  id: string
+  name: string
+  text: string
+  chars: number
+}
+const extractFiles = ref<ExtractFileItem[]>([])
+
+const extractFilesChars = computed(() =>
+  extractFiles.value.reduce((sum, f) => sum + f.chars, 0)
+)
+const totalExtractChars = computed(
+  () => extractFilesChars.value + extractText.value.trim().length
+)
+
+function triggerFilePick() {
+  fileInputRef.value?.click()
+}
+
+function resetExtractForm() {
+  extractText.value = ''
+  extractName.value = ''
+  extractFiles.value = []
+  if (fileInputRef.value) fileInputRef.value.value = ''
+}
+
+function removeExtractFile(idx: number) {
+  extractFiles.value.splice(idx, 1)
+}
+
+function readFileAsText(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(String(reader.result || ''))
+    reader.onerror = () => reject(new Error(`读取失败：${file.name}`))
+    reader.readAsText(file, 'UTF-8')
+  })
+}
+
+async function onFilesPicked(ev: Event) {
+  const input = ev.target as HTMLInputElement
+  const files = Array.from(input.files || [])
+  if (!files.length) return
+
+  const maxFiles = 20
+  const maxPerFile = 2_000_000 // ~2MB 文本
+  const remaining = maxFiles - extractFiles.value.length
+  if (remaining <= 0) {
+    ElMessage.warning(`最多同时选择 ${maxFiles} 个文件`)
+    input.value = ''
+    return
+  }
+
+  let added = 0
+  for (const file of files.slice(0, remaining)) {
+    if (file.size > maxPerFile) {
+      ElMessage.warning(`「${file.name}」过大，已跳过（单文件建议 ≤ 2MB）`)
+      continue
+    }
+    try {
+      const text = (await readFileAsText(file)).trim()
+      if (text.length < 20) {
+        ElMessage.warning(`「${file.name}」内容过短或非文本，已跳过`)
+        continue
+      }
+      // 同名则替换
+      const existIdx = extractFiles.value.findIndex((f) => f.name === file.name)
+      const item: ExtractFileItem = {
+        id: `${file.name}-${file.size}-${Date.now()}-${Math.random()}`,
+        name: file.name,
+        text,
+        chars: text.length,
+      }
+      if (existIdx >= 0) extractFiles.value.splice(existIdx, 1, item)
+      else extractFiles.value.push(item)
+      added += 1
+    } catch (e: any) {
+      ElMessage.error(e?.message || `无法读取 ${file.name}`)
+    }
+  }
+  if (added) ElMessage.success(`已加入 ${added} 个文件`)
+  input.value = ''
+}
 
 const active = computed(() =>
   styleAgents.value.find((a) => a.id === activeId.value) || null
@@ -233,7 +379,7 @@ async function load() {
   dirty.value = false
   try {
     const [agentsRes, presetsRes] = await Promise.all([
-      styleAgentApi.list(props.projectId),
+      styleAgentApi.list(),
       styleAgentApi.listPresets().catch(() => ({ data: [] as StyleAgentPreset[] })),
     ])
     const agents = Array.isArray(agentsRes?.data) ? agentsRes.data : []
@@ -282,7 +428,7 @@ async function saveActive() {
   if (!agent) return
   saving.value = true
   try {
-    const { data: updated } = await styleAgentApi.update(props.projectId, agent.id, {
+    const { data: updated } = await styleAgentApi.update(agent.id, {
       name: agent.name,
       description: agent.description,
       config: agent.config,
@@ -300,7 +446,7 @@ async function saveActive() {
 
 async function addFromPreset(key: string) {
   try {
-    const { data: created } = await styleAgentApi.fromPreset(props.projectId, key, false)
+    const { data: created } = await styleAgentApi.fromPreset(key, false)
     styleAgents.value.push(ensureConfig(created))
     activeId.value = created.id
     dirty.value = false
@@ -312,7 +458,7 @@ async function addFromPreset(key: string) {
 
 async function addBlankStyleAgent() {
   try {
-    const { data: created } = await styleAgentApi.create(props.projectId, {
+    const { data: created } = await styleAgentApi.create({
       name: '自定义文风',
       description: '',
       config: {
@@ -338,7 +484,7 @@ async function addBlankStyleAgent() {
 
 async function setDefault(id: number) {
   try {
-    await styleAgentApi.setDefault(props.projectId, id)
+    await styleAgentApi.setDefault(id)
     styleAgents.value = styleAgents.value.map((a) => ({
       ...a,
       is_default: a.id === id,
@@ -356,7 +502,7 @@ async function removeAgent(id: number) {
     return
   }
   try {
-    await styleAgentApi.delete(props.projectId, id)
+    await styleAgentApi.delete(id)
     await load()
     ElMessage.success('已删除')
   } catch (e: any) {
@@ -364,8 +510,52 @@ async function removeAgent(id: number) {
   }
 }
 
+async function runExtract(setAsDefault: boolean) {
+  const paste = extractText.value.trim()
+  const sources = extractFiles.value
+    .filter((f) => f.text.trim().length > 0)
+    .map((f) => ({ name: f.name, text: f.text }))
+
+  if (!sources.length && !paste) {
+    ElMessage.warning('请粘贴范文或选择至少一个文件')
+    return
+  }
+  if (totalExtractChars.value < 80) {
+    ElMessage.warning('合计请至少约 80 字以上的范文')
+    return
+  }
+  extracting.value = true
+  try {
+    const { data } = await styleAgentApi.extractFromText({
+      text: paste || undefined,
+      sources: sources.length ? sources : undefined,
+      name: extractName.value.trim() || undefined,
+      save: true,
+      set_default: setAsDefault,
+    })
+    await load()
+    if (data.agent?.id) {
+      activeId.value = data.agent.id
+    }
+    showExtract.value = false
+    resetExtractForm()
+    const filesHint =
+      data.source_files && data.source_files > 1
+        ? `，来自 ${data.source_files} 份材料`
+        : ''
+    ElMessage.success(
+      `已提炼文风「${data.name}」（采样 ${data.source_chunks} 段${filesHint}）${
+        setAsDefault ? '，并设为默认' : ''
+      }`
+    )
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.detail || e?.message || '提炼失败')
+  } finally {
+    extracting.value = false
+  }
+}
+
 onMounted(() => load())
-watch(() => props.projectId, () => load())
 
 defineExpose({ reload: load })
 </script>
@@ -415,6 +605,87 @@ defineExpose({ reload: load })
     color: var(--coffee-text-light);
     white-space: normal;
   }
+}
+
+.extract-hint {
+  margin: 0 0 12px;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--coffee-text-muted);
+}
+
+.extract-files {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+.file-input-hidden {
+  display: none;
+}
+
+.file-summary {
+  font-size: 12px;
+  color: var(--coffee-text-muted);
+}
+
+.file-list {
+  list-style: none;
+  margin: 0 0 4px;
+  padding: 0;
+  max-height: 140px;
+  overflow: auto;
+  border: 1px solid var(--coffee-border);
+  border-radius: 8px;
+  background: var(--coffee-bg);
+
+  li {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+    border-bottom: 1px solid var(--coffee-border);
+    font-size: 12px;
+
+    &:last-child {
+      border-bottom: none;
+    }
+  }
+
+  .fname {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--coffee-text);
+  }
+
+  .fmeta {
+    flex-shrink: 0;
+    color: var(--coffee-text-muted);
+  }
+
+  .remove-btn {
+    flex-shrink: 0;
+    border: none;
+    background: transparent;
+    color: var(--coffee-text-muted);
+    cursor: pointer;
+    padding: 0 4px;
+
+    &:hover {
+      color: var(--el-color-danger);
+    }
+  }
+}
+
+.extract-total {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: var(--coffee-text-muted);
 }
 
 .empty-state {

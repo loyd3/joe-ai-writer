@@ -46,7 +46,7 @@ class AIWritingService:
 
 只输出改写后的正文。"""
 
-    SYSTEM_PROMPT = """你是一位写作助手。生成/改写正文时用自然流畅的人手叙述,削弱机感与模板腔,但不要故意写碎、写断。
+    SYSTEM_PROMPT = """你是「小墨」，墨心写作产品里的写作助手。生成/改写正文时用自然流畅的人手叙述,削弱机感与模板腔,但不要故意写碎、写断。
 
 在回复时,请注意:
 - 保持与已有内容的风格一致性
@@ -58,8 +58,30 @@ class AIWritingService:
 
 """ + ANTI_AI_STYLE_RULES
 
+    # 女友模式：对话更亲昵陪伴感；改写类动作仍只输出正文
+    GIRLFRIEND_MODE_PROMPT = """你是「小墨」，用户的写作女友兼搭档。你温柔、体贴、有点俏皮，会认真陪他/她把文章写好。
+
+人格与语气：
+- 像亲近的女友在身边陪写：回应里可自然用「宝宝」「亲爱的」等亲昵称呼（别每句都喊，别油腻）
+- 建议类回复可以短一点撒娇关心，但专业内容要扎实，别只卖萌
+- 改写/润色/续写/扩展/调整样式时：仍然只输出正文，不要夹带情话或说明前缀
+- 指导、头脑风暴、总结等对话：用温暖口语，鼓励为主，指出问题时也柔和具体
+- 不越界：保持健康亲密陪伴，不做露骨色情内容
+
+写作质量要求与系统默认一致——自然流畅的人手叙述，去机感但不碎句。
+
+""" + ANTI_AI_STYLE_RULES
+
     # 需要做「去机感二遍」的动作（排版不碰）
     _HUMANIZE_ACTIONS = frozenset({"revise", "polish", "expand", "continue"})
+
+    @staticmethod
+    def resolve_system_prompt(assistant_mode: Optional[str] = None) -> str:
+        """按助手人格返回 system prompt。"""
+        mode = (assistant_mode or "default").strip().lower()
+        if mode in ("girlfriend", "gf", "女友"):
+            return AIWritingService.GIRLFRIEND_MODE_PROMPT
+        return AIWritingService.SYSTEM_PROMPT
 
     @staticmethod
     async def humanize_prose(text: str, max_chars: int = 12000) -> str:
@@ -101,11 +123,15 @@ class AIWritingService:
         content: str,
         memory_context: str,
         selected_text: Optional[str] = None,
-        instruction: Optional[str] = None
+        instruction: Optional[str] = None,
+        assistant_mode: Optional[str] = None,
     ) -> list:
         """构建 AI 对话消息"""
         messages = [
-            {"role": "system", "content": AIWritingService.SYSTEM_PROMPT}
+            {
+                "role": "system",
+                "content": AIWritingService.resolve_system_prompt(assistant_mode),
+            }
         ]
 
         # 添加记忆上下文
@@ -207,7 +233,8 @@ class AIWritingService:
                 content=document_content,
                 memory_context=memory_context,
                 selected_text=request.selected_text,
-                instruction=request.instruction
+                instruction=request.instruction,
+                assistant_mode=getattr(request, "assistant_mode", None),
             )
 
             response = await ai_client.chat_completion(messages)
@@ -283,7 +310,8 @@ class AIWritingService:
                 content=document_content,
                 memory_context=memory_context,
                 selected_text=request.selected_text,
-                instruction=request.instruction
+                instruction=request.instruction,
+                assistant_mode=getattr(request, "assistant_mode", None),
             )
 
             # 根据输入内容长度动态计算 max_tokens
@@ -356,7 +384,9 @@ class AIWritingService:
 
         async def _process_segment(index: int, segment) -> None:
             async with semaphore:
-                system_prompt = AIWritingService.SYSTEM_PROMPT
+                system_prompt = AIWritingService.resolve_system_prompt(
+                    getattr(request, "assistant_mode", None)
+                )
                 segment_prompt = processor.build_segment_prompt(
                     segment,
                     request.action,
@@ -434,12 +464,16 @@ class AIWritingService:
         user_id: Optional[int] = None,
         use_rag: bool = True,
         style_agent_id: Optional[int] = None,
+        assistant_mode: Optional[str] = None,
     ) -> AsyncGenerator[str, None]:
         """自由对话模式,支持 RAG 检索"""
         from app.models.models import Document
 
         try:
-            formatted_messages = [{"role": "system", "content": AIWritingService.SYSTEM_PROMPT}]
+            formatted_messages = [{
+                "role": "system",
+                "content": AIWritingService.resolve_system_prompt(assistant_mode),
+            }]
 
             if include_memory:
                 doc = db.query(Document).filter(Document.id == document_id).first()

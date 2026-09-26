@@ -91,6 +91,9 @@
                 <el-dropdown-item command="profile">
                   <el-icon><User /></el-icon> 个人中心
                 </el-dropdown-item>
+                <el-dropdown-item command="writingStyle">
+                  <el-icon><Brush /></el-icon> 文风库
+                </el-dropdown-item>
                 <el-dropdown-item command="aiConfig">
                   <el-icon><Cpu /></el-icon> AI 模型配置
                 </el-dropdown-item>
@@ -147,7 +150,7 @@ import GlobalSearch from '@/components/GlobalSearch.vue'
 import AIConfigPanel from '@/components/AIConfigPanel.vue'
 import ProfileCenter from '@/components/ProfileCenter.vue'
 import { API_BASE_URL } from '@/api'
-import { EditPen, UserFilled, ArrowDown, User, Setting, SwitchButton, Cpu, HomeFilled, DataLine, TrendCharts, MagicStick, Lightning, Promotion } from '@element-plus/icons-vue'
+import { EditPen, UserFilled, ArrowDown, User, Setting, SwitchButton, Cpu, HomeFilled, DataLine, TrendCharts, MagicStick, Lightning, Promotion, Brush } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
 const router = useRouter()
@@ -174,6 +177,9 @@ async function handleUserCommand(command: string) {
   switch (command) {
     case 'profile':
       showProfileDrawer.value = true
+      break
+    case 'writingStyle':
+      router.push('/writing-style')
       break
     case 'aiConfig':
       showAIConfigDrawer.value = true

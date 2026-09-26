@@ -159,6 +159,8 @@ export interface AIRequest {
   selected_text?: string
   instruction?: string
   style_agent_id?: number
+  /** 助手人格：default | girlfriend */
+  assistant_mode?: 'default' | 'girlfriend'
 }
 
 /** 非流式 /ai/assist：正文 + 格式标识 + 与脑洞写作一致的块结构 */
@@ -178,6 +180,7 @@ export interface AIChatRequest {
   messages: ChatMessage[]
   include_memory?: boolean
   style_agent_id?: number
+  assistant_mode?: 'default' | 'girlfriend'
 }
 
 export interface AIGenerateRequest {
@@ -224,7 +227,7 @@ export interface AIBatchGenerateRequest {
   style_agent_id?: number
 }
 
-/** 文风智能体 */
+/** 文风智能体（用户级，跨项目） */
 export interface StyleAgentConfig {
   tone: string
   pov: string
@@ -240,12 +243,13 @@ export interface StyleAgentConfig {
 
 export interface StyleAgent {
   id: number
-  project_id: number
+  user_id: number
   name: string
   description?: string
   preset_key?: string | null
   config: StyleAgentConfig
   is_default: boolean
+  source?: string
   compiled_preview?: string
   created_at?: string
   updated_at?: string
@@ -271,6 +275,17 @@ export interface StyleAgentUpdate {
   description?: string
   config?: Partial<StyleAgentConfig>
   is_default?: boolean
+}
+
+export interface StyleExtractResult {
+  name: string
+  description: string
+  config: StyleAgentConfig
+  compiled_preview: string
+  source_chunks: number
+  source_files?: number
+  source_names?: string[]
+  agent?: StyleAgent | null
 }
 
 export interface AIGenerateProgress {

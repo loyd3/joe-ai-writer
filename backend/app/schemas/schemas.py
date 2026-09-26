@@ -216,7 +216,11 @@ class AIRequest(BaseModel):
     action: str  # 'guide', 'revise', 'polish', 'continue', 'brainstorm', 'expand', 'format_style'
     selected_text: Optional[str] = None
     instruction: Optional[str] = None
-    style_agent_id: Optional[int] = Field(None, description="文风智能体 ID，空则用项目默认")
+    style_agent_id: Optional[int] = Field(None, description="文风智能体 ID，空则用用户默认")
+    assistant_mode: Optional[str] = Field(
+        "default",
+        description="助手人格：default | girlfriend",
+    )
 
 class AIStreamResponse(BaseModel):
     content: str
@@ -230,7 +234,11 @@ class AIChatRequest(BaseModel):
     document_id: int
     messages: List[ChatMessage]
     include_memory: bool = True
-    style_agent_id: Optional[int] = Field(None, description="文风智能体 ID，空则用项目默认")
+    style_agent_id: Optional[int] = Field(None, description="文风智能体 ID，空则用用户默认")
+    assistant_mode: Optional[str] = Field(
+        "default",
+        description="助手人格：default | girlfriend",
+    )
 
 
 class AIGenerateFromMemoryRequest(BaseModel):
@@ -317,12 +325,13 @@ class StyleAgentUpdate(BaseModel):
 
 class StyleAgentResponse(BaseModel):
     id: int
-    project_id: int
+    user_id: int
     name: str
     description: str = ""
     preset_key: Optional[str] = None
     config: Dict[str, Any] = {}
     is_default: bool = False
+    source: Optional[str] = "manual"
     compiled_preview: Optional[str] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None

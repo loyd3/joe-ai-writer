@@ -1,4 +1,5 @@
 from pathlib import Path
+import os
 import secrets
 import warnings
 
@@ -82,6 +83,10 @@ class Settings(BaseSettings):
     # CORS 允许的来源（逗号分隔，空则用默认开发列表）
     cors_origins: str = ""
 
+    # HuggingFace 模型下载端点（国内默认镜像，避免 huggingface.co 超时）
+    # 官方源可在 .env 设：HF_ENDPOINT=https://huggingface.co
+    hf_endpoint: str = "https://hf-mirror.com"
+
     class Config:
         # 优先读项目根目录 .env，否则读当前目录 .env（兼容直接 cd backend 启动）
         env_file = (
@@ -96,3 +101,24 @@ class Settings(BaseSettings):
 @lru_cache()
 def get_settings():
     return Settings()
+
+
+def configure_huggingface_env() -> str:
+    """
+    将 HF_ENDPOINT 写入进程环境，须在加载 SentenceTransformer / huggingface_hub 之前调用。
+    返回实际使用的 endpoint。
+    """
+    endpoint = "https://hf-mirror.com"
+    try:
+        endpoint = (get_settings().hf_endpoint or "").strip().rstrip("/") or endpoint
+    except Exception as e:
+        # .env 编码异常等不应阻断整个后端启动
+        print(f"[Config] 读取 hf_endpoint 失败，使用默认镜像: {e}")
+        endpoint = (os.environ.get("HF_ENDPOINT") or endpoint).strip().rstrip("/")
+    os.environ["HF_ENDPOINT"] = endpoint
+    os.environ.setdefault("HUGGINGFACE_HUB_ENDPOINT", endpoint)
+    return endpoint
+
+
+# 不在 import 时强制读 Settings（避免 .env 损坏导致整个 app 起不来）；
+# 由 main.py 在启动早期显式调用。

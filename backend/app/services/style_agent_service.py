@@ -1,13 +1,15 @@
-"""项目级文风智能体：预设、CRUD、编译风格块、解析写作时使用的文风。"""
+"""用户级文风智能体：预设、CRUD、从文本提炼、编译风格块、解析写作时使用的文风。"""
 from __future__ import annotations
 
+import json
+import re
 from copy import deepcopy
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from sqlalchemy.orm import Session
 
-from app.models.models import AIMemory, WritingStyleAgent
+from app.models.models import AIMemory, Project, WritingStyleAgent
 
 # 结构化 config 字段默认值
 DEFAULT_CONFIG: Dict[str, Any] = {
@@ -23,7 +25,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "samples": [],
 }
 
-# 内置预设（克隆到项目后可改）
+# 内置预设（克隆到用户文风库后可改）
 STYLE_PRESETS: List[Dict[str, Any]] = [
     {
         "key": "standard",
@@ -114,6 +116,24 @@ STYLE_PRESETS: List[Dict[str, Any]] = [
     },
 ]
 
+EXTRACT_SYSTEM_PROMPT = """你是文风分析专家。请根据给定范文，提炼可复用的「文风智能体」配置。
+只输出一个 JSON 对象，不要 markdown 代码块，不要解释。字段如下：
+{
+  "name": "不超过12字的文风名",
+  "description": "一句话定位",
+  "tone": "语气标签",
+  "pov": "视角，如第三人称有限/第一人称",
+  "pace": "节奏，如紧凑/适中/舒缓",
+  "sentence": "句式，如短句为主/长短交错/长句可多",
+  "diction": "用词，如白话/口语/书面",
+  "dialogue_ratio": "对白占比 低/中/高",
+  "detail_level": "细节浓度 克制/适中/浓墨",
+  "taboo": ["该文风应避免的写法，1-5条"],
+  "custom_text": "80-200字的文风说明，概括节奏、修辞习惯、信息密度",
+  "samples": ["从原文摘取的短句范例1（尽量原句，40-120字）", "范例2", "范例3"]
+}
+要求：samples 尽量摘自原文；不要编造与原文无关的情节；JSON 合法。"""
+
 
 def _normalize_config(raw: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     cfg = deepcopy(DEFAULT_CONFIG)
@@ -165,6 +185,109 @@ def compile_style_block(name: str, config: Dict[str, Any], description: str = ""
     return "\n".join(lines)
 
 
+def _parse_json_object(raw: str) -> Dict[str, Any]:
+    text = (raw or "").strip()
+    if not text:
+        raise ValueError("模型未返回内容")
+    try:
+        from json_repair import repair_json
+        repaired = repair_json(text, return_objects=True)
+        if isinstance(repaired, dict):
+            return repaired
+    except Exception:
+        pass
+    m = re.search(r"\{.*\}", text, re.DOTALL)
+    if not m:
+        raise ValueError("无法解析文风 JSON")
+    try:
+        return json.loads(m.group())
+    except json.JSONDecodeError:
+        from json_repair import repair_json
+        obj = repair_json(m.group(), return_objects=True)
+        if isinstance(obj, dict):
+            return obj
+        raise ValueError("文风 JSON 解析失败")
+
+
+def _pick_representative_chunks(
+    text: str,
+    max_chunks: int = 8,
+    chunk_size: int = 3200,
+) -> List[str]:
+    """
+    从长文中选取代表性片段（简易 RAG 采样：分段 + 头/中/尾均匀取样）。
+    """
+    text = (text or "").strip()
+    if not text:
+        return []
+    if len(text) <= chunk_size * 2:
+        return [text]
+
+    from app.services.long_text_processor import LongTextProcessor
+
+    processor = LongTextProcessor(max_chunk_size=chunk_size, overlap_size=200, context_size=80)
+    segments = processor.split_text(text)
+    pieces = [s.content.strip() for s in segments if (s.content or "").strip()]
+    if not pieces:
+        return [text[:chunk_size]]
+    if len(pieces) <= max_chunks:
+        return pieces
+
+    # 均匀采样：覆盖全文更多位置
+    n = len(pieces)
+    if max_chunks <= 1:
+        idxs = {0}
+    else:
+        idxs = {
+            int(round(i * (n - 1) / (max_chunks - 1)))
+            for i in range(max_chunks)
+        }
+    return [pieces[i] for i in sorted(idxs)[:max_chunks]]
+
+
+def _pick_chunks_from_sources(
+    sources: List[Tuple[str, str]],
+    max_chunks: int = 12,
+    chunk_size: int = 3200,
+) -> List[str]:
+    """
+    多文件/多段范文：每个来源至少采 1 段，再按篇幅分配剩余配额。
+    返回带来源标记的片段，便于模型区分。
+    """
+    cleaned: List[Tuple[str, str]] = []
+    for name, text in sources:
+        t = (text or "").strip()
+        if t:
+            cleaned.append(((name or "范文").strip()[:80] or "范文", t))
+    if not cleaned:
+        return []
+
+    # 单来源走原逻辑
+    if len(cleaned) == 1:
+        name, text = cleaned[0]
+        chunks = _pick_representative_chunks(text, max_chunks=max_chunks, chunk_size=chunk_size)
+        return [f"【来源：{name}】\n{c}" for c in chunks]
+
+    # 多来源：按字数比例分配，每源至少 1，总和不超过 max_chunks
+    total_len = sum(len(t) for _, t in cleaned) or 1
+    quotas: List[int] = []
+    remaining = max_chunks
+    for i, (_, text) in enumerate(cleaned):
+        if i == len(cleaned) - 1:
+            q = max(1, remaining)
+        else:
+            q = max(1, round(max_chunks * len(text) / total_len))
+            q = min(q, remaining - (len(cleaned) - i - 1))
+        quotas.append(q)
+        remaining -= q
+
+    labeled: List[str] = []
+    for (name, text), q in zip(cleaned, quotas):
+        for c in _pick_representative_chunks(text, max_chunks=q, chunk_size=chunk_size):
+            labeled.append(f"【来源：{name}】\n{c}")
+    return labeled[:max_chunks]
+
+
 class StyleAgentService:
     @staticmethod
     def list_presets() -> List[Dict[str, Any]]:
@@ -189,12 +312,13 @@ class StyleAgentService:
     def to_dict(agent: WritingStyleAgent) -> Dict[str, Any]:
         return {
             "id": agent.id,
-            "project_id": agent.project_id,
+            "user_id": agent.user_id,
             "name": agent.name,
             "description": agent.description or "",
             "preset_key": agent.preset_key,
             "config": _normalize_config(agent.config if isinstance(agent.config, dict) else {}),
             "is_default": bool(agent.is_default),
+            "source": agent.source or "manual",
             "created_at": agent.created_at,
             "updated_at": agent.updated_at,
             "compiled_preview": compile_style_block(
@@ -205,138 +329,127 @@ class StyleAgentService:
         }
 
     @staticmethod
-    def list_agents(db: Session, project_id: int) -> List[WritingStyleAgent]:
-        StyleAgentService.ensure_project_agents(db, project_id)
+    def list_agents(db: Session, user_id: int) -> List[WritingStyleAgent]:
+        StyleAgentService.ensure_user_agents(db, user_id)
         return (
             db.query(WritingStyleAgent)
-            .filter(WritingStyleAgent.project_id == project_id)
+            .filter(WritingStyleAgent.user_id == user_id)
             .order_by(WritingStyleAgent.is_default.desc(), WritingStyleAgent.id.asc())
             .all()
         )
 
     @staticmethod
     def get_agent(
-        db: Session, project_id: int, agent_id: int
+        db: Session, user_id: int, agent_id: int
     ) -> Optional[WritingStyleAgent]:
         return (
             db.query(WritingStyleAgent)
             .filter(
-                WritingStyleAgent.project_id == project_id,
+                WritingStyleAgent.user_id == user_id,
                 WritingStyleAgent.id == agent_id,
             )
             .first()
         )
 
     @staticmethod
-    def get_default_agent(db: Session, project_id: int) -> Optional[WritingStyleAgent]:
-        StyleAgentService.ensure_project_agents(db, project_id)
+    def get_default_agent(db: Session, user_id: int) -> Optional[WritingStyleAgent]:
+        StyleAgentService.ensure_user_agents(db, user_id)
         return (
             db.query(WritingStyleAgent)
             .filter(
-                WritingStyleAgent.project_id == project_id,
+                WritingStyleAgent.user_id == user_id,
                 WritingStyleAgent.is_default == True,  # noqa: E712
             )
+            .order_by(WritingStyleAgent.id.asc())
             .first()
         )
 
     @staticmethod
-    def ensure_project_agents(db: Session, project_id: int) -> None:
-        """若项目尚无智能体：用旧 writing_style 或标准预设建一个默认。"""
+    def ensure_user_agents(db: Session, user_id: int) -> None:
+        """若用户尚无智能体：用标准预设建一个默认。"""
         exists = (
             db.query(WritingStyleAgent.id)
-            .filter(WritingStyleAgent.project_id == project_id)
+            .filter(WritingStyleAgent.user_id == user_id)
             .first()
         )
         if exists:
             return
 
-        memory = (
-            db.query(AIMemory).filter(AIMemory.project_id == project_id).first()
-        )
-        legacy = (memory.writing_style or "").strip() if memory else ""
         preset = StyleAgentService.get_preset("standard") or STYLE_PRESETS[0]
-        config = _normalize_config(preset.get("config"))
-        if legacy:
-            config["custom_text"] = legacy
-            name = "项目默认文风"
-            description = "由原写作风格文本迁移"
-            preset_key = None
-        else:
-            name = preset["name"]
-            description = preset.get("description") or ""
-            preset_key = preset["key"]
-
         agent = WritingStyleAgent(
-            project_id=project_id,
-            name=name,
-            description=description,
-            preset_key=preset_key,
-            config=config,
+            user_id=user_id,
+            name=preset["name"],
+            description=preset.get("description") or "",
+            preset_key=preset["key"],
+            config=_normalize_config(preset.get("config")),
             is_default=True,
+            source="preset",
         )
         db.add(agent)
         db.commit()
 
     @staticmethod
-    def _clear_defaults(db: Session, project_id: int) -> None:
+    def _clear_defaults(db: Session, user_id: int) -> None:
         db.query(WritingStyleAgent).filter(
-            WritingStyleAgent.project_id == project_id
+            WritingStyleAgent.user_id == user_id
         ).update({"is_default": False}, synchronize_session=False)
 
     @staticmethod
     def create_agent(
         db: Session,
-        project_id: int,
+        user_id: int,
         name: str,
         description: str = "",
         config: Optional[Dict[str, Any]] = None,
         preset_key: Optional[str] = None,
         is_default: bool = False,
+        source: str = "manual",
     ) -> WritingStyleAgent:
         count = (
             db.query(WritingStyleAgent)
-            .filter(WritingStyleAgent.project_id == project_id)
+            .filter(WritingStyleAgent.user_id == user_id)
             .count()
         )
         if is_default or count == 0:
-            StyleAgentService._clear_defaults(db, project_id)
+            StyleAgentService._clear_defaults(db, user_id)
             is_default = True
 
         agent = WritingStyleAgent(
-            project_id=project_id,
+            user_id=user_id,
             name=(name or "未命名文风").strip()[:100],
             description=(description or "").strip() or None,
             preset_key=preset_key,
             config=_normalize_config(config),
             is_default=is_default,
+            source=source or "manual",
         )
         db.add(agent)
         db.commit()
         db.refresh(agent)
-        StyleAgentService._sync_legacy_writing_style(db, project_id)
         return agent
 
     @staticmethod
     def create_from_preset(
-        db: Session, project_id: int, preset_key: str, set_default: bool = False
+        db: Session, user_id: int, preset_key: str, set_default: bool = False
     ) -> WritingStyleAgent:
         preset = StyleAgentService.get_preset(preset_key)
         if not preset:
             raise ValueError(f"未知预设: {preset_key}")
         return StyleAgentService.create_agent(
             db,
-            project_id=project_id,
+            user_id=user_id,
             name=preset["name"],
             description=preset.get("description") or "",
             config=preset.get("config"),
             preset_key=preset["key"],
             is_default=set_default,
+            source="preset",
         )
 
     @staticmethod
     def update_agent(
         db: Session,
-        project_id: int,
+        user_id: int,
         agent_id: int,
         *,
         name: Optional[str] = None,
@@ -344,7 +457,7 @@ class StyleAgentService:
         config: Optional[Dict[str, Any]] = None,
         is_default: Optional[bool] = None,
     ) -> WritingStyleAgent:
-        agent = StyleAgentService.get_agent(db, project_id, agent_id)
+        agent = StyleAgentService.get_agent(db, user_id, agent_id)
         if not agent:
             raise ValueError("文风智能体不存在")
         if name is not None:
@@ -354,17 +467,16 @@ class StyleAgentService:
         if config is not None:
             agent.config = _normalize_config(config)
         if is_default is True:
-            StyleAgentService._clear_defaults(db, project_id)
+            StyleAgentService._clear_defaults(db, user_id)
             agent.is_default = True
         agent.updated_at = datetime.utcnow()
         db.commit()
         db.refresh(agent)
-        StyleAgentService._sync_legacy_writing_style(db, project_id)
         return agent
 
     @staticmethod
-    def delete_agent(db: Session, project_id: int, agent_id: int) -> None:
-        agent = StyleAgentService.get_agent(db, project_id, agent_id)
+    def delete_agent(db: Session, user_id: int, agent_id: int) -> None:
+        agent = StyleAgentService.get_agent(db, user_id, agent_id)
         if not agent:
             raise ValueError("文风智能体不存在")
         was_default = agent.is_default
@@ -372,7 +484,7 @@ class StyleAgentService:
         db.commit()
         remaining = (
             db.query(WritingStyleAgent)
-            .filter(WritingStyleAgent.project_id == project_id)
+            .filter(WritingStyleAgent.user_id == user_id)
             .order_by(WritingStyleAgent.id.asc())
             .all()
         )
@@ -380,45 +492,13 @@ class StyleAgentService:
             remaining[0].is_default = True
             db.commit()
         if not remaining:
-            # 删光后重建一个默认，避免写作无文风
-            StyleAgentService.ensure_project_agents(db, project_id)
-        StyleAgentService._sync_legacy_writing_style(db, project_id)
+            StyleAgentService.ensure_user_agents(db, user_id)
 
     @staticmethod
-    def set_default(db: Session, project_id: int, agent_id: int) -> WritingStyleAgent:
+    def set_default(db: Session, user_id: int, agent_id: int) -> WritingStyleAgent:
         return StyleAgentService.update_agent(
-            db, project_id, agent_id, is_default=True
+            db, user_id, agent_id, is_default=True
         )
-
-    @staticmethod
-    def _sync_legacy_writing_style(db: Session, project_id: int) -> None:
-        """把默认智能体的编译结果/补充写回 AIMemory.writing_style，兼容旧导出路径。"""
-        memory = (
-            db.query(AIMemory).filter(AIMemory.project_id == project_id).first()
-        )
-        if not memory:
-            return
-        default = (
-            db.query(WritingStyleAgent)
-            .filter(
-                WritingStyleAgent.project_id == project_id,
-                WritingStyleAgent.is_default == True,  # noqa: E712
-            )
-            .first()
-        )
-        if not default:
-            return
-        cfg = _normalize_config(default.config if isinstance(default.config, dict) else {})
-        custom = (cfg.get("custom_text") or "").strip()
-        # 优先保留用户自由说明；否则写简短摘要
-        if custom:
-            memory.writing_style = custom
-        else:
-            memory.writing_style = (
-                f"{default.name}｜语气{cfg.get('tone')}｜"
-                f"{cfg.get('pov')}｜{cfg.get('pace')}｜{cfg.get('sentence')}"
-            )
-        db.commit()
 
     @staticmethod
     def resolve_style_block(
@@ -426,22 +506,97 @@ class StyleAgentService:
         project_id: int,
         style_agent_id: Optional[int] = None,
     ) -> str:
-        """解析本次写作应注入的风格块。"""
+        """解析本次写作应注入的风格块（按项目所有者的用户级文风库）。"""
+        project = db.query(Project).filter(Project.id == project_id).first()
+        if not project:
+            return ""
+        user_id = project.owner_id
         agent: Optional[WritingStyleAgent] = None
         if style_agent_id:
-            agent = StyleAgentService.get_agent(db, project_id, style_agent_id)
+            agent = StyleAgentService.get_agent(db, user_id, style_agent_id)
         if not agent:
-            agent = StyleAgentService.get_default_agent(db, project_id)
+            agent = StyleAgentService.get_default_agent(db, user_id)
         if agent:
             return compile_style_block(
                 agent.name,
                 agent.config if isinstance(agent.config, dict) else {},
                 agent.description or "",
             )
-        # 兜底：旧 writing_style
         memory = (
             db.query(AIMemory).filter(AIMemory.project_id == project_id).first()
         )
         if memory and (memory.writing_style or "").strip():
             return f"【写作风格】\n{memory.writing_style.strip()}"
         return ""
+
+    @staticmethod
+    async def extract_style_from_text(
+        text: str = "",
+        preferred_name: Optional[str] = None,
+        sources: Optional[List[Tuple[str, str]]] = None,
+    ) -> Dict[str, Any]:
+        """
+        从范文提炼文风配置（支持多文件/多段；长文分段采样 + LLM）。
+        sources: [(filename_or_label, text), ...]；与 text 可同时提供。
+        返回 { name, description, config, compiled_preview, source_chunks, source_files }。
+        """
+        from app.core.ai_client import ai_client
+
+        merged: List[Tuple[str, str]] = []
+        if sources:
+            for item in sources:
+                if not item:
+                    continue
+                if isinstance(item, (list, tuple)) and len(item) >= 2:
+                    merged.append((str(item[0] or "范文"), str(item[1] or "")))
+        raw = (text or "").strip()
+        if raw:
+            merged.append(("粘贴文本", raw))
+
+        # 过滤过短片段，但允许多文件合计达标
+        merged = [(n, t.strip()) for n, t in merged if (t or "").strip()]
+        total_chars = sum(len(t) for _, t in merged)
+        if total_chars < 80:
+            raise ValueError("文本太短，请至少提供约 80 字以上的范文（可多文件合计）")
+
+        # 多文件最多 12 段，单文件 8 段；语料上限约 3 万字
+        max_chunks = 12 if len(merged) > 1 else 8
+        chunks = _pick_chunks_from_sources(merged, max_chunks=max_chunks, chunk_size=3200)
+        if not chunks:
+            raise ValueError("未能从提供的文本中采样到有效片段")
+
+        corpus = "\n\n——片段分隔——\n\n".join(chunks)
+        corpus_limit = 30000
+        if len(corpus) > corpus_limit:
+            corpus = corpus[:corpus_limit]
+
+        source_names = [n for n, _ in merged]
+        user_prompt = (
+            "请综合分析以下范文（可能来自多个文件/片段），提炼统一可复用的文风 JSON。\n"
+            f"来源数量：{len(merged)}；采样片段：{len(chunks)}。\n\n"
+            f"{corpus}"
+        )
+        if preferred_name:
+            user_prompt += f"\n\n若合适，name 优先使用：{preferred_name}"
+
+        messages = [
+            {"role": "system", "content": EXTRACT_SYSTEM_PROMPT},
+            {"role": "user", "content": user_prompt},
+        ]
+        reply = await ai_client.chat_completion(messages, max_tokens=2500, temperature=0.3)
+        data = _parse_json_object(reply)
+
+        name = (preferred_name or data.get("name") or "提炼文风").strip()[:100]
+        description = str(data.get("description") or "从范文自动提炼").strip()
+        if len(merged) > 1 and "多" not in description and "综合" not in description:
+            description = f"综合 {len(merged)} 份范文提炼。{description}"
+        config = _normalize_config(data)
+        return {
+            "name": name,
+            "description": description,
+            "config": config,
+            "compiled_preview": compile_style_block(name, config, description),
+            "source_chunks": len(chunks),
+            "source_files": len(merged),
+            "source_names": source_names[:20],
+        }

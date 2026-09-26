@@ -443,10 +443,10 @@
         <section v-show="activeTab === 'style'" class="panel">
           <div class="style-cta">
             <p class="hint">
-              文风智能体已移至独立页面，可配置多套语气、节奏、禁忌与笔触范例。默认智能体会自动注入 AI 写作。
+              文风库为系统级（跨项目复用）：可从预设添加、手建，或粘贴范文提炼。默认文风会在未指定时自动注入 AI 写作。
             </p>
             <el-button type="primary" class="btn btn-primary" @click="goWritingStylePage">
-              打开文风设置
+              打开文风库
             </el-button>
           </div>
         </section>
@@ -615,7 +615,7 @@ const tabs = [
   { name: 'storyline', label: '故事线', hint: '线性阶段' },
   { name: 'characters', label: '角色设定', hint: '角色卡' },
   { name: 'world', label: '世界观', hint: '分类条目' },
-  { name: 'style', label: '文风设置', hint: '独立页面' },
+  { name: 'style', label: '文风库', hint: '系统级' },
   { name: 'keypoints', label: '关键情节', hint: '线性节点' },
   { name: 'notes', label: '备注', hint: '其他约束' },
   { name: 'rewrite', label: '根据设定重写', hint: '对齐正文' },
@@ -980,12 +980,12 @@ function moveKeyPoint(index: number, delta: number) {
 }
 
 function goWritingStylePage() {
-  router.push(`/project/${props.projectId}/writing-style`)
+  router.push('/writing-style')
 }
 
 async function resolveDefaultStyleAgentId(): Promise<number | undefined> {
   try {
-    const { data } = await styleAgentApi.list(props.projectId)
+    const { data } = await styleAgentApi.list()
     const list = Array.isArray(data) ? data : []
     return list.find((a) => a.is_default)?.id
   } catch {

@@ -52,6 +52,9 @@ class RAGService:
             return self._embedding_model is not None
         RAGService._embedding_load_attempted = True
         try:
+            from app.core.config import configure_huggingface_env
+            endpoint = configure_huggingface_env()
+            print(f"[RAG] 加载 embedding 模型: {EMBEDDING_MODEL} (HF_ENDPOINT={endpoint})")
             self._embedding_model = SentenceTransformer(EMBEDDING_MODEL)
             return True
         except Exception as e:

@@ -1,9 +1,52 @@
 """
-兼容前端旧接口的“文案写作”API（生成 + 保存到文档）
+文案写作兼容 API（`/api/copywriting`）
 
-前端当前实现方式参照：
-- 热点写作：`backend/app/api/hot_topics_compat.py`
-- 脑洞写作：`backend/app/api/brainstorm_compat.py`
+==============================================================================
+定位
+------------------------------------------------------------------------------
+给前端页 `CopywritingWriter.vue` 用的营销/广告/引流文案链路：
+  填产品信息 → 生成文案（含可编辑 blocks）→ 保存为项目文档，或一键生成并入库。
+
+文件名带 compat：对齐前端约定的路径与响应形状，写法参照
+`hot_topics_compat` / `brainstorm_compat`。
+
+装配：`main.py` → `include_router(copywriting_compat.router)`
+
+==============================================================================
+调用方
+------------------------------------------------------------------------------
+  frontend/src/views/CopywritingWriter.vue
+    POST /api/copywriting/generate         仅生成（可不登录）
+    POST /api/copywriting/create-document  把已有文案存成 Document（需登录）
+    POST /api/copywriting/quick-write      生成并直接落库（需登录）
+
+依赖：
+  CopywritingService.generate_copywriting（LLM 出 title/content/keywords）
+  parse_formatted_text_to_blocks（Markdown/格式化文本 → 编辑器块）
+  Document / Project（落库与权限）
+
+==============================================================================
+接口一览
+------------------------------------------------------------------------------
+POST /generate
+  Body：product, target_audience, copy_objective, selling_points,
+        pain_points?, evidence_cases?, cta?, tone?, word_count?,
+        additional_requirements?
+  （兼容别名：objective、sellingPoint、painPoints、cases、call_to_action）
+  返回：{ success, data: { title, content, keywords, ..., blocks } }
+  说明：生成后立刻解析 blocks，便于未保存时 PublishDialog 按平台排版。
+
+POST /create-document  （需登录）
+  Body：project_id, title, content
+  校验项目归属；content → blocks → 新建 Document
+  返回：{ document: { id, title, project_id } }
+
+POST /quick-write  （需登录）
+  Body：project_id + 与 /generate 相同的文案字段
+  流程：generate → 建 Document → 返回 document + title/content/keywords/blocks
+
+权限：create-document / quick-write 均要求当前用户为 project.owner。
+==============================================================================
 """
 
 from __future__ import annotations
@@ -26,7 +69,7 @@ router = APIRouter(prefix="/api/copywriting", tags=["文案写作(compat)"])
 
 
 def _index_document_async(background_tasks: BackgroundTasks, doc_id: int, content: str, title: str, project_id: int, project_title: str = ""):
-    """后台异步索引文档"""
+    """后台异步写入全文检索索引（本文件落库路径暂未挂用，保留便于后续接上）。"""
     def do_index():
         try:
             service = FullTextSearchService()
@@ -37,6 +80,7 @@ def _index_document_async(background_tasks: BackgroundTasks, doc_id: int, conten
 
 
 def _require_project(db: Session, project_id: int, user_id: int) -> Project:
+    """确认项目存在且属于当前用户，否则 403。"""
     project = db.query(Project).filter(Project.id == project_id, Project.owner_id == user_id).first()
     if not project:
         raise HTTPException(status_code=403, detail="无权访问该项目")
@@ -49,21 +93,11 @@ async def generate_copywriting(
     llm=Depends(get_llm_service),
 ):
     """
-    生成营销/广告/引流文案
+    仅生成营销/广告/引流文案（不落库；可不登录）。
 
-    Request body（字段尽量宽松）：
-    {
-      "product": "产品/服务",
-      "target_audience": "目标人群",
-      "copy_objective": "广告/推销/引流",
-      "selling_points": "核心卖点/差异化",
-      "pain_points": "...(可选)",
-      "evidence_cases": "...(可选)",
-      "cta": "...(可选)",
-      "tone": "...(可选)",
-      "word_count": 900,
-      "additional_requirements": "...(可选)"
-    }
+    Body（字段宽松，见模块头「接口一览」）。
+    成功：{ success: true, data: CopywritingService 结果 + blocks }。
+    失败：500。
     """
     try:
         result = await CopywritingService.generate_copywriting(
@@ -97,7 +131,11 @@ async def create_document_from_copywriting(
     current_user: dict = Depends(get_current_user),
 ):
     """
-    将生成文案保存为文档（供编辑/发布）
+    将已生成文案保存为项目文档（需登录），供编辑器打开与发布。
+
+    Body：project_id, title, content（均必填）。
+    content 经 parse_formatted_text_to_blocks(..., "copy") 写入 Document.content。
+    返回：{ document: { id, title, project_id } }。
     """
     project_id = int(payload.get("project_id") or 0)
     title = (payload.get("title") or "").strip()
@@ -130,7 +168,10 @@ async def quick_write_and_save(
     llm=Depends(get_llm_service),
 ):
     """
-    快速：直接生成并保存到文档
+    一键：按文案字段生成并直接保存到指定项目（需登录）。
+
+    Body：project_id（必填）+ 与 /generate 相同的生成字段。
+    返回：document 元数据 + title/content/keywords/blocks，前端可立刻跳转编辑。
     """
     project_id = int(payload.get("project_id") or 0)
     if not project_id:
@@ -172,4 +213,3 @@ async def quick_write_and_save(
         "keywords": result.get("keywords") or [],
         "blocks": blocks,
     }
-

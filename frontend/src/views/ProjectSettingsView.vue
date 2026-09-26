@@ -68,7 +68,7 @@ function goProject() {
 }
 
 function goWritingStyle() {
-  router.push(`/project/${projectIdNum.value}/writing-style`)
+  router.push('/writing-style')
 }
 </script>
 

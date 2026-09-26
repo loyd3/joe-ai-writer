@@ -21,6 +21,16 @@ const router = createRouter({
           component: () => import('@/views/ProjectList.vue')
         },
         {
+          path: 'writing-style',
+          name: 'writing-style',
+          component: () => import('@/views/WritingStyleView.vue'),
+          meta: { title: '文风库' }
+        },
+        {
+          path: 'project/:id/writing-style',
+          redirect: '/writing-style',
+        },
+        {
           path: 'project/:id',
           name: 'project',
           component: () => import('@/views/ProjectView.vue')
@@ -30,12 +40,6 @@ const router = createRouter({
           name: 'project-settings',
           component: () => import('@/views/ProjectSettingsView.vue'),
           meta: { title: '项目设定' }
-        },
-        {
-          path: 'project/:id/writing-style',
-          name: 'writing-style',
-          component: () => import('@/views/WritingStyleView.vue'),
-          meta: { title: '文风设置' }
         },
         {
           path: 'document/:id',

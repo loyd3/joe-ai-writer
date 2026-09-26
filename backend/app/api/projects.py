@@ -8,10 +8,8 @@ from app.schemas.schemas import (
     DocumentCreate, DocumentUpdate, DocumentResponse,
     AIMemoryUpdate, AIMemoryResponse,
     MemoryAssistRequest, MemoryAssistResponse,
-    StyleAgentCreate, StyleAgentUpdate, StyleAgentFromPreset, StyleAgentResponse,
 )
 from app.services.ai_memory_service import AIMemoryService
-from app.services.style_agent_service import StyleAgentService
 from app.services.fulltext_search_service import fulltext_search_service
 from app.api.auth import get_current_user
 
@@ -369,112 +367,3 @@ async def assist_memory_field(
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"AI 辅助失败: {str(e)}")
-
-
-# ========== 文风智能体 ==========
-@router.get("/style-agent-presets")
-def list_style_presets(current_user: dict = Depends(get_current_user)):
-    """内置文风预设列表（克隆到项目后可改）"""
-    return StyleAgentService.list_presets()
-
-
-@router.get("/projects/{project_id}/style-agents", response_model=List[StyleAgentResponse])
-def list_style_agents(
-    project_id: int,
-    db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user),
-):
-    check_project_owner(db, project_id, current_user["id"])
-    agents = StyleAgentService.list_agents(db, project_id)
-    return [StyleAgentService.to_dict(a) for a in agents]
-
-
-@router.post("/projects/{project_id}/style-agents", response_model=StyleAgentResponse)
-def create_style_agent(
-    project_id: int,
-    body: StyleAgentCreate,
-    db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user),
-):
-    check_project_owner(db, project_id, current_user["id"])
-    agent = StyleAgentService.create_agent(
-        db,
-        project_id=project_id,
-        name=body.name,
-        description=body.description or "",
-        config=body.config,
-        preset_key=body.preset_key,
-        is_default=body.is_default,
-    )
-    return StyleAgentService.to_dict(agent)
-
-
-@router.post("/projects/{project_id}/style-agents/from-preset", response_model=StyleAgentResponse)
-def create_style_agent_from_preset(
-    project_id: int,
-    body: StyleAgentFromPreset,
-    db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user),
-):
-    check_project_owner(db, project_id, current_user["id"])
-    try:
-        agent = StyleAgentService.create_from_preset(
-            db, project_id, body.preset_key, set_default=body.set_default
-        )
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    return StyleAgentService.to_dict(agent)
-
-
-@router.put("/projects/{project_id}/style-agents/{agent_id}", response_model=StyleAgentResponse)
-def update_style_agent(
-    project_id: int,
-    agent_id: int,
-    body: StyleAgentUpdate,
-    db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user),
-):
-    check_project_owner(db, project_id, current_user["id"])
-    try:
-        agent = StyleAgentService.update_agent(
-            db,
-            project_id,
-            agent_id,
-            name=body.name,
-            description=body.description,
-            config=body.config,
-            is_default=body.is_default,
-        )
-    except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-    return StyleAgentService.to_dict(agent)
-
-
-@router.post("/projects/{project_id}/style-agents/{agent_id}/set-default", response_model=StyleAgentResponse)
-def set_default_style_agent(
-    project_id: int,
-    agent_id: int,
-    db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user),
-):
-    check_project_owner(db, project_id, current_user["id"])
-    try:
-        agent = StyleAgentService.set_default(db, project_id, agent_id)
-    except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-    return StyleAgentService.to_dict(agent)
-
-
-@router.delete("/projects/{project_id}/style-agents/{agent_id}")
-def delete_style_agent(
-    project_id: int,
-    agent_id: int,
-    db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user),
-):
-    check_project_owner(db, project_id, current_user["id"])
-    try:
-        StyleAgentService.delete_agent(db, project_id, agent_id)
-    except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-    return {"ok": True}

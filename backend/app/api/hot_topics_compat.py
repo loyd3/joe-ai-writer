@@ -205,11 +205,25 @@ def get_hot_topics_service(
 async def list_hot_topics(
     limit: int = 20,
     category: Optional[str] = None,
+    refresh: bool = False,
     service: EnhancedHotTopicsService = Depends(get_hot_topics_service),
 ):
+    """
+    获取热点列表：优先全网实时热搜；失败则返回保底数据并带 is_fallback 提示。
+    Query：limit, category?, refresh?=true 强制跳过缓存重新抓取。
+    """
     try:
-        topics = await service.get_hot_topics(category=category, limit=limit)
-        return {"topics": topics}
+        result = await service.get_hot_topics(
+            category=category, limit=limit, force_refresh=refresh
+        )
+        return {
+            "topics": result.get("topics") or [],
+            "is_fallback": bool(result.get("is_fallback")),
+            "message": result.get("message") or "",
+            "data_source": result.get("data_source") or "fallback",
+            "updated_at": result.get("updated_at"),
+            "sources": result.get("sources") or {},
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

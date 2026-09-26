@@ -132,7 +132,9 @@ class FullTextSearchService:
         if not _load_vector_deps() or _SentenceTransformer is None:
             return False
         try:
-            print(f"[FullTextSearch] 正在加载 embedding 模型: {EMBEDDING_MODEL}")
+            from app.core.config import configure_huggingface_env
+            endpoint = configure_huggingface_env()
+            print(f"[FullTextSearch] 正在加载 embedding 模型: {EMBEDDING_MODEL} (HF_ENDPOINT={endpoint})")
             self._embedding_model = _SentenceTransformer(EMBEDDING_MODEL)
             print(f"[FullTextSearch] Embedding 模型加载成功")
             return True

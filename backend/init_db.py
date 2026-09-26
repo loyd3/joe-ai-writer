@@ -24,7 +24,6 @@ def init_database():
         print("   • documents - 文档表")
         print("   • settings - 设定表")
         print("   • ai_memory - AI 记忆表")
-        print("   • events - 事件表")
         print("   • users - 用户表")
         return True
         

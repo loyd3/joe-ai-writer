@@ -48,7 +48,7 @@
           @click="showChatPanel = !showChatPanel"
         >
           <el-icon><ChatDotRound /></el-icon>
-          <span>AI 助手</span>
+          <span>小墨</span>
         </el-button>
         <el-dropdown trigger="click" placement="bottom-end" popper-class="coffee-dropdown" @command="handleMoreCommand" class="header-dropdown">
           <el-button class="btn">
@@ -485,7 +485,7 @@ async function withAiChat(run: (api: NonNullable<typeof aiChatRef.value>) => voi
   if (!aiChatRef.value) await nextTick()
   const api = aiChatRef.value
   if (!api) {
-    ElMessage.warning('AI 助手面板未就绪，请稍后重试')
+    ElMessage.warning('小墨面板未就绪，请稍后重试')
     return
   }
   await run(api)
@@ -581,9 +581,7 @@ function goProjectSettings() {
 }
 
 function goWritingStyle() {
-  const pid = document.value?.project_id || project.value?.id
-  if (!pid) return
-  router.push(`/project/${pid}/writing-style`)
+  router.push('/writing-style')
 }
 
 function handleMoreCommand(command: string) {

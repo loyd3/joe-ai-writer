@@ -8,9 +8,15 @@ import logging
 import os
 import time
 from app.database import engine, Base
+from app.core.config import configure_huggingface_env
+
+# 确保 HuggingFace 走镜像（须在可能加载 embedding 的路由 import 之前）
+configure_huggingface_env()
+
 from app.api import projects, ai, auth, search, export, templates, versions, extract, system, dashboard, hot_topics, publish, ai_story_generator, long_article, import_project, brainstorm, auto_write
 from app.api import hot_topics_compat, brainstorm_compat
 from app.api import copywriting_compat
+from app.api import style_agents
 from sqlalchemy import text
 
 logger = logging.getLogger(__name__)
@@ -50,6 +56,151 @@ def _ensure_avatar_column():
         else:
             raise
 
+
+def _ensure_style_agents_user_scoped():
+    """
+    将 writing_style_agents 从 project_id 迁到 user_id（幂等）。
+    旧数据：按项目 owner 回填 user_id；同用户同名去重保留最小 id。
+    """
+    with engine.connect() as conn:
+        # 表不存在则交给 create_all
+        try:
+            cols = conn.execute(text("SHOW COLUMNS FROM writing_style_agents")).fetchall()
+        except Exception:
+            return
+        col_names = {row[0] for row in cols}
+
+        if "user_id" not in col_names:
+            conn.execute(text(
+                "ALTER TABLE writing_style_agents "
+                "ADD COLUMN user_id INT NULL COMMENT '所属用户' AFTER id"
+            ))
+            conn.commit()
+
+        if "source" not in col_names:
+            try:
+                conn.execute(text(
+                    "ALTER TABLE writing_style_agents "
+                    "ADD COLUMN source VARCHAR(32) NULL DEFAULT 'manual' "
+                    "COMMENT 'preset|manual|extract' AFTER is_default"
+                ))
+                conn.commit()
+            except Exception:
+                pass
+
+        # 回填 user_id（仅当仍有 project_id 列）
+        cols2 = {row[0] for row in conn.execute(text("SHOW COLUMNS FROM writing_style_agents")).fetchall()}
+        if "project_id" in cols2:
+            conn.execute(text("""
+                UPDATE writing_style_agents w
+                JOIN projects p ON w.project_id = p.id
+                SET w.user_id = p.owner_id
+                WHERE w.user_id IS NULL
+            """))
+            conn.commit()
+            # 无法关联项目的孤儿行：删掉
+            conn.execute(text("DELETE FROM writing_style_agents WHERE user_id IS NULL"))
+            conn.commit()
+
+            # 同用户同名去重：保留最小 id
+            conn.execute(text("""
+                DELETE w1 FROM writing_style_agents w1
+                INNER JOIN writing_style_agents w2
+                  ON w1.user_id = w2.user_id
+                 AND w1.name = w2.name
+                 AND w1.id > w2.id
+            """))
+            conn.commit()
+
+            # 每用户恰好一条 is_default：先清再设最小 id
+            conn.execute(text("""
+                UPDATE writing_style_agents SET is_default = 0
+            """))
+            conn.commit()
+            conn.execute(text("""
+                UPDATE writing_style_agents w
+                JOIN (
+                  SELECT user_id, MIN(id) AS mid FROM writing_style_agents GROUP BY user_id
+                ) t ON w.user_id = t.user_id AND w.id = t.mid
+                SET w.is_default = 1
+            """))
+            conn.commit()
+
+            # 尝试删旧列与索引（失败则保留，ORM 已不用 project_id）
+            try:
+                conn.execute(text("ALTER TABLE writing_style_agents DROP FOREIGN KEY writing_style_agents_ibfk_1"))
+                conn.commit()
+            except Exception:
+                pass
+            try:
+                conn.execute(text("ALTER TABLE writing_style_agents DROP INDEX idx_style_agent_project"))
+                conn.commit()
+            except Exception:
+                pass
+            try:
+                conn.execute(text("ALTER TABLE writing_style_agents DROP COLUMN project_id"))
+                conn.commit()
+            except Exception:
+                pass
+
+        # 确保 user_id 非空 + 索引
+        try:
+            conn.execute(text(
+                "ALTER TABLE writing_style_agents "
+                "MODIFY COLUMN user_id INT NOT NULL"
+            ))
+            conn.commit()
+        except Exception:
+            pass
+        try:
+            conn.execute(text(
+                "ALTER TABLE writing_style_agents "
+                "ADD INDEX idx_style_agent_user (user_id)"
+            ))
+            conn.commit()
+        except Exception:
+            pass
+        try:
+            conn.execute(text(
+                "ALTER TABLE writing_style_agents "
+                "ADD CONSTRAINT fk_style_agent_user "
+                "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE"
+            ))
+            conn.commit()
+        except Exception:
+            pass
+
+        # 幂等：若同用户多条 is_default，只保留其中 id 最小的一条；无默认则补一条
+        try:
+            conn.execute(text("""
+                UPDATE writing_style_agents w
+                SET is_default = 0
+                WHERE w.is_default = 1
+                  AND w.id NOT IN (
+                    SELECT mid FROM (
+                      SELECT MIN(id) AS mid
+                      FROM writing_style_agents
+                      WHERE is_default = 1
+                      GROUP BY user_id
+                    ) t
+                  )
+            """))
+            conn.commit()
+            conn.execute(text("""
+                UPDATE writing_style_agents w
+                JOIN (
+                  SELECT user_id, MIN(id) AS mid FROM writing_style_agents GROUP BY user_id
+                ) t ON w.user_id = t.user_id AND w.id = t.mid
+                SET w.is_default = 1
+                WHERE NOT EXISTS (
+                  SELECT 1 FROM writing_style_agents x
+                  WHERE x.user_id = w.user_id AND x.is_default = 1
+                )
+            """))
+            conn.commit()
+        except Exception:
+            pass
+
 # 静态文件目录（头像等）
 static_dir = os.path.join(os.path.dirname(__file__), "static")
 os.makedirs(os.path.join(static_dir, "avatars"), exist_ok=True)
@@ -72,6 +223,10 @@ def startup():
         _ensure_avatar_column()
     except Exception:
         pass  # 非致命，仅个人中心头像功能受影响
+    try:
+        _ensure_style_agents_user_scoped()
+    except Exception as e:
+        logger.warning("文风表用户级迁移跳过/失败: %s", e)
 
 # 允许的前端来源
 _frontend_origins = [
@@ -141,6 +296,7 @@ app.include_router(publish.router)
 app.include_router(ai_story_generator.router)
 app.include_router(long_article.router)
 app.include_router(auto_write.router)
+app.include_router(style_agents.router)
 
 app.mount("/static", StaticFiles(directory=static_dir), name="static")
 

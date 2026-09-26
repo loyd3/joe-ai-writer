@@ -132,7 +132,7 @@ class AIMemoryService:
     ) -> str:
         """构建项目设定上下文字符串，用于注入到 AI 提示词中。
 
-        style_agent_id 指定时用对应文风智能体；否则用项目默认智能体。
+        style_agent_id 指定时用对应文风智能体；否则用用户默认智能体。
         有智能体风格块时不再重复注入旧 writing_style，避免两套打架。
         """
         memory = AIMemoryService.get_or_create_memory(db, project_id)

@@ -9,6 +9,7 @@ from typing import List, Dict, Any, Optional
 from datetime import datetime, timedelta
 from app.services.llm_service import LLMService
 from app.services.cache_service import CacheService
+from app.services.hot_topics_service import HotTopicsService
 
 
 class EnhancedHotTopicsService:
@@ -102,29 +103,150 @@ class EnhancedHotTopicsService:
         self.llm_service = llm_service
         self.cache_service = cache_service
         self.cache_key = "hot_topics_cache"
-        self.cache_ttl = 1800  # 30分钟缓存
+        self.cache_ttl = 300  # 真热点缓存 5 分钟（与抓取层一致）
 
-    async def get_hot_topics(self, category: Optional[str] = None, limit: int = 10) -> List[Dict[str, Any]]:
+    async def get_hot_topics(
+        self,
+        category: Optional[str] = None,
+        limit: int = 10,
+        force_refresh: bool = False,
+    ) -> Dict[str, Any]:
         """
-        获取热点话题列表
+        优先抓取全网最新热点；全部失败时用本地模板保底。
+
+        返回：
+          {
+            topics: [...],
+            is_fallback: bool,
+            message: str,          # 保底时给前端展示的提示
+            data_source: "api"|"fallback",
+            updated_at: str,
+            sources: dict,         # 各平台抓取状态（真热点时有）
+          }
         """
-        cache_key = f"{self.cache_key}:{category}:{limit}"
-        cached = await self.cache_service.get(cache_key)
+        cache_key = f"{self.cache_key}:v2:{category}:{limit}"
+        if not force_refresh:
+            cached = await self.cache_service.get(cache_key)
+            if cached:
+                try:
+                    return json.loads(cached)
+                except Exception:
+                    pass
 
-        if cached:
-            return json.loads(cached)
+        try:
+            raw = await HotTopicsService.fetch_all_hot_topics(use_cache=not force_refresh)
+            real_topics = raw.get("topics") or []
+            data_source = raw.get("data_source") or "fallback"
 
-        # 生成热点数据
+            # 抓取层成功拿到真源
+            if data_source == "api" and real_topics:
+                topics = self._normalize_fetched_topics(real_topics, category=category, limit=limit)
+                # 分类筛空时退回未筛选列表，避免误报「未能获取热点」
+                if not topics and category:
+                    topics = self._normalize_fetched_topics(real_topics, category=None, limit=limit)
+                if topics:
+                    result = {
+                        "topics": topics,
+                        "is_fallback": False,
+                        "message": "",
+                        "data_source": "api",
+                        "updated_at": raw.get("updated_at") or datetime.now().isoformat(),
+                        "sources": raw.get("sources") or {},
+                        "success_rate": raw.get("success_rate"),
+                    }
+                    await self.cache_service.set(
+                        cache_key, json.dumps(result, ensure_ascii=False), self.cache_ttl
+                    )
+                    return result
+
+            # 抓取层自己已切到 FALLBACK_TOPICS：原样规范化后标保底
+            if data_source == "fallback" and real_topics:
+                topics = self._normalize_fetched_topics(real_topics, category=category, limit=limit)
+                if not topics:
+                    topics = self._normalize_fetched_topics(real_topics, category=None, limit=limit)
+                for t in topics:
+                    t["source"] = t.get("source") or "保底热点"
+                    t["is_fallback"] = True
+                if topics:
+                    result = {
+                        "topics": topics,
+                        "is_fallback": True,
+                        "message": "未能获取最新网络热点，当前显示的是保底热点，仅供体验写作流程。",
+                        "data_source": "fallback",
+                        "updated_at": raw.get("updated_at") or datetime.now().isoformat(),
+                        "sources": raw.get("sources") or {},
+                        "success_rate": raw.get("success_rate"),
+                    }
+                    await self.cache_service.set(
+                        cache_key, json.dumps(result, ensure_ascii=False), min(60, self.cache_ttl)
+                    )
+                    return result
+        except Exception as e:
+            print(f"[EnhancedHotTopics] 抓取真热点失败: {e}")
+
+        # 最终保底：本地模板（来源统一标「保底热点」）
         topics = self._generate_hot_topics(category, limit)
+        result = {
+            "topics": topics,
+            "is_fallback": True,
+            "message": "未能获取最新网络热点，当前显示的是保底示例热点，仅供体验写作流程。",
+            "data_source": "fallback",
+            "updated_at": datetime.now().isoformat(),
+            "sources": {},
+            "success_rate": None,
+        }
+        await self.cache_service.set(
+            cache_key, json.dumps(result, ensure_ascii=False), min(60, self.cache_ttl)
+        )
+        return result
 
-        # 缓存结果
-        await self.cache_service.set(cache_key, json.dumps(topics, ensure_ascii=False), self.cache_ttl)
+    def _normalize_fetched_topics(
+        self,
+        topics: List[Dict[str, Any]],
+        category: Optional[str] = None,
+        limit: int = 10,
+    ) -> List[Dict[str, Any]]:
+        """把 HotTopicsService 抓取结果统一成前端卡片字段。"""
+        normalized: List[Dict[str, Any]] = []
+        for i, t in enumerate(topics):
+            title = (t.get("title") or "").strip()
+            if not title:
+                continue
+            cat = (t.get("category") or "").strip() or "综合"
+            if category:
+                # 分类筛选：分类字段或标题包含所选分类才保留
+                if category not in cat and category not in title:
+                    continue
 
-        return topics
+            heat = t.get("heat") or 0
+            try:
+                heat_num = int(heat) if not isinstance(heat, int) else heat
+            except Exception:
+                heat_num = 0
+
+            keyword = title[:12]
+            normalized.append({
+                "id": f"live_{i}_{abs(hash(title)) % 10_000_000}",
+                "title": title,
+                "category": cat,
+                "keyword": keyword,
+                "aspect": "社会关注",
+                "heat": heat_num,
+                "heat_score": min(99, max(1, heat_num // 100000)) if heat_num else random.randint(70, 95),
+                "discussion_count": heat_num,
+                "created_at": datetime.now().isoformat(),
+                "source": t.get("source") or "网络热点",
+                "url": t.get("url") or "",
+                "excerpt": (t.get("excerpt") or "")[:200],
+                "summary": (t.get("excerpt") or f"来自{t.get('source') or '网络'}的实时热点")[:200],
+                "rank": t.get("rank") or (i + 1),
+            })
+
+        return normalized[:limit]
 
     def _generate_hot_topics(self, category: Optional[str] = None, limit: int = 10) -> List[Dict[str, Any]]:
         """
-        生成热点话题数据
+        本地模板保底热点（非真实热搜）。
         """
         topics = []
         categories = [category] if category else list(self.TOPIC_CATEGORIES.keys())
@@ -153,11 +275,13 @@ class EnhancedHotTopicsService:
                     "category": cat,
                     "keyword": keyword,
                     "aspect": aspect,
+                    "heat": discussion_count,
                     "heat_score": heat_score,
                     "discussion_count": discussion_count,
                     "created_at": (datetime.now() - timedelta(hours=random.randint(1, 48))).isoformat(),
-                    "source": self._get_random_source(),
-                    "summary": self._generate_summary(keyword, aspect)
+                    "source": "保底热点",
+                    "summary": self._generate_summary(keyword, aspect),
+                    "is_fallback": True,
                 })
 
         # 按热度排序

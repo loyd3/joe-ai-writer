@@ -525,7 +525,7 @@ function goSettings() {
 }
 
 function goWritingStyle() {
-  router.push(`/project/${projectId.value}/writing-style`)
+  router.push('/writing-style')
 }
 
 async function onDocumentCreated(docId: number) {
@@ -583,6 +583,11 @@ async function onProjectFromLiteratureCreated(projectId: number) {
       font-size: 15px;
       color: var(--coffee-text-muted);
       max-width: 600px;
+      max-height: 100px;
+      overflow: hidden;
+      white-space: nowrap;
+      text-overflow: ellipsis;
+      
     }
   }
 }

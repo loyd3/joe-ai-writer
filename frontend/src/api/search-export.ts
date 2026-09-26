@@ -98,12 +98,6 @@ export const exportApi = {
     })
   },
   
-  exportDocumentPdf: (documentId: number, includeMemory: boolean = true) => {
-    return api.get(`/export/document/${documentId}/pdf?include_memory=${includeMemory}`, {
-      responseType: 'blob'
-    })
-  },
-  
   exportDocumentDocx: (documentId: number, includeMemory: boolean = true) => {
     return api.get(`/export/document/${documentId}/docx?include_memory=${includeMemory}`, {
       responseType: 'blob'

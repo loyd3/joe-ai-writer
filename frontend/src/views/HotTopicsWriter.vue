@@ -16,7 +16,7 @@
     <!-- 步骤1: 选择热点 -->
     <div v-if="currentStep === 0" class="step-content">
       <div class="toolbar">
-        <el-button type="primary" @click="fetchHotTopics" :loading="loading">
+        <el-button type="primary" @click="fetchHotTopics(true)" :loading="loading">
           <el-icon><Refresh /></el-icon> 刷新热点
         </el-button>
         <el-input
@@ -27,6 +27,15 @@
           style="width: 300px"
         />
       </div>
+
+      <el-alert
+        v-if="isFallback"
+        type="warning"
+        :closable="false"
+        show-icon
+        class="fallback-alert"
+        :title="fallbackMessage || '未能获取最新网络热点，当前显示的是保底示例热点'"
+      />
 
       <!-- 热点列表 -->
       <div v-if="loading" class="loading-container">
@@ -52,8 +61,8 @@
           </div>
           <h3 class="topic-title">{{ topic.title }}</h3>
           <div class="topic-meta">
-            <span v-if="topic.heat" class="topic-heat">
-              <el-icon><TrendCharts /></el-icon> {{ formatHeat(topic.heat) }}
+            <span v-if="topic.heat || topic.heat_score" class="topic-heat">
+              <el-icon><TrendCharts /></el-icon> {{ formatHeat(topic.heat || topic.heat_score) }}
             </span>
             <el-button type="primary" size="small" @click.stop="selectTopic(topic)">
               选择这个话题
@@ -371,6 +380,8 @@ const API_BASE = import.meta.env.VITE_API_URL || API_BASE_URL
 const currentStep = ref(0)
 const loading = ref(false)
 const hotTopics = ref<any[]>([])
+const isFallback = ref(false)
+const fallbackMessage = ref('')
 const searchQuery = ref('')
 const selectedTopic = ref<any>(null)
 const generatingOutline = ref(false)
@@ -476,9 +487,9 @@ const projects = computed(() => projectStore.projects)
 const filteredTopics = computed(() => {
   if (!searchQuery.value) return hotTopics.value
   const query = searchQuery.value.toLowerCase()
-  return hotTopics.value.filter(t => 
-    t.title.toLowerCase().includes(query) ||
-    t.source.toLowerCase().includes(query)
+  return hotTopics.value.filter(t =>
+    (t.title || '').toLowerCase().includes(query) ||
+    (t.source || '').toLowerCase().includes(query)
   )
 })
 
@@ -513,10 +524,11 @@ const outlineKeywords = computed(() => {
 })
 
 // 方法
-const fetchHotTopics = async () => {
+const fetchHotTopics = async (forceRefresh = false) => {
   loading.value = true
   try {
-    const response = await fetch(`${API_BASE}/api/hot-topics/list`, {
+    const qs = forceRefresh ? '?refresh=true&limit=30' : '?limit=30'
+    const response = await fetch(`${API_BASE}/api/hot-topics/list${qs}`, {
       headers: {
         'Authorization': `Bearer ${localStorage.getItem('token')}`
       }
@@ -524,8 +536,16 @@ const fetchHotTopics = async () => {
     if (!response.ok) throw new Error('获取热点失败')
     const data = await response.json()
     hotTopics.value = data.topics || []
-    ElMessage.success('热点数据已更新')
+    isFallback.value = !!data.is_fallback
+    fallbackMessage.value = data.message || ''
+    if (isFallback.value) {
+      ElMessage.warning(fallbackMessage.value || '当前显示的是保底热点，非最新网络热搜')
+    } else {
+      ElMessage.success('已获取最新网络热点')
+    }
   } catch (error) {
+    isFallback.value = false
+    fallbackMessage.value = ''
     ElMessage.error('获取热点数据失败')
     console.error(error)
   } finally {
@@ -538,7 +558,10 @@ const getSourceClass = (source: string) => {
     '微博热搜': 'weibo',
     '知乎热榜': 'zhihu',
     '百度热搜': 'baidu',
-    '头条热榜': 'toutiao'
+    '头条热榜': 'toutiao',
+    '今日头条': 'toutiao',
+    '抖音热榜': 'douyin',
+    'B站热门': 'bilibili',
   }
   return map[source] || 'default'
 }
@@ -928,6 +951,10 @@ onMounted(() => {
   justify-content: space-between;
   align-items: center;
   margin-bottom: 20px;
+}
+
+.fallback-alert {
+  margin-bottom: 16px;
 }
 
 .loading-container {

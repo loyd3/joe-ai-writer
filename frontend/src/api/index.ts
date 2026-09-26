@@ -8,7 +8,7 @@ import type {
   LiteraryAnalysisRequest, LiteraryAnalysisResult, CreateProjectFromLiteratureRequest,
   Template, TemplateCreate,
   AIConfig, Theme, AIRewriteFromMemoryRequest, AIRebuildFromMemoryRequest,
-  StyleAgent, StyleAgentPreset, StyleAgentCreate, StyleAgentUpdate,
+  StyleAgent, StyleAgentPreset, StyleAgentCreate, StyleAgentUpdate, StyleExtractResult,
 } from './types'
 
 // API 基础 URL 配置
@@ -311,24 +311,34 @@ export const memoryApi = {
     )
 }
 
-// ========== 文风智能体 API ==========
+// ========== 文风智能体 API（用户级） ==========
 export const styleAgentApi = {
   listPresets: () => api.get<StyleAgentPreset[]>('/style-agent-presets'),
-  list: (projectId: number) =>
-    api.get<StyleAgent[]>(`/projects/${projectId}/style-agents`),
-  create: (projectId: number, data: StyleAgentCreate) =>
-    api.post<StyleAgent>(`/projects/${projectId}/style-agents`, data),
-  fromPreset: (projectId: number, presetKey: string, setDefault = false) =>
-    api.post<StyleAgent>(`/projects/${projectId}/style-agents/from-preset`, {
+  list: () => api.get<StyleAgent[]>('/style-agents'),
+  create: (data: StyleAgentCreate) =>
+    api.post<StyleAgent>('/style-agents', data),
+  fromPreset: (presetKey: string, setDefault = false) =>
+    api.post<StyleAgent>('/style-agents/from-preset', {
       preset_key: presetKey,
       set_default: setDefault,
     }),
-  update: (projectId: number, agentId: number, data: StyleAgentUpdate) =>
-    api.put<StyleAgent>(`/projects/${projectId}/style-agents/${agentId}`, data),
-  setDefault: (projectId: number, agentId: number) =>
-    api.post<StyleAgent>(`/projects/${projectId}/style-agents/${agentId}/set-default`),
-  delete: (projectId: number, agentId: number) =>
-    api.delete(`/projects/${projectId}/style-agents/${agentId}`),
+  update: (agentId: number, data: StyleAgentUpdate) =>
+    api.put<StyleAgent>(`/style-agents/${agentId}`, data),
+  setDefault: (agentId: number) =>
+    api.post<StyleAgent>(`/style-agents/${agentId}/set-default`),
+  delete: (agentId: number) =>
+    api.delete(`/style-agents/${agentId}`),
+  extractFromText: (data: {
+    text?: string
+    texts?: string[]
+    sources?: { name: string; text: string }[]
+    name?: string
+    save?: boolean
+    set_default?: boolean
+  }) =>
+    api.post<StyleExtractResult>('/style-agents/extract-from-text', data, {
+      timeout: 180000,
+    }),
 }
 
 // ========== AI 写作 API ==========

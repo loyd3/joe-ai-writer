@@ -1,3 +1,69 @@
+"""
+文档写作主 AI 路由（`/api/ai`）
+
+==============================================================================
+定位
+------------------------------------------------------------------------------
+面向「已有项目 / 文档」的写作与衍生能力：编辑器助手、按设定生成/重写、
+文学作品拆解落库、插图与脚本转换等。
+
+与 `/api/ai-story-generator` 的区别：
+  - 本文件：在文档/项目设定上写正文、改写、批量成章、多媒体衍生
+  - ai-story-generator：从主题一键生成整套设定并创建项目（不写块正文）
+
+装配：`main.py` → `include_router(ai.router)`
+核心实现：`AIWritingService`；插图/口播/影视脚本走对应 Service。
+
+==============================================================================
+调用方（前端）
+------------------------------------------------------------------------------
+  AIChatPanel              → /assist/stream, /chat/stream
+  ProjectSettingsManager   → /batch-generate/stream（大纲「创建文章」）
+  AIAutoWrite              → /batch-generate/stream
+  AIRewriteFromSettings    → /rewrite-from-memory/stream, /rebuild-from-memory/stream
+  LiteratureAnalyzer /
+  AIExtract                → /analyze-literature, create/apply-project-from-literature
+  VideoScriptDialog 等     → convert-to-video/film-script, generate-article-image
+
+前端封装：`frontend/src/api/index.ts` 的 `aiApi`
+
+==============================================================================
+接口分组
+------------------------------------------------------------------------------
+1) 编辑器助手
+   POST /assist              非流式：润色/修改/续写/扩写/调样式等
+   POST /assist/stream       流式同上；结束前可能发 [ASSIST_META]{format,blocks}
+   POST /chat/stream         自由对话（可注入项目设定 + style_agent_id）
+
+2) 按项目设定生成 / 重写
+   POST /generate-from-memory/stream   按设定生成片段（opening/continue/…）
+   POST /rewrite-from-memory/stream    设定变更后对齐改写已有文档
+   POST /rebuild-from-memory/stream    大改后重梳大纲并重生文档（旧稿可归档）
+   POST /batch-generate/stream         按大纲节点逐章写入目标文档（SSE JSON 进度）
+
+3) 文学作品分析 → 项目设定
+   POST /analyze-literature
+   POST /create-project-from-literature   分析结果 → 新建项目 + AIMemory
+   POST /apply-project-from-literature    分析结果 → 覆盖已有项目设定
+
+4) 多媒体衍生
+   POST /generate-article-image      正文/选区 → 插图 image 块
+   POST /convert-to-video-script     → 口播文案 + AI 视频提示词
+   POST /convert-to-film-script      → 影视脚本 Markdown
+   POST /upload-document-image       本地图上传到 /static/uploads/images/
+
+==============================================================================
+约定
+------------------------------------------------------------------------------
+- 均需登录（get_current_user）
+- 文档接口：check_document_access（文档存在且项目属当前用户）
+- 项目接口：check_project_owner
+- 流式：media_type=text/event-stream；正文类多用 data: … + [DONE]
+- 可选 style_agent_id：文风智能体，空则用用户默认
+- 写正文路径常经 AIWritingService（含去机感规则 / humanize 等）
+==============================================================================
+"""
+
 import json
 import uuid
 from pathlib import Path
@@ -38,6 +104,10 @@ from app.services.film_script_service import FilmScriptService
 
 router = APIRouter(prefix="/api/ai", tags=["ai"])
 
+
+# ---------------------------------------------------------------------------
+# 工具：SSE 打包 / 权限 / 正文→块
+# ---------------------------------------------------------------------------
 
 def _sse_data(payload: str) -> str:
     """将字符串打包为单个 SSE 事件；内嵌换行拆成多行 data:，避免截断正文。"""
@@ -87,11 +157,11 @@ class ConvertToFilmScriptRequest(BaseModel):
 
 
 def check_document_access(db: Session, document_id: int, user_id: int):
-    """检查用户是否有权限访问文档，返回 Document"""
+    """文档存在且所属项目归当前用户；通过则返回 Document，否则 404/403。"""
     document = db.query(Document).filter(Document.id == document_id).first()
     if not document:
         raise HTTPException(status_code=404, detail="Document not found")
-    
+
     project = db.query(Project).filter(
         Project.id == document.project_id,
         Project.owner_id == user_id
@@ -99,12 +169,10 @@ def check_document_access(db: Session, document_id: int, user_id: int):
     if not project:
         raise HTTPException(status_code=403, detail="Access denied")
     return document
-    
-    return document
 
 
 def _assist_blocks_from_text(text: str) -> list:
-    """与脑洞写作文章一致：正文为 Markdown/块标记，解析为编辑器 blocks。"""
+    """把助手输出的 Markdown/标记正文解析为编辑器 blocks，供前端插入。"""
     if not text or not str(text).strip():
         return []
     s = str(text).strip()
@@ -118,8 +186,9 @@ async def _ensure_outline_for_long_project(
     llm_service: LLMService,
 ) -> LiteraryAnalysisResult:
     """
-    保底：当 analyze-literature 没拿到 outline 时，用长篇写作规划生成章节级大纲，
-    并映射到前端/项目设定使用的 AIMemory.outline 结构。
+    文学分析若缺 outline：用 EnhancedLongArticleService 补章节级大纲，
+    映射为 AIMemory.outline 形状，再用于 create/apply-project-from-literature。
+    补全失败则原样返回（outline 可能仍为空）。
     """
     if analysis.outline and len(analysis.outline) > 0:
         return analysis
@@ -174,15 +243,26 @@ async def _ensure_outline_for_long_project(
         return analysis
 
 
+# ---------------------------------------------------------------------------
+# 1) 编辑器助手：assist / chat
+# ---------------------------------------------------------------------------
+
 @router.post("/assist")
 async def ai_assist(
     request: AIRequest,
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
 ):
-    """AI 辅助（非流式）"""
+    """
+    AI 辅助（非流式）。
+
+    Body(AIRequest)：document_id, action(guide|revise|polish|continue|expand|
+    format_style|…), selected_text?, instruction?, style_agent_id?, assistant_mode?
+    从 DB 拼文档纯文本交给 AIWritingService.process_request。
+    返回 { response, format: "markdown", blocks }。
+    """
     document = check_document_access(db, request.document_id, current_user["id"])
-    
+
     content = "\n".join([block.get('content', '') for block in document.content])
     response = await AIWritingService.process_request(db, request, content, current_user["id"])
     blocks = _assist_blocks_from_text(response)
@@ -192,17 +272,23 @@ async def ai_assist(
         "blocks": blocks,
     }
 
+
 @router.post("/assist/stream")
 async def ai_assist_stream(
     request: AIRequest,
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
 ):
-    """AI 辅助（流式）"""
+    """
+    AI 辅助（流式 SSE）。主入口：编辑器快捷润色/修改/续写等。
+
+    事件：正文 chunk（经 _sse_data）；结束后可选
+    data: [ASSIST_META]{"format","blocks"}，再 data: [DONE]。
+    """
     document = check_document_access(db, request.document_id, current_user["id"])
-    
+
     content = "\n".join([block.get('content', '') for block in document.content])
-    
+
     async def generate():
         buf: list[str] = []
         async for chunk in AIWritingService.stream_request(db, request, content, current_user["id"]):
@@ -214,8 +300,9 @@ async def ai_assist_stream(
             meta = json.dumps({"format": "markdown", "blocks": blocks}, ensure_ascii=False)
             yield _sse_data(f"[ASSIST_META]{meta}")
         yield _sse_data("[DONE]")
-    
+
     return StreamingResponse(generate(), media_type="text/event-stream")
+
 
 @router.post("/chat/stream")
 async def ai_chat_stream(
@@ -223,10 +310,12 @@ async def ai_chat_stream(
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
 ):
-    """AI 对话（流式）"""
-    # 检查文档访问权限
+    """
+    自由对话（流式）。Body：document_id, messages[], include_memory?, style_agent_id?, assistant_mode?。
+    include_memory=True 时注入项目设定；assistant_mode=girlfriend 启用女友人格；SSE 格式同 assist/stream。
+    """
     check_document_access(db, request.document_id, current_user["id"])
-    
+
     async def generate():
         buf: list[str] = []
         async for chunk in AIWritingService.chat(
@@ -236,6 +325,7 @@ async def ai_chat_stream(
             request.include_memory,
             current_user["id"],
             style_agent_id=request.style_agent_id,
+            assistant_mode=getattr(request, "assistant_mode", None),
         ):
             buf.append(chunk)
             yield _sse_data(chunk)
@@ -245,9 +335,13 @@ async def ai_chat_stream(
             meta = json.dumps({"format": "markdown", "blocks": blocks}, ensure_ascii=False)
             yield _sse_data(f"[ASSIST_META]{meta}")
         yield _sse_data("[DONE]")
-    
+
     return StreamingResponse(generate(), media_type="text/event-stream")
 
+
+# ---------------------------------------------------------------------------
+# 2) 按项目设定：生成 / 对齐重写 / 重建 / 批量成章
+# ---------------------------------------------------------------------------
 
 @router.post("/generate-from-memory/stream")
 async def ai_generate_from_memory_stream(
@@ -255,7 +349,11 @@ async def ai_generate_from_memory_stream(
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
 ):
-    """根据项目设定 AI 自动生成内容（流式）"""
+    """
+    按项目设定生成正文片段（流式）。
+    generate_type：opening | continue | outline_section | scene | custom。
+    需项目所有者；不强制已有 document_id。
+    """
     check_project_owner(db, request.project_id, current_user["id"])
 
     async def generate():
@@ -280,7 +378,12 @@ async def ai_rewrite_from_memory_stream(
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user),
 ):
-    """设定变更后，按最新设定重写一篇或多篇文档（流式进度）"""
+    """
+    设定变更后，按最新设定重写文档（流式进度事件）。
+    rewrite_mode：full|align|characters|world|style；
+    document_ids 空则项目下全部文档；apply_to_documents 控制是否写回。
+    前端：AIRewriteFromSettings「对齐重写」。
+    """
     check_project_owner(db, request.project_id, current_user["id"])
 
     if request.document_ids:
@@ -310,7 +413,10 @@ async def ai_rebuild_from_memory_stream(
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user),
 ):
-    """设定大改：重新梳理大纲并生成新文档（旧稿可归档）"""
+    """
+    设定大改：重梳大纲并生成新章节文档；旧稿可归档。
+    前端：AIRewriteFromSettings「重建」。
+    """
     check_project_owner(db, request.project_id, current_user["id"])
 
     async def generate():
@@ -337,7 +443,14 @@ async def ai_batch_generate_stream(
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
 ):
-    """批量/多轮次 AI 写作（流式），基于大纲自动逐章生成"""
+    """
+    按大纲节点逐章生成并写入目标文档（流式）。
+    Body：project_id, document_id, outline_nodes[], max_tokens_per_chapter,
+    continue_on_complete, custom_instruction?, style_agent_id?。
+    校验：文档可访问、项目属主、且 document.project_id == project_id。
+    SSE 载荷多为 JSON（progress/content/chapter_complete/error/done）。
+    前端：大纲「创建文章」、AIAutoWrite。
+    """
     doc = check_document_access(db, request.document_id, current_user["id"])
     check_project_owner(db, request.project_id, current_user["id"])
     if doc.project_id != request.project_id:
@@ -361,13 +474,20 @@ async def ai_batch_generate_stream(
     return StreamingResponse(generate(), media_type="text/event-stream")
 
 
+# ---------------------------------------------------------------------------
+# 3) 文学作品分析 → 新建/覆盖项目设定
+# ---------------------------------------------------------------------------
+
 @router.post("/analyze-literature")
 async def analyze_literature(
     request: LiteraryAnalysisRequest,
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
 ):
-    """分析文学作品，提取结构化信息"""
+    """
+    分析文学作品文本，提取标题/大纲/角色/世界观等结构化结果（不落库）。
+    前端：LiteratureAnalyzer、AIExtract 第一步。
+    """
     analysis = await AIWritingService.analyze_literature(
         content=request.content,
         title=request.title,
@@ -384,7 +504,10 @@ async def create_project_from_literature(
     current_user: dict = Depends(get_current_user),
     llm_service: LLMService = Depends(get_llm_service),
 ):
-    """根据解析后的作品设定创建项目（不再传原文档，不重复调用分析）"""
+    """
+    用已有分析结果创建项目并写入 AIMemory（不再重复 analyze）。
+    若 analysis.outline 为空会先 _ensure_outline_for_long_project 补大纲。
+    """
     from app.models.models import Project, AIMemory
 
     analysis = await _ensure_outline_for_long_project(request.analysis, llm_service)
@@ -426,7 +549,7 @@ async def apply_project_from_literature(
     current_user: dict = Depends(get_current_user),
     llm_service: LLMService = Depends(get_llm_service),
 ):
-    """将文学分析结果应用到已有项目设定（覆盖项目设定）"""
+    """将文学分析结果覆盖写入已有项目的 AIMemory（需项目所有者）。"""
     check_project_owner(db, request.project_id, current_user["id"])
 
     analysis = await _ensure_outline_for_long_project(request.analysis, llm_service)
@@ -451,6 +574,10 @@ async def apply_project_from_literature(
     )
 
 
+# ---------------------------------------------------------------------------
+# 4) 多媒体：插图 / 口播文案 / 影视脚本 / 本地上传
+# ---------------------------------------------------------------------------
+
 @router.post("/generate-article-image")
 async def generate_article_image(
     request: GenerateArticleImageRequest,
@@ -461,6 +588,7 @@ async def generate_article_image(
     """
     根据当前文档正文生成一张配图，保存到 /static/generated_images/，
     返回 image 块（含 props.src）供前端插入编辑器。
+    优先 request.blocks（含未保存编辑），否则用 DB content。
     """
     document = check_document_access(db, request.document_id, current_user["id"])
     # 优先使用前端传入的块（含未保存编辑），否则用数据库中的 content
@@ -493,6 +621,7 @@ async def convert_to_video_script(
     将文章一键转换为：
     - 短视频口播文案（含钩子、分镜、标签）
     - AI 视频生成提示词（英文，可直接用于 Runway/Kling 等）
+    可传 document_id 和/或 raw_* / blocks（未保存稿）。
     """
     title = (request.raw_title or "").strip()
     blocks: Optional[List[Dict[str, Any]]] = request.raw_blocks or request.blocks
@@ -582,6 +711,7 @@ async def upload_document_image(
 ):
     """
     上传本地图片到 static/uploads/images/，返回可供编辑器使用的 /static/... URL。
+    multipart：document_id + file；限 jpeg/png/gif/webp，≤5MB。
     """
     check_document_access(db, document_id, current_user["id"])
     raw_ct = (file.content_type or "").split(";")[0].strip().lower()

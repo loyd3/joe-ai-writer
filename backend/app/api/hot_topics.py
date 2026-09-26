@@ -62,18 +62,26 @@ async def get_categories(
 @router.get("/topics")
 async def get_hot_topics(
     category: Optional[str] = Query(None, description="分类筛选"),
-    limit: int = Query(10, ge=1, le=20, description="返回数量"),
+    limit: int = Query(10, ge=1, le=50, description="返回数量"),
+    refresh: bool = Query(False, description="强制重新抓取"),
     service: EnhancedHotTopicsService = Depends(get_hot_topics_service)
 ):
     """
-    获取热点话题列表
+    获取热点话题列表（优先真源，失败保底）。
     """
     try:
-        topics = await service.get_hot_topics(category=category, limit=limit)
+        result = await service.get_hot_topics(
+            category=category, limit=limit, force_refresh=refresh
+        )
+        topics = result.get("topics") or []
         return {
             "success": True,
             "data": topics,
-            "total": len(topics)
+            "total": len(topics),
+            "is_fallback": bool(result.get("is_fallback")),
+            "message": result.get("message") or "",
+            "data_source": result.get("data_source") or "fallback",
+            "updated_at": result.get("updated_at"),
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

@@ -2,74 +2,21 @@
   <div class="writing-style-page">
     <div class="page-header">
       <div class="header-left">
-        <el-button link class="btn-icon" @click="goBack">
-          <el-icon><ArrowLeft /></el-icon>
-        </el-button>
         <div class="title-block">
-          <div class="breadcrumb">
-            <span class="crumb" @click="goProject">{{ projectTitle }}</span>
-            <el-icon class="sep"><ArrowRight /></el-icon>
-            <span class="current">文风设置</span>
-          </div>
-          <p class="sub">配置文风智能体：语气、节奏、禁忌与笔触范例</p>
+          <h1 class="page-title">文风库</h1>
+          <p class="sub">系统级文风：预设、手建，或从多份范文提炼后在写作中选用（入口：左下角用户菜单）</p>
         </div>
-      </div>
-      <div class="header-right">
-        <el-button class="btn" @click="goSettings">项目设定</el-button>
       </div>
     </div>
 
     <div class="page-body">
-      <StyleAgentsPanel
-        v-if="projectIdNum"
-        :project-id="projectIdNum"
-      />
-      <el-empty v-else description="无效的项目" />
+      <StyleAgentsPanel />
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
-import { ArrowLeft, ArrowRight } from '@element-plus/icons-vue'
-import { useProjectStore } from '@/stores/project'
 import StyleAgentsPanel from '@/components/StyleAgentsPanel.vue'
-
-const route = useRoute()
-const router = useRouter()
-const store = useProjectStore()
-
-const projectIdNum = computed(() => Number(route.params.id))
-const projectTitle = ref('项目')
-
-onMounted(async () => {
-  const id = projectIdNum.value
-  if (!id || Number.isNaN(id)) return
-  try {
-    if (store.currentProject?.id === id) {
-      projectTitle.value = store.currentProject.title || '项目'
-      return
-    }
-    await store.fetchProject(id)
-    projectTitle.value = store.currentProject?.title || '项目'
-  } catch {
-    projectTitle.value = '项目'
-  }
-})
-
-function goBack() {
-  if (window.history.length > 1) router.back()
-  else goProject()
-}
-
-function goProject() {
-  router.push(`/project/${projectIdNum.value}`)
-}
-
-function goSettings() {
-  router.push(`/project/${projectIdNum.value}/settings`)
-}
 </script>
 
 <style scoped lang="scss">
@@ -80,72 +27,34 @@ function goSettings() {
   height: 100%;
   display: flex;
   flex-direction: column;
-  overflow: hidden;
   background: var(--coffee-bg);
-  box-sizing: border-box;
 }
 
 .page-header {
-  flex-shrink: 0;
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
-  gap: 16px;
-  padding: 14px 28px;
+  padding: 16px 24px;
   border-bottom: 1px solid var(--coffee-border);
   background: var(--coffee-bg-card);
 }
 
-.header-left {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  min-width: 0;
-}
-
-.btn-icon {
-  margin-top: 2px;
-  font-size: 20px;
-  color: var(--coffee-text-muted);
-  &:hover { color: var(--coffee-primary); }
-}
-
-.breadcrumb {
-  display: flex;
-  align-items: center;
-  gap: 6px;
+.page-title {
+  margin: 0 0 4px;
   font-size: 18px;
   font-weight: 600;
   color: var(--coffee-text);
-
-  .crumb {
-    color: var(--coffee-text-muted);
-    cursor: pointer;
-    font-weight: 500;
-    &:hover { color: var(--coffee-primary); }
-  }
-  .sep {
-    font-size: 14px;
-    color: var(--coffee-text-light);
-  }
 }
 
 .sub {
-  margin: 4px 0 0;
+  margin: 0;
   font-size: 13px;
-  color: var(--coffee-text-light);
+  color: var(--coffee-text-muted);
 }
 
 .page-body {
   flex: 1;
   min-height: 0;
-  display: flex;
-  flex-direction: column;
   overflow: hidden;
-
-  :deep(.style-agents-panel) {
-    flex: 1;
-    min-height: 0;
-  }
 }
 </style>

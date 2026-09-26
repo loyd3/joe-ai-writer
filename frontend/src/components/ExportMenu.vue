@@ -38,15 +38,6 @@
                 </div>
               </div>
             </el-dropdown-item>
-            <el-dropdown-item command="pdf">
-              <div class="dd-item">
-                <span class="dd-icon"><el-icon><Collection /></el-icon></span>
-                <div class="dd-meta">
-                  <span class="dd-title">PDF</span>
-                  <span class="dd-desc">适合打印和分享</span>
-                </div>
-              </div>
-            </el-dropdown-item>
             <el-dropdown-item command="docx">
               <div class="dd-item">
                 <span class="dd-icon"><el-icon><Files /></el-icon></span>
@@ -98,7 +89,7 @@
 import { ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { exportApi, downloadFile } from '@/api/search-export'
-import { Download, ArrowDown, Document, Folder, Collection, Files } from '@element-plus/icons-vue'
+import { Download, ArrowDown, Document, Folder, Files } from '@element-plus/icons-vue'
 
 const props = withDefaults(
   defineProps<{
@@ -143,10 +134,6 @@ async function confirmExport() {
       response = await exportApi.exportDocumentMarkdown(props.documentId, includeMemory.value)
       filename = `${props.documentTitle || 'document'}.md`
       mimeType = 'text/markdown'
-    } else if (command === 'pdf' && props.documentId) {
-      response = await exportApi.exportDocumentPdf(props.documentId, includeMemory.value)
-      filename = `${props.documentTitle || 'document'}.pdf`
-      mimeType = 'application/pdf'
     } else if (command === 'docx' && props.documentId) {
       response = await exportApi.exportDocumentDocx(props.documentId, includeMemory.value)
       filename = `${props.documentTitle || 'document'}.docx`

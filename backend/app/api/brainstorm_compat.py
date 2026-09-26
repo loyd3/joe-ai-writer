@@ -1,14 +1,63 @@
 """
-兼容前端旧接口的脑洞写作 API
+脑洞写作兼容 API（`/api/brainstorm`）
 
-前端调用：
-- GET  /api/brainstorm/categories
-- GET  /api/brainstorm/trending?limit=8   # AI 生成热门脑洞
-- GET  /api/brainstorm/random?category=xxx
-- GET  /api/brainstorm/from-hot-topics?limit=5
-- POST /api/brainstorm/generate-outline[/stream]
-- POST /api/brainstorm/generate-article[/stream]
-- POST /api/brainstorm/generate-project/stream  # 脑洞→新项目+设定+分章
+==============================================================================
+定位
+------------------------------------------------------------------------------
+给前端页 `BrainstormWriting.vue` 用的脑洞链路：逛脑洞 → 收藏 → 生成大纲/正文，
+或一键「脑洞 → 新项目 + 设定 + 分章正文」。
+
+文件名带 compat：对齐前端约定的路径与响应形状；另有 `brainstorm.py`
+（EnhancedBrainstormService 正式路由，如 /brainstorm/modes），两套并存。
+
+装配：`main.py` → `include_router(brainstorm_compat.router)`
+
+==============================================================================
+调用方
+------------------------------------------------------------------------------
+  frontend/src/views/BrainstormWriting.vue
+    GET  /categories, /trending, /random, /from-hot-topics
+    GET|POST|DELETE /saved…
+    POST /generate-outline/stream, /generate-article/stream
+    POST /generate-project/stream
+
+依赖：
+  LLMService / EnhancedBrainstormService（分类模式）
+  AIStoryGeneratorService（一键建项目时的完整设定）
+  AIWritingService（成文时的人手写法规则等）
+  SavedBrainstorm 表（收藏持久化）
+
+==============================================================================
+接口分组
+------------------------------------------------------------------------------
+1) 浏览脑洞（多数可不登录；AI 失败回退 BRAINSTORM_POOL）
+   GET /categories          创意模式列表（来自 CREATIVE_MODES）
+   GET /trending            AI 批量热门脑洞卡片
+   GET /random              AI 单个随机脑洞
+   GET /from-hot-topics     「热点感」提示词再生成一批（非真实外网热点源）
+
+2) 收藏（需登录）
+   GET    /saved
+   POST   /saved            同 concept 不重复
+   DELETE /saved/{saved_id}
+
+3) 从脑洞写短文（可不登录；走 LLM）
+   POST /generate-outline[/stream]   → 大纲 JSON / SSE+[OUTLINE_META]
+   POST /generate-article[/stream]   → 正文；流式结束可带块结构 meta
+
+4) 脑洞一键成项目（需登录）
+   POST /generate-project/stream
+     设定(AIStoryGenerator) → 建 Project+AIMemory → 分章写 Document
+     SSE JSON：status|project_created|memory_ready|chapter_*|complete|error
+
+==============================================================================
+BRAINSTORM_POOL
+------------------------------------------------------------------------------
+代码内写死的本地脑洞列表（约 20 条），仅作 AI 生成失败时的兜底抽样，
+不是日常热门/随机的主数据源。改内容需改本文件常量，或后续改为配置/入库。
+
+卡片形状（浏览接口返回）：{ title, category, heat, concept }
+==============================================================================
 """
 
 from __future__ import annotations
@@ -36,6 +85,7 @@ from sqlalchemy.orm import Session
 router = APIRouter(prefix="/api/brainstorm", tags=["脑洞写作(compat)"])
 
 
+# 本地兜底池：AI 失败时 random.sample；日常热门/随机优先走 _ai_generate_brainstorms
 BRAINSTORM_POOL = [
     {"title": "如果记忆可以交易，你会卖掉哪一段？", "category": "whatif", "concept": "在一个记忆可以自由买卖的世界，主角为了救人不得不出售最珍贵的回忆"},
     {"title": "时间旅行者的咖啡馆", "category": "crossover", "concept": "一家只在午夜出现的咖啡馆，每杯咖啡能让你回到人生中的某个瞬间"},
@@ -65,6 +115,7 @@ def _random_heat() -> int:
 
 
 def _make_card(item: Dict[str, Any]) -> Dict[str, Any]:
+    """统一浏览卡片结构；heat 为展示用随机热度，非真实排行。"""
     return {
         "title": item["title"],
         "category": item.get("category", "random"),
@@ -79,14 +130,17 @@ def get_brainstorm_service(
     return EnhancedBrainstormService(llm_service)
 
 
-# ---------- 浏览类接口（AI 生成脑洞，失败回退本地池） ----------
+# ---------- 1) 浏览：AI 生成脑洞，失败回退 BRAINSTORM_POOL ----------
 
 async def _ai_generate_brainstorms(
     llm: LLMService,
     count: int,
     category: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
-    """用 AI 批量生成脑洞卡片"""
+    """
+    用 LLM 批量生成脑洞卡片；解析失败或空结果时从 BRAINSTORM_POOL 抽样。
+    category 若在 CREATIVE_MODES 中，会写入提示词侧重该创意模式。
+    """
     mode_hint = ""
     if category and category in EnhancedBrainstormService.CREATIVE_MODES:
         mode = EnhancedBrainstormService.CREATIVE_MODES[category]
@@ -143,6 +197,7 @@ async def _ai_generate_brainstorms(
 
 @router.get("/categories")
 async def categories():
+    """创意模式列表：{ key, name }，来自 EnhancedBrainstormService.CREATIVE_MODES。"""
     modes = EnhancedBrainstormService.CREATIVE_MODES
     return [
         {"key": k, "name": f'{v.get("icon", "🧠")} {v["name"]}'}
@@ -156,7 +211,7 @@ async def trending(
     category: Optional[str] = None,
     llm: LLMService = Depends(get_llm_service),
 ):
-    """AI 生成热门脑洞列表"""
+    """热门脑洞列表（AI 现造；失败回退本地池）。Query: limit, category?"""
     return await _ai_generate_brainstorms(llm, count=limit, category=category)
 
 
@@ -165,7 +220,7 @@ async def random_brainstorm(
     category: Optional[str] = None,
     llm: LLMService = Depends(get_llm_service),
 ):
-    """AI 生成单个随机脑洞"""
+    """随机一条脑洞卡片（AI 造 1 条；全空则池内任选）。"""
     items = await _ai_generate_brainstorms(llm, count=1, category=category)
     return items[0] if items else _make_card(random.choice(BRAINSTORM_POOL))
 
@@ -175,7 +230,10 @@ async def from_hot_topics(
     limit: int = Query(5, ge=1, le=20),
     llm: LLMService = Depends(get_llm_service),
 ):
-    """基于「热点感」由 AI 生成一批脑洞（当前不接外部热点源）"""
+    """
+    「热点感」脑洞一批。不接外网热点 API，仅用提示词模拟当下话题方向；
+    失败则退回 _ai_generate_brainstorms。返回 { brainstorms: [...] }。
+    """
     prompt = f"""请结合当下社会/网络常见话题方向，生成 {limit} 个脑洞（科幻、生活、职场、情感均可）。
 只输出 JSON 数组：[{{"title":"...","category":"whatif","concept":"..."}}]"""
     try:
@@ -195,7 +253,7 @@ async def from_hot_topics(
     return {"brainstorms": await _ai_generate_brainstorms(llm, count=limit)}
 
 
-# ---------- 收藏脑洞（登录用户持久化） ----------
+# ---------- 2) 收藏脑洞（登录用户 → saved_brainstorms 表） ----------
 
 def _saved_to_dict(row: SavedBrainstorm) -> Dict[str, Any]:
     return {
@@ -213,6 +271,7 @@ async def list_saved_brainstorms(
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user),
 ):
+    """当前用户收藏列表：{ brainstorms: [...] }，按创建时间倒序。"""
     rows = (
         db.query(SavedBrainstorm)
         .filter(SavedBrainstorm.user_id == current_user["id"])
@@ -228,6 +287,10 @@ async def save_brainstorm(
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user),
 ):
+    """
+    收藏一条脑洞。Body：title?, concept(必填), category?, source?。
+    同一用户相同 concept 视为重复，返回已有记录 duplicated=True。
+    """
     title = (payload.get("title") or "").strip()
     concept = (payload.get("concept") or "").strip()
     if not concept:
@@ -266,6 +329,7 @@ async def delete_saved_brainstorm(
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user),
 ):
+    """删除本人收藏；找不到或不属当前用户 → 404。"""
     row = (
         db.query(SavedBrainstorm)
         .filter(
@@ -281,10 +345,10 @@ async def delete_saved_brainstorm(
     return {"success": True}
 
 
-# ---------- 生成类接口（调 LLM） ----------
+# ---------- 3) 生成大纲 / 短文（调 LLM；流式供 BrainstormWriting 页） ----------
 
 def _normalize_outline(raw_text: str, title: str) -> Dict[str, Any]:
-    """把 LLM 返回的文本/JSON 标准化成前端需要的结构"""
+    """把 LLM 返回的文本/JSON 标准化成前端大纲：{ title, angle, sections, keywords }。"""
     # 先试 JSON
     try:
         m = re.search(r"\{.*\}", raw_text, re.DOTALL)
@@ -354,6 +418,10 @@ async def generate_outline(
     payload: Dict[str, Any],
     llm: LLMService = Depends(get_llm_service),
 ):
+    """
+    非流式生成大纲。Body：title?, concept?, style?, word_count?。
+    返回 { outline: { title, angle, sections, keywords } }；LLM 失败用内置骨架兜底。
+    """
     title = payload.get("title") or "脑洞写作"
     concept = payload.get("concept") or ""
     style = payload.get("style") or "幽默风趣"
@@ -462,6 +530,11 @@ async def generate_article(
     payload: Dict[str, Any],
     llm: LLMService = Depends(get_llm_service),
 ):
+    """
+    非流式：按脑洞+可选大纲写一篇 Markdown 短文。
+    Body：title?, concept?, style?, word_count?(short|medium|long|数字), outline?。
+    返回 { article: { title, content, style, word_count } }；套用 ANTI_AI_STYLE_RULES。
+    """
     title = payload.get("title") or "脑洞写作"
     concept = payload.get("concept") or ""
     style = payload.get("style") or "幽默风趣"
@@ -526,8 +599,8 @@ async def generate_article_stream(
     llm: LLMService = Depends(get_llm_service),
 ):
     """
-    流式输出脑洞文章正文（与前端 /hot-topics/generate-article/stream 类似）。
-    逐片输出 data: {text}\n\n，最后输出 data: [DONE]\n\n。
+    流式输出脑洞文章正文（BrainstormWriting 主路径）。
+    Body 同 /generate-article。SSE：data: <chunk>\\n\\n，结束 data: [DONE]。
     """
     title = payload.get("title") or "脑洞写作"
     concept = payload.get("concept") or ""
@@ -582,10 +655,10 @@ async def generate_article_stream(
     return StreamingResponse(gen(), media_type="text/event-stream")
 
 
-# ---------- 脑洞 → 新项目（提纲+设定+分章内容） ----------
+# ---------- 4) 脑洞 → 新项目（设定 + 分章文档；需登录） ----------
 
 def _project_scale(word_count: Any) -> tuple:
-    """返回 (目标总字数, 章节数, 每章约字数)"""
+    """short|medium|long 或数字 → (目标总字数, 章节数, 每章约字数)。"""
     if isinstance(word_count, str):
         mapping = {
             "short": (4000, 3, 1200),
@@ -606,9 +679,17 @@ async def generate_project_stream(
     llm: LLMService = Depends(get_llm_service),
 ):
     """
-    从脑洞一键创建项目：生成提纲与设定 → 建文档分章 → 逐章写正文。
-    SSE 事件（JSON）：
-      {type: status|project_created|memory_ready|chapter_start|chapter_done|complete|error, ...}
+    从脑洞一键创建项目（BrainstormWriting「生成项目」）。
+
+    Body：title?, concept(必填), style?, category?, word_count?。
+    流程：AIStoryGeneratorService.generate_full_story
+      → 建 Project + AIMemory
+      → 按大纲分章建 Document 并写正文。
+
+    SSE（JSON 一行一个事件）：
+      type: status | project_created | memory_ready
+           | chapter_start | chapter_done | complete | error
+    结束另发 data: [DONE]。
     """
     title = (payload.get("title") or "脑洞项目").strip()
     concept = (payload.get("concept") or "").strip()
