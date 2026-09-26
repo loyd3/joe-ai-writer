@@ -81,6 +81,10 @@
           />
         </el-form-item>
 
+        <el-form-item label="文风">
+          <StyleAgentPicker v-model="selectedStyleAgentId" :label="''" />
+        </el-form-item>
+
         <el-form-item>
           <el-checkbox v-model="autoInsert">
             自动插入到文档（无需逐章确认）
@@ -393,7 +397,8 @@ import { ref, computed, nextTick, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { aiApi, documentApi } from '@/api'
 import type { OutlineNode, AIGenerateChunk } from '@/api/types'
-import { parseFormattedTextToBlocks } from '@/utils/formatToBlocks'
+import { prepareChapterBlocks } from '@/utils/formatToBlocks'
+import StyleAgentPicker from '@/components/StyleAgentPicker.vue'
 import {
   ArrowRight, ArrowLeft, VideoPlay, VideoPause, EditPen,
   CircleCheck, DocumentAdd, Document, Plus, Right, Close,
@@ -422,6 +427,7 @@ const selectedNodes = ref<number[]>([])
 // 第二步：配置
 const maxTokens = ref(8000)
 const customInstruction = ref('')
+const selectedStyleAgentId = ref<number | undefined>(undefined)
 const autoContinue = ref(true)
 const autoInsert = ref(false)
 const autoInsertMode = ref<'create' | 'append'>('create')
@@ -607,7 +613,8 @@ async function attemptGenerate(node: OutlineNode) {
         outline_nodes: [node],
         max_tokens_per_chapter: maxTokens.value,
         continue_on_complete: autoContinue.value,
-        custom_instruction: customInstruction.value || undefined
+        custom_instruction: customInstruction.value || undefined,
+        style_agent_id: selectedStyleAgentId.value,
       }),
       chapterTimeoutSec.value * 1000
     )
@@ -906,11 +913,8 @@ async function autoCreateOrUpdateDocument() {
       const existingContent = existingDoc.content || []
 
       // 添加章节标题和内容（自动解析 ##、>、- 等格式为块）
-      const contentBlocks = parseFormattedTextToBlocks(content, 'upd')
-      const newBlocks = [
-        { id: Date.now().toString() + '-h', type: 'heading', content: title, props: { level: 2 } },
-        ...contentBlocks
-      ]
+      const contentBlocks = prepareChapterBlocks(content, title, 'upd')
+      const newBlocks = contentBlocks
       await documentApi.update(existingDoc.id, {
         content: [...existingContent, ...newBlocks]
       })
@@ -934,7 +938,7 @@ async function autoCreateOrUpdateDocument() {
       ElMessage.success(`已更新文档：${existingDoc.title}`)
     } else {
       // 创建新文档（自动解析格式为块）
-      const contentBlocks = parseFormattedTextToBlocks(content, 'new')
+      const contentBlocks = prepareChapterBlocks(content, title, 'new')
       const doc = await documentApi.create(props.projectId, {
         title: title,
         content: contentBlocks.length ? contentBlocks : [{ id: Date.now().toString(), type: 'paragraph', content: content, props: {} }]
@@ -974,7 +978,7 @@ async function autoCreateDocument() {
   try {
     const title = currentChapterTitle.value
     const content = currentChapterContent.value
-    const contentBlocks = parseFormattedTextToBlocks(content, 'auto')
+    const contentBlocks = prepareChapterBlocks(content, title, 'auto')
     const doc = await documentApi.create(props.projectId, {
       title: title,
       content: contentBlocks.length ? contentBlocks : [{ id: Date.now().toString(), type: 'paragraph', content: content, props: {} }]
@@ -1013,13 +1017,9 @@ async function autoAppendToCurrent() {
 
     const currentDoc = await documentApi.get(props.documentId)
     const existingContent = currentDoc.data.content || []
-    const contentBlocks = parseFormattedTextToBlocks(content, 'cur')
-    const newBlocks = [
-      { id: Date.now().toString() + '-h', type: 'heading', content: currentChapterTitle.value, props: { level: 2 } },
-      ...contentBlocks
-    ]
+    const contentBlocks = prepareChapterBlocks(content, currentChapterTitle.value, 'cur')
     await documentApi.update(props.documentId, {
-      content: [...existingContent, ...newBlocks]
+      content: [...existingContent, ...contentBlocks]
     })
 
     const completed: CompletedChapter = {
@@ -1054,7 +1054,7 @@ async function createNewDocument() {
   try {
     const title = currentChapterTitle.value
     const content = currentChapterContent.value
-    const contentBlocks = parseFormattedTextToBlocks(content, 'doc')
+    const contentBlocks = prepareChapterBlocks(content, title, 'doc')
     const doc = await documentApi.create(props.projectId, {
       title: title,
       content: contentBlocks.length ? contentBlocks : [{ id: Date.now().toString(), type: 'paragraph', content: content, props: {} }]
@@ -1097,13 +1097,9 @@ async function insertToCurrentDoc() {
     const existingContent = currentDoc.data.content || []
 
     // 添加章节标题和内容（自动解析格式）
-    const contentBlocks = parseFormattedTextToBlocks(content, 'ins')
-    const newBlocks = [
-      { id: Date.now().toString() + '-h', type: 'heading', content: currentChapterTitle.value, props: { level: 2 } },
-      ...contentBlocks
-    ]
+    const contentBlocks = prepareChapterBlocks(content, currentChapterTitle.value, 'ins')
     await documentApi.update(props.documentId, {
-      content: [...existingContent, ...newBlocks]
+      content: [...existingContent, ...contentBlocks]
     })
 
     // 记录
@@ -1187,7 +1183,8 @@ async function retryFailedChapter(completedIndex: number) {
       outline_nodes: [node],
       max_tokens_per_chapter: maxTokens.value,
       continue_on_complete: true,
-      custom_instruction: customInstruction.value || undefined
+      custom_instruction: customInstruction.value || undefined,
+      style_agent_id: selectedStyleAgentId.value,
     })
 
     if (!res.ok) {
@@ -1238,7 +1235,7 @@ async function retryFailedChapter(completedIndex: number) {
     // Auto-save the regenerated content
     if (autoInsert.value) {
       const content = fullContent
-      const contentBlocks = parseFormattedTextToBlocks(content, 'retry')
+      const contentBlocks = prepareChapterBlocks(content, currentChapterTitle.value, 'retry')
       const doc = await documentApi.create(props.projectId, {
         title: currentChapterTitle.value,
         content: contentBlocks.length
@@ -1554,6 +1551,7 @@ function resetAndClose() {
   padding: 12px 16px;
   background: var(--el-fill-color-light);
   border-radius: 10px;
+  min-width: 100%;
 
   .el-slider {
     flex: 1;

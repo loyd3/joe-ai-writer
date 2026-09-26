@@ -20,12 +20,13 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
-from app.api.auth import get_current_user
+from app.api.auth import get_current_user, get_current_user_optional
 from app.database import get_db
 from app.models.models import Document, Project
 from app.services.enhanced_hot_topics_service import EnhancedHotTopicsService
 from app.services.llm_service import LLMService
 from app.services.cache_service import CacheService
+from app.services.style_agent_service import StyleAgentService
 from app.api.dependencies import get_llm_service, get_cache_service
 
 
@@ -255,6 +256,8 @@ async def generate_outline_compat(
 async def generate_outline_stream_compat(
     payload: Dict[str, Any],
     service: EnhancedHotTopicsService = Depends(get_hot_topics_service),
+    db: Session = Depends(get_db),
+    current_user: Optional[dict] = Depends(get_current_user_optional),
 ):
     """
     流式输出热点写作大纲（兼容前端）。
@@ -263,10 +266,18 @@ async def generate_outline_stream_compat(
     - data: <chunk>\n\n （大纲生成过程的原始文本）
     - data: [OUTLINE_META]{...}\n\n （结构化大纲，供前端渲染）
     - data: [DONE]\n\n
+    Body 可含 style / style_agent_id。
     """
     topic_title = payload.get("topic_title") or ""
     article_type = payload.get("article_type") or "评论"
     word_count = int(payload.get("word_count") or 1500)
+    style = payload.get("style") or "专业"
+    style_section = StyleAgentService.prompt_style_section(
+        db,
+        current_user["id"] if current_user else None,
+        payload.get("style_agent_id"),
+        fallback_label=style,
+    )
 
     guess = _guess_topic_fields(topic_title)
 
@@ -278,7 +289,8 @@ async def generate_outline_stream_compat(
 所属分类: {guess["category"]}
 文章类型: {article_type}
 目标字数: {word_count}字
-
+风格标签: {style}
+{style_section}
 请生成包含以下要素的大纲：
 1. 文章标题（3个备选）
 2. 文章导语
@@ -340,9 +352,18 @@ async def generate_outline_stream_compat(
 async def generate_article_stream_compat(
     payload: Dict[str, Any],
     service: EnhancedHotTopicsService = Depends(get_hot_topics_service),
+    db: Session = Depends(get_db),
+    current_user: Optional[dict] = Depends(get_current_user_optional),
 ):
     outline = payload.get("outline") or {}
     selected_title = (payload.get("selected_title") or "").strip()
+    style = payload.get("style") or outline.get("style") or "专业"
+    style_block = StyleAgentService.prompt_style_section(
+        db,
+        current_user["id"] if current_user else None,
+        payload.get("style_agent_id"),
+        fallback_label=style,
+    )
 
     # 兼容：把 outline 内的信息尽量取出来
     topic_title = selected_title or outline.get("topic_title") or outline.get("title") or "热点解读"
@@ -357,9 +378,10 @@ async def generate_article_stream_compat(
                 topic_aspect=guess["aspect"],
                 category=guess["category"],
                 outline=outline,
-                article_type="评论",
-                word_count=1500,
-                style="专业",
+                article_type=payload.get("article_type") or "评论",
+                word_count=int(payload.get("word_count") or 1500),
+                style=style,
+                style_block=style_block,
             ):
                 text = str(chunk)
                 if text:
@@ -440,9 +462,23 @@ async def quick_write_and_save(
     outline = _normalize_outline(outline_result.get("outline") or {}, topic_title)
     title_options = outline.get("title_options") or []
     selected_title = title_options[0] if title_options else topic_title or "热点解读"
+    style = payload.get("style") or "专业"
+    style_block = StyleAgentService.prompt_style_section(
+        db,
+        current_user["id"],
+        payload.get("style_agent_id"),
+        fallback_label=style,
+    )
 
     # 非流式快速生成全文（避免前端再跑一遍 stream）
-    prompt = f"""请根据以下大纲写一篇文章。\n标题：{selected_title}\n大纲：\n{json.dumps(outline, ensure_ascii=False, indent=2)}\n\n请直接输出正文，不要包含多余说明。"""
+    prompt = f"""请根据以下大纲写一篇文章。
+标题：{selected_title}
+风格标签：{style}
+{style_block}
+大纲：
+{json.dumps(outline, ensure_ascii=False, indent=2)}
+
+请直接输出正文，不要包含多余说明。若上方有文风智能体要求，严格遵循。"""
     article = await llm.generate(
         prompt, max_tokens=max(8000, word_count * 3), timeout=300.0
     )

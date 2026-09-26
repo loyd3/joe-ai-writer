@@ -217,10 +217,6 @@ class AIRequest(BaseModel):
     selected_text: Optional[str] = None
     instruction: Optional[str] = None
     style_agent_id: Optional[int] = Field(None, description="文风智能体 ID，空则用用户默认")
-    assistant_mode: Optional[str] = Field(
-        "default",
-        description="助手人格：default | girlfriend",
-    )
 
 class AIStreamResponse(BaseModel):
     content: str
@@ -235,10 +231,6 @@ class AIChatRequest(BaseModel):
     messages: List[ChatMessage]
     include_memory: bool = True
     style_agent_id: Optional[int] = Field(None, description="文风智能体 ID，空则用用户默认")
-    assistant_mode: Optional[str] = Field(
-        "default",
-        description="助手人格：default | girlfriend",
-    )
 
 
 class AIGenerateFromMemoryRequest(BaseModel):

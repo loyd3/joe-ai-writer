@@ -562,11 +562,13 @@ class EnhancedHotTopicsService:
         outline: Dict[str, Any],
         article_type: str = "评论",
         word_count: int = 1500,
-        style: str = "专业"
+        style: str = "专业",
+        style_block: str = "",
     ):
         """
         流式生成热点文章
         """
+        style_extra = (style_block or "").strip()
         prompt = f"""请根据以下信息创作一篇热点文章：
 
 话题标题: {topic_title}
@@ -575,7 +577,8 @@ class EnhancedHotTopicsService:
 所属分类: {category}
 文章类型: {article_type}
 目标字数: {word_count}字
-写作风格: {style}
+写作风格标签: {style}
+{style_extra}
 
 大纲:
 {json.dumps(outline, ensure_ascii=False, indent=2)}
@@ -588,6 +591,7 @@ class EnhancedHotTopicsService:
 5. 语言流畅，符合新媒体阅读习惯
 6. 适当使用小标题，增强可读性
 7. 结尾要有力，给读者留下思考空间
+8. 若上方有文风智能体要求，以该文风为准
 
 格式要求（Markdown）：
 - 全文只用一个 # 作为文章大标题

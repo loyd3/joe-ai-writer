@@ -184,7 +184,7 @@
           <!-- 写作设置 -->
           <div class="settings-bar">
             <div class="setting-item">
-              <label>写作风格：</label>
+              <label>话题风格：</label>
               <select v-model="writingStyle">
                 <option value="幽默风趣">😄 幽默风趣</option>
                 <option value="深度思考">🤔 深度思考</option>
@@ -201,6 +201,9 @@
                 <option value="long">长文 / 约8章</option>
               </select>
             </div>
+          </div>
+          <div class="settings-bar style-agent-row">
+            <StyleAgentPicker v-model="selectedStyleAgentId" label="文风智能体" />
           </div>
 
           <!-- 操作按钮 -->
@@ -417,6 +420,7 @@ import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 import PublishDialog from '@/components/PublishDialog.vue'
 import VideoScriptDialog from '@/components/VideoScriptDialog.vue'
+import StyleAgentPicker from '@/components/StyleAgentPicker.vue'
 import { useAuthStore } from '@/stores/auth'
 import api, { projectApi, documentApi, API_BASE_URL } from '@/api'
 import type { Block } from '@/api/types'
@@ -442,6 +446,7 @@ const savedBrainstorms = ref<Array<{
 const customTitle = ref('')
 const customConcept = ref('')
 const writingStyle = ref('幽默风趣')
+const selectedStyleAgentId = ref<number | undefined>(undefined)
 const wordCount = ref('medium')
 const outline = ref(null)
 const article = ref(null)
@@ -771,6 +776,7 @@ const generateOutline = async () => {
         category: selectedBrainstorm.value.category,
         concept: selectedBrainstorm.value.concept,
         style: writingStyle.value,
+        style_agent_id: selectedStyleAgentId.value,
         word_count: wordCount.value,
       }),
     })
@@ -862,6 +868,7 @@ const generateArticle = async () => {
         category: selectedBrainstorm.value.category,
         concept: selectedBrainstorm.value.concept,
         style: writingStyle.value,
+        style_agent_id: selectedStyleAgentId.value,
         word_count: wordCount.value,
         outline: outline.value,
       }),
@@ -957,6 +964,7 @@ const generateProject = async () => {
         concept: selectedBrainstorm.value.concept,
         category: selectedBrainstorm.value.category,
         style: writingStyle.value,
+        style_agent_id: selectedStyleAgentId.value,
         word_count: wordCount.value,
       }),
     })
@@ -1417,6 +1425,11 @@ onMounted(() => {
   padding: 16px;
   background: var(--coffee-bg-warm);
   border-radius: 8px;
+
+  &.style-agent-row {
+    flex-direction: column;
+    gap: 8px;
+  }
 
   .setting-item {
     display: flex;

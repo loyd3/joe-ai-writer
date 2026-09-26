@@ -328,6 +328,18 @@ export const styleAgentApi = {
     api.post<StyleAgent>(`/style-agents/${agentId}/set-default`),
   delete: (agentId: number) =>
     api.delete(`/style-agents/${agentId}`),
+  parseFiles: (files: File[]) => {
+    const form = new FormData()
+    files.forEach((f) => form.append('files', f))
+    return api.post<{
+      sources: { name: string; text: string; chars: number; format: string }[]
+      errors: string[]
+      count: number
+    }>('/style-agents/parse-files', form, {
+      timeout: 120000,
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+  },
   extractFromText: (data: {
     text?: string
     texts?: string[]

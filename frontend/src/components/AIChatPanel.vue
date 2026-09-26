@@ -1,29 +1,15 @@
 <template>
-  <div class="ai-chat-panel" :class="{ 'mode-girlfriend': assistantMode === 'girlfriend' }">
+  <div class="ai-chat-panel">
     <div class="panel-header">
       <div class="header-top">
         <div class="header-title">
-          <div class="ai-avatar" :class="{ gf: assistantMode === 'girlfriend' }">
-            <span class="avatar-glyph">{{ assistantMode === 'girlfriend' ? '♥' : '墨' }}</span>
+          <div class="ai-avatar">
+            <span class="avatar-glyph">墨</span>
           </div>
           <div class="title-text">
             <h3>小墨</h3>
-            <span>{{ modeSubtitle }}</span>
+            <span>墨心里的写作搭档</span>
           </div>
-        </div>
-        <div class="mode-switch" role="group" aria-label="助手模式">
-          <button
-            type="button"
-            class="mode-chip"
-            :class="{ active: assistantMode === 'default' }"
-            @click="setAssistantMode('default')"
-          >搭档</button>
-          <button
-            type="button"
-            class="mode-chip gf"
-            :class="{ active: assistantMode === 'girlfriend' }"
-            @click="setAssistantMode('girlfriend')"
-          >女友</button>
         </div>
       </div>
 
@@ -55,7 +41,7 @@
     <div class="quick-actions">
       <div class="actions-title">快捷操作</div>
       <div class="action-buttons">
-        <el-button size="small" @click="quickAction('guide')">
+        <el-button size="small" @click="quickAction('guide')" style="margin-left: 10px;">
           <el-icon><Compass /></el-icon> 指导
         </el-button>
         <el-button size="small" @click="quickAction('revise')">
@@ -81,7 +67,7 @@
         :class="msg.role"
       >
         <div class="message-avatar">
-          <span v-if="msg.role === 'assistant'" class="mini-glyph">{{ assistantMode === 'girlfriend' ? '♥' : '墨' }}</span>
+          <span v-if="msg.role === 'assistant'" class="mini-glyph">墨</span>
           <el-icon v-else><User /></el-icon>
         </div>
         <div class="message-content">
@@ -129,7 +115,7 @@
 
       <div v-if="streaming" class="message assistant streaming">
         <div class="message-avatar">
-          <span class="mini-glyph">{{ assistantMode === 'girlfriend' ? '♥' : '墨' }}</span>
+          <span class="mini-glyph">墨</span>
         </div>
         <div class="message-content">
           <div class="message-text markdown-body">
@@ -200,14 +186,9 @@ import AIDiffViewer from './AIDiffViewer.vue'
 marked.setOptions({ gfm: true, breaks: true })
 
 type InsertPos = 'cursor' | 'end'
-type AssistantMode = 'default' | 'girlfriend'
-
-const ASSISTANT_MODE_KEY = 'joe-ai-assistant-mode'
 
 const WELCOME_DEFAULT =
   '你好，我是小墨～可以把正文「送到助手」后提修改要求，或用上方快捷按钮。生成结果可插入到光标处或文末。'
-const WELCOME_GIRLFRIEND =
-  '嘿，我是小墨～今天想写哪一段？把段落送到我这儿，或点快捷按钮，我陪你慢慢改到顺眼为止。'
 
 type AssistChatMessage = {
   role: string
@@ -270,43 +251,6 @@ const emit = defineEmits<{
 const styleAgents = ref<StyleAgent[]>([])
 const selectedStyleAgentId = ref<number | undefined>(undefined)
 
-function loadStoredMode(): AssistantMode {
-  try {
-    const v = localStorage.getItem(ASSISTANT_MODE_KEY)
-    if (v === 'girlfriend') return 'girlfriend'
-  } catch {
-    /* ignore */
-  }
-  return 'default'
-}
-
-const assistantMode = ref<AssistantMode>(loadStoredMode())
-
-const modeSubtitle = computed(() =>
-  assistantMode.value === 'girlfriend'
-    ? '你的写作女友 · 温柔又靠谱'
-    : '墨心里的写作搭档'
-)
-
-function setAssistantMode(mode: AssistantMode) {
-  if (assistantMode.value === mode) return
-  assistantMode.value = mode
-  try {
-    localStorage.setItem(ASSISTANT_MODE_KEY, mode)
-  } catch {
-    /* ignore */
-  }
-  // 若当前仅有欢迎语，切换模式时更新开场白
-  if (messages.value.length === 1 && messages.value[0].role === 'assistant') {
-    messages.value = [{
-      role: 'assistant',
-      content: mode === 'girlfriend' ? WELCOME_GIRLFRIEND : WELCOME_DEFAULT,
-    }]
-  } else {
-    ElMessage.success(mode === 'girlfriend' ? '已切换为女友模式' : '已切换为搭档模式')
-  }
-}
-
 async function loadStyleAgents() {
   try {
     const { data } = await styleAgentApi.list()
@@ -327,7 +271,7 @@ watch(
 const messages = ref<AssistChatMessage[]>([
   {
     role: 'assistant',
-    content: loadStoredMode() === 'girlfriend' ? WELCOME_GIRLFRIEND : WELCOME_DEFAULT,
+    content: WELCOME_DEFAULT,
   },
 ])
 
@@ -489,7 +433,6 @@ async function sendMessage() {
       messages: messages.value.map(m => ({ role: m.role, content: m.content })),
       include_memory: true,
       style_agent_id: selectedStyleAgentId.value,
-      assistant_mode: assistantMode.value,
     })
 
     const reader = response.body?.getReader()
@@ -623,7 +566,6 @@ async function runAssistAction(action: string, selectedText?: string, blockIndex
       selected_text: selectedText,
       instruction: undefined,
       style_agent_id: selectedStyleAgentId.value,
-      assistant_mode: assistantMode.value,
     })
     const reader = response.body?.getReader()
     if (!reader) throw new Error('No reader')
@@ -746,38 +688,6 @@ function scrollToBottom() {
     gap: 12px;
   }
 
-  .mode-switch {
-    display: inline-flex;
-    padding: 3px;
-    border-radius: 10px;
-    background: var(--coffee-bg-card);
-    border: 1px solid var(--coffee-border);
-    flex-shrink: 0;
-  }
-
-  .mode-chip {
-    border: none;
-    background: transparent;
-    color: var(--coffee-text-muted);
-    font-size: 12px;
-    font-weight: 600;
-    padding: 6px 12px;
-    border-radius: 8px;
-    cursor: pointer;
-    transition: background 0.15s, color 0.15s;
-    &:hover {
-      color: var(--coffee-text);
-      background: var(--coffee-bg-warm);
-    }
-    &.active {
-      background: var(--coffee-primary);
-      color: #fff;
-    }
-    &.gf.active {
-      background: linear-gradient(135deg, #c45c6a 0%, var(--coffee-primary) 100%);
-    }
-  }
-
   .style-picker {
     display: flex;
     align-items: flex-start;
@@ -860,10 +770,6 @@ function scrollToBottom() {
         color: #fff;
         letter-spacing: 0.02em;
       }
-
-      &.gf {
-        background: linear-gradient(135deg, #c45c6a 0%, var(--coffee-primary) 100%);
-      }
     }
 
     .title-text {
@@ -880,12 +786,6 @@ function scrollToBottom() {
         color: var(--coffee-text-light);
       }
     }
-  }
-}
-
-.ai-chat-panel.mode-girlfriend {
-  .panel-header {
-    background: linear-gradient(135deg, rgba(196, 92, 106, 0.08) 0%, var(--coffee-bg) 100%);
   }
 }
 

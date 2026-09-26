@@ -59,6 +59,7 @@
             >
               <span>{{ m }}</span>
               <el-tag v-if="m.includes('deepseek-chat')" size="small" type="success" style="margin-left: 8px">推荐</el-tag>
+              <el-tag v-if="m.includes('reasoner') || m.includes('R1')" size="small" type="warning" style="margin-left: 8px">推理·较慢</el-tag>
             </el-option>
           </el-option-group>
           <el-option-group label="其他模型" v-if="currentProvider?.models?.length > 3">
@@ -70,6 +71,14 @@
             />
           </el-option-group>
         </el-select>
+        <div
+          v-if="form.model && (form.model.includes('reasoner') || form.model.includes('R1') || form.model.toLowerCase().includes('r1'))"
+          class="form-hint"
+          style="margin-top: 8px"
+        >
+          <el-icon><InfoFilled /></el-icon>
+          推理模型会先思考再写正文，生成更慢；写作场景已自动只取最终正文。日常写作用 deepseek-chat 更稳更快。
+        </div>
       </el-form-item>
       
       <!-- API Key -->

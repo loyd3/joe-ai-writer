@@ -257,7 +257,7 @@ async def ai_assist(
     AI 辅助（非流式）。
 
     Body(AIRequest)：document_id, action(guide|revise|polish|continue|expand|
-    format_style|…), selected_text?, instruction?, style_agent_id?, assistant_mode?
+    format_style|…), selected_text?, instruction?, style_agent_id?
     从 DB 拼文档纯文本交给 AIWritingService.process_request。
     返回 { response, format: "markdown", blocks }。
     """
@@ -311,8 +311,8 @@ async def ai_chat_stream(
     current_user: dict = Depends(get_current_user)
 ):
     """
-    自由对话（流式）。Body：document_id, messages[], include_memory?, style_agent_id?, assistant_mode?。
-    include_memory=True 时注入项目设定；assistant_mode=girlfriend 启用女友人格；SSE 格式同 assist/stream。
+    自由对话（流式）。Body：document_id, messages[], include_memory?, style_agent_id?。
+    include_memory=True 时注入项目设定；SSE 格式同 assist/stream。
     """
     check_document_access(db, request.document_id, current_user["id"])
 
@@ -325,7 +325,6 @@ async def ai_chat_stream(
             request.include_memory,
             current_user["id"],
             style_agent_id=request.style_agent_id,
-            assistant_mode=getattr(request, "assistant_mode", None),
         ):
             buf.append(chunk)
             yield _sse_data(chunk)

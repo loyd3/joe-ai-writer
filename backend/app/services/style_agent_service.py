@@ -501,6 +501,28 @@ class StyleAgentService:
         )
 
     @staticmethod
+    def resolve_style_block_for_user(
+        db: Session,
+        user_id: int,
+        style_agent_id: Optional[int] = None,
+        *,
+        use_default: bool = True,
+    ) -> str:
+        """按用户文风库解析风格块（无项目亦可）。"""
+        agent: Optional[WritingStyleAgent] = None
+        if style_agent_id:
+            agent = StyleAgentService.get_agent(db, user_id, style_agent_id)
+        if not agent and use_default:
+            agent = StyleAgentService.get_default_agent(db, user_id)
+        if not agent:
+            return ""
+        return compile_style_block(
+            agent.name,
+            agent.config if isinstance(agent.config, dict) else {},
+            agent.description or "",
+        )
+
+    @staticmethod
     def resolve_style_block(
         db: Session,
         project_id: int,
@@ -510,23 +532,53 @@ class StyleAgentService:
         project = db.query(Project).filter(Project.id == project_id).first()
         if not project:
             return ""
-        user_id = project.owner_id
-        agent: Optional[WritingStyleAgent] = None
-        if style_agent_id:
-            agent = StyleAgentService.get_agent(db, user_id, style_agent_id)
-        if not agent:
-            agent = StyleAgentService.get_default_agent(db, user_id)
-        if agent:
-            return compile_style_block(
-                agent.name,
-                agent.config if isinstance(agent.config, dict) else {},
-                agent.description or "",
-            )
+        block = StyleAgentService.resolve_style_block_for_user(
+            db, project.owner_id, style_agent_id, use_default=True
+        )
+        if block:
+            return block
         memory = (
             db.query(AIMemory).filter(AIMemory.project_id == project_id).first()
         )
         if memory and (memory.writing_style or "").strip():
             return f"【写作风格】\n{memory.writing_style.strip()}"
+        return ""
+
+    @staticmethod
+    def prompt_style_section(
+        db: Optional[Session],
+        user_id: Optional[int],
+        style_agent_id: Optional[int] = None,
+        fallback_label: str = "",
+        *,
+        use_default: bool = True,
+    ) -> str:
+        """
+        供脑洞/热点等独立写作页注入 prompt。
+        有文风智能体时用结构化块；否则回退到简短风格标签。
+        """
+        block = ""
+        sid: Optional[int] = None
+        if style_agent_id not in (None, "", 0, "0"):
+            try:
+                sid = int(style_agent_id)  # type: ignore[arg-type]
+            except (TypeError, ValueError):
+                sid = None
+
+        if db is not None and user_id is not None:
+            if sid is not None:
+                block = StyleAgentService.resolve_style_block_for_user(
+                    db, int(user_id), sid, use_default=False
+                )
+            elif use_default:
+                block = StyleAgentService.resolve_style_block_for_user(
+                    db, int(user_id), None, use_default=True
+                )
+        if block:
+            return f"\n{block}\n"
+        label = (fallback_label or "").strip()
+        if label:
+            return f"\n风格倾向：{label}\n请尽量贴近该风格写作。\n"
         return ""
 
     @staticmethod

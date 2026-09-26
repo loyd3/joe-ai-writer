@@ -159,8 +159,6 @@ export interface AIRequest {
   selected_text?: string
   instruction?: string
   style_agent_id?: number
-  /** 助手人格：default | girlfriend */
-  assistant_mode?: 'default' | 'girlfriend'
 }
 
 /** 非流式 /ai/assist：正文 + 格式标识 + 与脑洞写作一致的块结构 */
@@ -180,7 +178,6 @@ export interface AIChatRequest {
   messages: ChatMessage[]
   include_memory?: boolean
   style_agent_id?: number
-  assistant_mode?: 'default' | 'girlfriend'
 }
 
 export interface AIGenerateRequest {

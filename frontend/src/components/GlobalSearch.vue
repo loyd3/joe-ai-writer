@@ -144,7 +144,7 @@
                 <p class="empty-title">未找到相关内容</p>
                 <p class="empty-hint">尝试使用不同的关键词，或检查搜索设置</p>
                 <div v-if="indexStats.total_chunks === 0" class="index-hint">
-                  <p>搜索索引为空，请先建立索引</p>
+                  <p>未找到匹配。可尝试重建向量索引以增强语义召回</p>
                   <el-button type="primary" @click="initIndex" :loading="isIndexing">
                     建立搜索索引
                   </el-button>
@@ -159,7 +159,7 @@
               
               <div v-if="indexStats.total_chunks === 0" class="index-warning">
                 <el-icon><WarningFilled /></el-icon>
-                <span>搜索索引为空，需要先建立索引才能搜索</span>
+                <span>向量索引为空时仍可关键词搜索正文；建立索引后可启用语义搜索</span>
                 <el-button type="primary" size="small" @click="initIndex" :loading="isIndexing">
                   建立索引
                 </el-button>
@@ -375,15 +375,9 @@ function searchFromRecent(query: string) {
 }
 
 const debouncedSearch = debounce(async (query: string) => {
-  if (!query || query.length < 2) {
+  if (!query || query.trim().length < 1) {
     enhancedResults.value = []
     hasSearched.value = false
-    return
-  }
-  
-  if (indexStats.value.total_chunks === 0) {
-    enhancedResults.value = []
-    hasSearched.value = true
     return
   }
   
@@ -392,11 +386,11 @@ const debouncedSearch = debounce(async (query: string) => {
   
   try {
     const res = await searchApi.enhancedSearch({
-      q: query,
+      q: query.trim(),
       use_semantic: useSemanticSearch.value,
       use_keyword: true,
       top_k: 30,
-      min_score: 0.15
+      min_score: 0.12
     })
     
     enhancedResults.value = res.data.results
@@ -411,7 +405,7 @@ const debouncedSearch = debounce(async (query: string) => {
 }, 300)
 
 function handleInput() {
-  if (searchQuery.value.length >= 2) {
+  if (searchQuery.value.trim().length >= 1) {
     debouncedSearch(searchQuery.value)
   } else {
     enhancedResults.value = []
@@ -420,7 +414,7 @@ function handleInput() {
 }
 
 async function performSearch() {
-  if (!searchQuery.value.trim() || searchQuery.value.length < 2) return
+  if (!searchQuery.value.trim()) return
   
   saveRecentSearch(searchQuery.value.trim())
   await debouncedSearch(searchQuery.value)
@@ -494,7 +488,7 @@ function formatOffset(offset: number): string {
 }
 
 watch(useSemanticSearch, () => {
-  if (searchQuery.value.length >= 2) {
+  if (searchQuery.value.trim().length >= 1) {
     debouncedSearch(searchQuery.value)
   }
 })

@@ -1,4 +1,4 @@
-/* ===== 统一按钮规范 ===== */
+/* ===== 全局统一按钮规范（覆盖 Element Plus 默认） ===== */
 
 :root {
   --btn-height: 38px;
@@ -12,101 +12,127 @@
   --btn-font-size-lg: 15px;
 }
 
-/* 图标间距 */
-.btn .el-icon:first-child,
-.btn-primary .el-icon:first-child,
-.btn-danger .el-icon:first-child {
+/* ---------- 基础：所有实心/默认按钮 ---------- */
+.el-button:not(.is-link):not(.is-text):not(.btn-icon):not(.btn-icon-lg):not(.btn-icon-only):not(.btn-text):not(.btn-dashed) {
+  height: var(--btn-height);
+  padding: 0 var(--btn-padding-x);
+  border-radius: var(--btn-radius);
+  font-size: var(--btn-font-size);
+  font-weight: 500;
+  transition: all 0.2s ease;
+}
+
+.el-button:not(.is-link):not(.is-text) .el-icon:first-child {
   margin-right: 6px;
 }
 
-.btn .arrow-icon,
-.btn-primary .arrow-icon {
+.el-button .arrow-icon {
   margin-left: 4px;
   margin-right: 0 !important;
   font-size: 12px;
 }
 
-/* 次要按钮（描边） */
+/* 默认 / default / info → 描边次要按钮 */
+.el-button--default:not(.is-link):not(.is-text):not(.is-plain),
+.el-button--info:not(.is-link):not(.is-text):not(.is-plain),
 .btn,
 .el-button.btn {
-  height: var(--btn-height);
-  padding: 0 var(--btn-padding-x);
-  border-radius: var(--btn-radius);
   border: 1px solid var(--coffee-border);
   background: var(--coffee-bg-card);
   color: var(--coffee-text-secondary);
-  font-size: var(--btn-font-size);
-  font-weight: 500;
-  transition: all 0.2s;
 }
 
+.el-button--default:not(.is-link):not(.is-text):hover,
+.el-button--default:not(.is-link):not(.is-text):focus-visible,
+.el-button--info:not(.is-link):not(.is-text):hover,
 .btn:hover,
 .btn:focus-visible,
 .el-button.btn:hover,
 .el-button.btn:focus-visible {
-  color: var(--coffee-primary);
-  border-color: var(--coffee-primary);
-  background: var(--coffee-bg-warm);
+  color: var(--coffee-primary) !important;
+  border-color: var(--coffee-primary) !important;
+  background: var(--coffee-bg-warm) !important;
 }
 
-.btn.is-disabled,
-.btn.is-disabled:hover,
-.el-button.btn.is-disabled,
-.el-button.btn.is-disabled:hover {
-  opacity: 0.6;
-  transform: none;
-  box-shadow: none;
+/* plain 描边也走同一套 */
+.el-button.is-plain:not(.is-link):not(.is-text):not(.el-button--primary):not(.el-button--danger):not(.el-button--success):not(.el-button--warning) {
+  border: 1px solid var(--coffee-border);
+  background: var(--coffee-bg-card);
+  color: var(--coffee-text-secondary);
 }
 
-/* 主按钮（渐变实心） */
+.el-button.is-plain:not(.is-link):not(.is-text):not(.el-button--primary):not(.el-button--danger):hover {
+  color: var(--coffee-primary) !important;
+  border-color: var(--coffee-primary) !important;
+  background: var(--coffee-bg-warm) !important;
+}
+
+/* 主按钮 */
+.el-button--primary:not(.is-link):not(.is-text),
 .btn-primary,
-.el-button.btn-primary,
-.el-button.btn.el-button--primary:not(.is-link):not(.is-text) {
-  height: var(--btn-height);
-  padding: 0 var(--btn-padding-x-primary);
-  border-radius: var(--btn-radius);
-  border: none;
-  background: var(--coffee-gradient-primary);
-  color: #fff;
-  font-size: var(--btn-font-size);
+.el-button.btn-primary {
+  border: none !important;
+  background: var(--coffee-gradient-primary) !important;
+  color: #fff !important;
   font-weight: 600;
-  transition: all 0.2s;
+  padding: 0 var(--btn-padding-x-primary);
 }
 
+.el-button--primary:not(.is-link):not(.is-text):hover,
+.el-button--primary:not(.is-link):not(.is-text):focus-visible,
 .btn-primary:hover,
 .btn-primary:focus-visible,
 .el-button.btn-primary:hover,
-.el-button.btn-primary:focus-visible,
-.el-button.btn.el-button--primary:not(.is-link):not(.is-text):hover,
-.el-button.btn.el-button--primary:not(.is-link):not(.is-text):focus-visible {
+.el-button.btn-primary:focus-visible {
   box-shadow: 0 4px 14px rgba(var(--coffee-primary-rgb), 0.38);
-  background: var(--coffee-gradient-primary);
-  color: #fff;
-  border-color: transparent;
+  background: var(--coffee-gradient-primary) !important;
+  color: #fff !important;
+  border-color: transparent !important;
+  opacity: 0.95;
 }
 
-.btn-primary.is-disabled,
-.btn-primary.is-disabled:hover,
-.el-button.btn-primary.is-disabled,
-.el-button.btn-primary.is-disabled:hover,
-.el-button.btn.el-button--primary.is-disabled,
-.el-button.btn.el-button--primary.is-disabled:hover {
-  transform: none;
-  box-shadow: none;
-  opacity: 0.6;
+.el-button--primary.is-plain:not(.is-link):not(.is-text) {
+  border: 1px solid var(--coffee-primary) !important;
+  background: color-mix(in srgb, var(--coffee-primary) 10%, transparent) !important;
+  color: var(--coffee-primary) !important;
 }
 
-/* 危险按钮 */
+.el-button--primary.is-plain:not(.is-link):not(.is-text):hover {
+  background: var(--coffee-gradient-primary) !important;
+  color: #fff !important;
+  border-color: transparent !important;
+}
+
+/* 危险 */
+.el-button--danger:not(.is-link):not(.is-text),
 .btn-danger,
-.el-button.btn-danger,
-.el-button.btn.el-button--danger:not(.is-link):not(.is-text) {
+.el-button.btn-danger {
   height: var(--btn-height);
   padding: 0 var(--btn-padding-x);
   border-radius: var(--btn-radius);
   font-size: var(--btn-font-size);
 }
 
+/* 成功 / 警告：保留语义色，统一尺寸圆角 */
+.el-button--success:not(.is-link):not(.is-text),
+.el-button--warning:not(.is-link):not(.is-text) {
+  border: none;
+  font-weight: 600;
+}
+
+/* 禁用 */
+.el-button.is-disabled,
+.el-button.is-disabled:hover,
+.btn.is-disabled,
+.btn.is-disabled:hover {
+  opacity: 0.55;
+  transform: none;
+  box-shadow: none;
+  cursor: not-allowed;
+}
+
 /* 大号 */
+.el-button--large:not(.is-link):not(.is-text),
 .btn-lg,
 .el-button.btn-lg {
   height: var(--btn-height-lg);
@@ -115,27 +141,14 @@
   font-size: var(--btn-font-size-lg);
 }
 
-.el-button.btn-primary.btn-lg,
-.el-button.btn.btn-lg.el-button--primary:not(.is-link):not(.is-text) {
-  height: var(--btn-height-lg);
-  padding: 0 24px;
-  border-radius: var(--btn-radius-lg);
-  font-size: var(--btn-font-size-lg);
-}
-
 /* 小号 */
+.el-button--small:not(.is-link):not(.is-text),
 .btn-sm,
 .el-button.btn-sm {
   height: var(--btn-height-sm);
-  padding: 0 16px;
+  padding: 0 14px;
   border-radius: var(--btn-radius);
   font-size: 13px;
-}
-
-.el-button.btn-primary.btn-sm,
-.el-button.btn.btn-sm.el-button--primary:not(.is-link):not(.is-text) {
-  height: var(--btn-height-sm);
-  padding: 0 16px;
 }
 
 /* 全宽 */
@@ -144,94 +157,109 @@
   width: 100%;
 }
 
-/* 虚线添加按钮 */
+/* 虚线添加 */
 .btn-dashed,
 .el-button.btn-dashed {
   width: 100%;
   height: var(--btn-height-lg);
   border-radius: var(--btn-radius-lg);
-  border: 2px dashed var(--coffee-border);
-  color: var(--coffee-text-muted);
-  background: transparent;
+  border: 2px dashed var(--coffee-border) !important;
+  color: var(--coffee-text-muted) !important;
+  background: transparent !important;
 }
 
 .btn-dashed:hover,
 .el-button.btn-dashed:hover {
-  border-color: var(--coffee-primary);
-  color: var(--coffee-primary);
-  background: var(--coffee-sidebar-shadow);
+  border-color: var(--coffee-primary) !important;
+  color: var(--coffee-primary) !important;
+  background: var(--coffee-sidebar-shadow, transparent) !important;
 }
 
-/* 返回 / 图标按钮 */
+/* 图标按钮 */
 .btn-icon,
 .el-button.btn-icon {
   width: 36px;
   height: 36px;
-  padding: 0;
+  min-height: 36px;
+  padding: 0 !important;
   border-radius: var(--btn-radius);
-  border: none;
-  background: transparent;
+  border: none !important;
+  background: transparent !important;
   color: var(--coffee-text-muted);
 }
 
 .btn-icon:hover,
 .el-button.btn-icon:hover {
-  background: var(--coffee-bg-warm);
-  color: var(--coffee-primary);
+  background: var(--coffee-bg-warm) !important;
+  color: var(--coffee-primary) !important;
 }
 
 .btn-icon-lg,
 .el-button.btn-icon-lg {
   width: 40px;
   height: 40px;
+  min-height: 40px;
+  padding: 0 !important;
   border-radius: var(--btn-radius-lg);
-  background: var(--coffee-bg-warm);
+  background: var(--coffee-bg-warm) !important;
+  border: none !important;
 }
 
 .btn-icon-lg:hover,
 .el-button.btn-icon-lg:hover {
-  background: var(--coffee-border-light);
-  color: var(--coffee-primary);
+  background: var(--coffee-border-light) !important;
+  color: var(--coffee-primary) !important;
 }
 
-/* 纯图标小按钮（工具栏） */
 .btn-icon-only,
 .el-button.btn-icon-only {
   min-width: 32px;
   height: 32px;
-  padding: 0 8px;
+  min-height: 32px;
+  padding: 0 8px !important;
   border-radius: 6px;
-  border: none;
-  background: var(--coffee-bg-warm);
+  border: none !important;
+  background: var(--coffee-bg-warm) !important;
   color: var(--coffee-text-secondary);
   font-size: 16px;
 }
 
 .btn-icon-only:hover,
 .el-button.btn-icon-only:hover {
-  background: var(--coffee-bg-hover);
-  color: var(--coffee-primary);
+  background: var(--coffee-bg-hover) !important;
+  color: var(--coffee-primary) !important;
 }
 
-/* 折叠/展开文字按钮 */
+/* 文字 / link */
+.el-button.is-link,
+.el-button.is-text,
 .btn-text,
 .el-button.btn-text {
   height: var(--btn-height);
   padding: 0 8px;
-  border: none;
-  background: transparent;
+  border: none !important;
+  background: transparent !important;
   color: var(--coffee-text-muted);
   font-size: 13px;
+  font-weight: 500;
+  box-shadow: none !important;
 }
 
+.el-button.is-link:hover,
+.el-button.is-text:hover,
 .btn-text:hover,
 .el-button.btn-text:hover {
-  color: var(--coffee-primary);
-  background: transparent;
+  color: var(--coffee-primary) !important;
+  background: transparent !important;
 }
 
-.btn-text .el-icon,
-.el-button.btn-text .el-icon {
-  margin-right: 2px;
-  font-size: 14px;
+.el-button.is-link.el-button--primary,
+.el-button.is-text.el-button--primary {
+  color: var(--coffee-primary);
+}
+
+/* 对话框底部按钮间距统一 */
+.el-dialog__footer .el-button + .el-button,
+.el-message-box__btns .el-button + .el-button {
+  margin-left: 10px;
 }

@@ -98,6 +98,10 @@
             </el-radio-group>
           </el-form-item>
 
+          <el-form-item label="文风智能体">
+            <StyleAgentPicker v-model="selectedStyleAgentId" :label="''" />
+          </el-form-item>
+
           <el-form-item label="额外要求（可选）">
             <el-input
               v-model="form.additionalRequirements"
@@ -241,6 +245,7 @@ import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 import PublishDialog from '@/components/PublishDialog.vue'
 import VideoScriptDialog from '@/components/VideoScriptDialog.vue'
+import StyleAgentPicker from '@/components/StyleAgentPicker.vue'
 import { useProjectStore } from '@/stores/project'
 import { API_BASE_URL } from '@/api'
 
@@ -276,6 +281,7 @@ const form = ref({
   tone: '专业且有说服力',
   additionalRequirements: '',
 })
+const selectedStyleAgentId = ref<number | undefined>(undefined)
 
 const saveConfig = ref({
   projectId: null as number | null,
@@ -338,6 +344,7 @@ async function generateCopywriting() {
         tone: form.value.tone,
         word_count: form.value.wordCount,
         additional_requirements: form.value.additionalRequirements,
+        style_agent_id: selectedStyleAgentId.value,
       }),
     })
 
@@ -433,6 +440,7 @@ async function quickWrite() {
         tone: form.value.tone,
         word_count: form.value.wordCount,
         additional_requirements: form.value.additionalRequirements,
+        style_agent_id: selectedStyleAgentId.value,
       }),
     })
 

@@ -58,30 +58,8 @@ class AIWritingService:
 
 """ + ANTI_AI_STYLE_RULES
 
-    # 女友模式：对话更亲昵陪伴感；改写类动作仍只输出正文
-    GIRLFRIEND_MODE_PROMPT = """你是「小墨」，用户的写作女友兼搭档。你温柔、体贴、有点俏皮，会认真陪他/她把文章写好。
-
-人格与语气：
-- 像亲近的女友在身边陪写：回应里可自然用「宝宝」「亲爱的」等亲昵称呼（别每句都喊，别油腻）
-- 建议类回复可以短一点撒娇关心，但专业内容要扎实，别只卖萌
-- 改写/润色/续写/扩展/调整样式时：仍然只输出正文，不要夹带情话或说明前缀
-- 指导、头脑风暴、总结等对话：用温暖口语，鼓励为主，指出问题时也柔和具体
-- 不越界：保持健康亲密陪伴，不做露骨色情内容
-
-写作质量要求与系统默认一致——自然流畅的人手叙述，去机感但不碎句。
-
-""" + ANTI_AI_STYLE_RULES
-
     # 需要做「去机感二遍」的动作（排版不碰）
     _HUMANIZE_ACTIONS = frozenset({"revise", "polish", "expand", "continue"})
-
-    @staticmethod
-    def resolve_system_prompt(assistant_mode: Optional[str] = None) -> str:
-        """按助手人格返回 system prompt。"""
-        mode = (assistant_mode or "default").strip().lower()
-        if mode in ("girlfriend", "gf", "女友"):
-            return AIWritingService.GIRLFRIEND_MODE_PROMPT
-        return AIWritingService.SYSTEM_PROMPT
 
     @staticmethod
     async def humanize_prose(text: str, max_chars: int = 12000) -> str:
@@ -124,13 +102,12 @@ class AIWritingService:
         memory_context: str,
         selected_text: Optional[str] = None,
         instruction: Optional[str] = None,
-        assistant_mode: Optional[str] = None,
     ) -> list:
         """构建 AI 对话消息"""
         messages = [
             {
                 "role": "system",
-                "content": AIWritingService.resolve_system_prompt(assistant_mode),
+                "content": AIWritingService.SYSTEM_PROMPT,
             }
         ]
 
@@ -234,7 +211,6 @@ class AIWritingService:
                 memory_context=memory_context,
                 selected_text=request.selected_text,
                 instruction=request.instruction,
-                assistant_mode=getattr(request, "assistant_mode", None),
             )
 
             response = await ai_client.chat_completion(messages)
@@ -311,7 +287,6 @@ class AIWritingService:
                 memory_context=memory_context,
                 selected_text=request.selected_text,
                 instruction=request.instruction,
-                assistant_mode=getattr(request, "assistant_mode", None),
             )
 
             # 根据输入内容长度动态计算 max_tokens
@@ -384,9 +359,7 @@ class AIWritingService:
 
         async def _process_segment(index: int, segment) -> None:
             async with semaphore:
-                system_prompt = AIWritingService.resolve_system_prompt(
-                    getattr(request, "assistant_mode", None)
-                )
+                system_prompt = AIWritingService.SYSTEM_PROMPT
                 segment_prompt = processor.build_segment_prompt(
                     segment,
                     request.action,
@@ -464,7 +437,6 @@ class AIWritingService:
         user_id: Optional[int] = None,
         use_rag: bool = True,
         style_agent_id: Optional[int] = None,
-        assistant_mode: Optional[str] = None,
     ) -> AsyncGenerator[str, None]:
         """自由对话模式,支持 RAG 检索"""
         from app.models.models import Document
@@ -472,7 +444,7 @@ class AIWritingService:
         try:
             formatted_messages = [{
                 "role": "system",
-                "content": AIWritingService.resolve_system_prompt(assistant_mode),
+                "content": AIWritingService.SYSTEM_PROMPT,
             }]
 
             if include_memory:
@@ -1095,18 +1067,18 @@ class AIWritingService:
             "2. 内容紧扣章节主题和大纲描述",
             "3. 保持与前文的连贯性(如有前文)",
             f"4. 字数控制在 {max_chars} 字符以内",
-            "5. 只输出生成的正文,不要输出章节标题或解释",
+            "5. 只输出生成的正文,不要输出「如下」「本章完」等说明前缀;章节名若需要可用 ## 标成标题",
             "6. 使用自然流畅的中文,句子完整连贯;比喻宁少勿多;勿故意堆短句或跳跃断句",
             "7. 关键抉择可有犹豫,但叙述仍要顺;不要写成精确戳中全部软肋的剧本",
             "",
             AIWritingService.ANTI_AI_STYLE_RULES,
             "",
-            "【格式约定】为便于自动排版,请适当使用以下标记(每行单独使用):",
-            "- 小节标题:单独一行,以 ## 开头,如 ## 场景一",
+            "【格式约定·必须】写入编辑器后会自动按标记排版,请严格使用:",
+            "- 小节标题:单独一行,以 ## 开头,如 ## 场景一(不要用单个 #,不要用 **加粗**)",
             "- 子标题:单独一行,以 ### 开头",
             "- 对话/引用:以 > 开头的行,如 > \"你好。\"",
             "- 列表:以 - 开头的行",
-            "- 段落之间空一行。不要使用 ``` 等代码块标记。"
+            "- 段落之间空一行;不要使用 ``` 代码块、不要输出 HTML"
         ]
 
         return "\n".join(system_parts)
@@ -1143,7 +1115,17 @@ class AIWritingService:
             truncated_prev = previous_context[-3000:] if len(previous_context) > 3000 else previous_context
             user_parts.append(f"\n【前文回顾（最后部分）】\n{truncated_prev}")
         
-        user_parts.append(f"\n【写作要求】\n请生成本章正文，字数约 {max_chars} 字符。可适当用 ## 小节标题、> 对话/引用、- 列表 等格式增强可读性，段落间空一行。")
+        user_parts.append(
+            f"\n【写作要求】\n请生成本章正文，字数约 {max_chars} 字符。\n"
+            "必须使用编辑器可读的结构标记，写入后会自动排版：\n"
+            "- 小节标题单独一行，以 ## 开头（不要用单个 #）\n"
+            "- 子标题以 ### 开头\n"
+            "- 对话或旁白引用以 > 开头\n"
+            "- 列表以 - 开头\n"
+            "- 段落之间空一行\n"
+            "- 不要输出 **加粗**、*斜体*、``` 代码块或说明性前缀\n"
+            "直接输出正文。"
+        )
         if custom_instruction:
             user_parts.append(f"额外要求：{custom_instruction}")
         

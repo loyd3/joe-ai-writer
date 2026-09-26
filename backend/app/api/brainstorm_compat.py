@@ -71,7 +71,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 
 from app.api.dependencies import get_llm_service
-from app.api.auth import get_current_user
+from app.api.auth import get_current_user, get_current_user_optional
 from app.database import get_db
 from app.models.models import Project, Document, AIMemory, SavedBrainstorm
 from app.services.enhanced_brainstorm_service import EnhancedBrainstormService
@@ -79,10 +79,28 @@ from app.services.llm_service import LLMService
 from app.services.ai_story_generator_service import AIStoryGeneratorService
 from app.services.ai_writing_service import AIWritingService
 from app.services.document_service import _markdown_to_blocks
+from app.services.style_agent_service import StyleAgentService
 from sqlalchemy.orm import Session
 
 
 router = APIRouter(prefix="/api/brainstorm", tags=["脑洞写作(compat)"])
+
+
+def _style_section(
+    db: Optional[Session],
+    user: Optional[dict],
+    payload: Dict[str, Any],
+    fallback_style: str = "",
+) -> str:
+    """从 payload.style_agent_id + 登录用户解析文风块。"""
+    uid = user["id"] if user else None
+    return StyleAgentService.prompt_style_section(
+        db,
+        uid,
+        payload.get("style_agent_id"),
+        fallback_label=fallback_style or payload.get("style") or "",
+        use_default=True,
+    )
 
 
 # 本地兜底池：AI 失败时 random.sample；日常热门/随机优先走 _ai_generate_brainstorms
@@ -417,22 +435,25 @@ def _normalize_outline(raw_text: str, title: str) -> Dict[str, Any]:
 async def generate_outline(
     payload: Dict[str, Any],
     llm: LLMService = Depends(get_llm_service),
+    db: Session = Depends(get_db),
+    current_user: Optional[dict] = Depends(get_current_user_optional),
 ):
     """
-    非流式生成大纲。Body：title?, concept?, style?, word_count?。
+    非流式生成大纲。Body：title?, concept?, style?, style_agent_id?, word_count?。
     返回 { outline: { title, angle, sections, keywords } }；LLM 失败用内置骨架兜底。
     """
     title = payload.get("title") or "脑洞写作"
     concept = payload.get("concept") or ""
     style = payload.get("style") or "幽默风趣"
     word_count = payload.get("word_count") or "medium"
+    style_section = _style_section(db, current_user, payload, style)
 
     prompt = f"""请为以下脑洞生成文章大纲。
 
 标题：{title}
 核心概念：{concept}
-风格：{style}
-篇幅：{word_count}
+风格标签：{style}
+{style_section}篇幅：{word_count}
 
 请以 JSON 格式输出，格式如下：
 {{
@@ -470,24 +491,28 @@ async def generate_outline(
 async def generate_outline_stream(
     payload: Dict[str, Any],
     llm: LLMService = Depends(get_llm_service),
+    db: Session = Depends(get_db),
+    current_user: Optional[dict] = Depends(get_current_user_optional),
 ):
     """
     流式输出脑洞文章大纲：
     - SSE: data: <chunk>\n\n
     - 最后：data: [OUTLINE_META]{json}\n\n
     - 结束：data: [DONE]\n\n
+    Body 可含 style_agent_id（用户文风库）。
     """
     title = payload.get("title") or "脑洞写作"
     concept = payload.get("concept") or ""
     style = payload.get("style") or "幽默风趣"
     word_count = payload.get("word_count") or "medium"
+    style_section = _style_section(db, current_user, payload, style)
 
     prompt = f"""请为以下脑洞生成文章大纲。
 
 标题：{title}
 核心概念：{concept}
-风格：{style}
-篇幅：{word_count}
+风格标签：{style}
+{style_section}篇幅：{word_count}
 
 请以 JSON 格式输出，格式如下：
 {{
@@ -529,10 +554,12 @@ async def generate_outline_stream(
 async def generate_article(
     payload: Dict[str, Any],
     llm: LLMService = Depends(get_llm_service),
+    db: Session = Depends(get_db),
+    current_user: Optional[dict] = Depends(get_current_user_optional),
 ):
     """
     非流式：按脑洞+可选大纲写一篇 Markdown 短文。
-    Body：title?, concept?, style?, word_count?(short|medium|long|数字), outline?。
+    Body：title?, concept?, style?, style_agent_id?, word_count?(short|medium|long|数字), outline?。
     返回 { article: { title, content, style, word_count } }；套用 ANTI_AI_STYLE_RULES。
     """
     title = payload.get("title") or "脑洞写作"
@@ -540,6 +567,7 @@ async def generate_article(
     style = payload.get("style") or "幽默风趣"
     word_count = payload.get("word_count") or "medium"
     outline = payload.get("outline")
+    style_section = _style_section(db, current_user, payload, style)
 
     wc_map = {"short": 1000, "medium": 1500, "long": 2500}
     target_wc = wc_map.get(word_count, 1500) if isinstance(word_count, str) else int(word_count)
@@ -558,13 +586,13 @@ async def generate_article(
 
 标题：{title}
 核心概念：{concept}
-风格：{style}
-目标字数：约 {target_wc} 字
+风格标签：{style}
+{style_section}目标字数：约 {target_wc} 字
 大纲：{outline_text}
 
 要求：
 1. 开头引人入胜
-2. 保持 {style} 的文风
+2. 严格遵循上方文风要求（若有文风智能体则以智能体为准）
 3. 情节发展自然
 4. 结尾有余韵，但不要对称升华或金句收束
 5. 写得像人手：场面先行、句长参差、对话口语、信息有取舍
@@ -597,16 +625,19 @@ async def generate_article(
 async def generate_article_stream(
     payload: Dict[str, Any],
     llm: LLMService = Depends(get_llm_service),
+    db: Session = Depends(get_db),
+    current_user: Optional[dict] = Depends(get_current_user_optional),
 ):
     """
     流式输出脑洞文章正文（BrainstormWriting 主路径）。
-    Body 同 /generate-article。SSE：data: <chunk>\\n\\n，结束 data: [DONE]。
+    Body 同 /generate-article（含 style_agent_id）。SSE：data: <chunk>\\n\\n，结束 data: [DONE]。
     """
     title = payload.get("title") or "脑洞写作"
     concept = payload.get("concept") or ""
     style = payload.get("style") or "幽默风趣"
     word_count = payload.get("word_count") or "medium"
     outline = payload.get("outline")
+    style_section = _style_section(db, current_user, payload, style)
 
     wc_map = {"short": 1000, "medium": 1500, "long": 2500}
     target_wc = wc_map.get(word_count, 1500) if isinstance(word_count, str) else int(word_count)
@@ -625,13 +656,13 @@ async def generate_article_stream(
 
 标题：{title}
 核心概念：{concept}
-风格：{style}
-目标字数：约 {target_wc} 字
+风格标签：{style}
+{style_section}目标字数：约 {target_wc} 字
 大纲：{outline_text}
 
 要求：
 1. 开头引人入胜
-2. 保持 {style} 的文风
+2. 严格遵循上方文风要求（若有文风智能体则以智能体为准）
 3. 情节发展自然
 4. 结尾有余韵，但不要对称升华或金句收束
 5. 写得像人手：场面先行、句长参差、对话口语、信息有取舍
@@ -697,6 +728,7 @@ async def generate_project_stream(
     category = payload.get("category") or ""
     word_count = payload.get("word_count") or "medium"
     total_wc, chapter_count, per_chapter_wc = _project_scale(word_count)
+    style_section = _style_section(db, current_user, payload, style)
 
     if not concept:
         raise HTTPException(status_code=400, detail="请提供脑洞核心概念 concept")
@@ -718,7 +750,10 @@ async def generate_project_stream(
                 genre=None,
                 word_count=total_wc,
                 chapter_count=chapter_count,
-                additional_requirements=f"写作风格偏向：{style}。设定要适合连载分章展开。",
+                additional_requirements=(
+                    f"写作风格偏向：{style}。设定要适合连载分章展开。"
+                    f"{style_section}"
+                ),
             )
             if not story_data or "error" in story_data:
                 yield sse({
@@ -819,14 +854,15 @@ async def generate_project_stream(
 【本章】{ch_title}
 【本章要点】{ch_desc}
 【前文摘要】{previous_summary or '（本章为开篇）'}
-【风格】{style}
-【目标字数】约 {per_chapter_wc} 字
+【风格标签】{style}
+{style_section}【目标字数】约 {per_chapter_wc} 字
 
 要求：
 1. 只写本章正文，不要输出元说明
 2. 情节承接前文、为后文留钩子
 3. 人物言行符合设定
-4. 直接输出 Markdown 正文
+4. 严格遵循上方文风要求
+5. 直接输出 Markdown 正文
 """
                 try:
                     content = await llm.generate(

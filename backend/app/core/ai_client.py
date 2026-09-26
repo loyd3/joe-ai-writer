@@ -2,15 +2,98 @@
 统一 AI 客户端 - 支持多模型提供商
 支持: OpenAI, DeepSeek, SiliconFlow, 意心(YXAI), 自定义 API
 支持从数据库 system_configs 表或配置文件读取配置（数据库优先）
+
+Reason / R1 模型注意：
+- 思维链在 reasoning_content，正文在 content；写作只取 content
+- 部分网关对 temperature 等参数会 400，需省略
+- 多轮勿把 reasoning_content 回传（会 400）
+- 推理耗时长，需更长超时
 """
 
 import openai
 from app.core.config import get_settings, Settings
-from typing import AsyncGenerator, Optional
+from typing import Any, AsyncGenerator, Dict, List, Optional
 from sqlalchemy.orm import Session
 from app.database import SessionLocal
 from app.models.models import SystemConfig
 import json
+import re
+
+
+# 模型名命中则按「推理模式」处理请求参数与响应解析
+_REASONING_MODEL_MARKERS = (
+    "reasoner",
+    "deepseek-r1",
+    "/deepseek-r1",
+    "deepseek-ai/deepseek-r1",
+    "-r1",
+    "r1-",
+    "qwq",
+)
+
+_THINK_BLOCK_RE = re.compile(r"<think>[\s\S]*?</think>", re.IGNORECASE)
+
+
+class _ThinkTagStreamFilter:
+    """流式输出中剔除 <think>...</think>（部分 R1 网关把思维链塞进 content）。"""
+
+    _OPEN = "<think>"
+    _CLOSE = "</think>"
+
+    def __init__(self) -> None:
+        self._buf = ""
+        self._in_think = False
+
+    def feed(self, piece: str) -> str:
+        if not piece:
+            return ""
+        self._buf += piece
+        out: List[str] = []
+        while True:
+            if not self._in_think:
+                i = self._buf.find(self._OPEN)
+                if i >= 0:
+                    out.append(self._buf[:i])
+                    self._buf = self._buf[i + len(self._OPEN) :]
+                    self._in_think = True
+                    continue
+                # 保留可能未写完的开标签前缀
+                hold = self._max_suffix_prefix(self._buf, self._OPEN)
+                if hold:
+                    out.append(self._buf[:-hold])
+                    self._buf = self._buf[-hold:]
+                else:
+                    out.append(self._buf)
+                    self._buf = ""
+                break
+            j = self._buf.find(self._CLOSE)
+            if j >= 0:
+                self._buf = self._buf[j + len(self._CLOSE) :]
+                self._in_think = False
+                continue
+            # 保留可能未写完的闭标签前缀，其余丢弃（仍在 think 内）
+            hold = self._max_suffix_prefix(self._buf, self._CLOSE)
+            self._buf = self._buf[-hold:] if hold else ""
+            break
+        return "".join(out)
+
+    @staticmethod
+    def _max_suffix_prefix(text: str, tag: str) -> int:
+        """text 末尾有多长是 tag 的前缀。"""
+        max_n = min(len(text), len(tag) - 1)
+        for n in range(max_n, 0, -1):
+            if tag.startswith(text[-n:]):
+                return n
+        return 0
+
+    def flush(self) -> str:
+        if self._in_think:
+            self._buf = ""
+            self._in_think = False
+            return ""
+        rest = self._buf
+        self._buf = ""
+        return rest
 
 
 class AIClient:
@@ -242,11 +325,90 @@ class AIClient:
         }
         return urls.get(provider, "")
 
+    def is_reasoning_model(self, model: Optional[str] = None) -> bool:
+        """是否为 DeepSeek Reasoner / R1 等推理模型。"""
+        m = (model or self.model or "").lower()
+        return any(marker in m for marker in _REASONING_MODEL_MARKERS)
+
     def _clamp_max_tokens(self, requested: Optional[int]) -> int:
-        """将 max_tokens 限制在 provider 允许的范围内"""
+        """将 max_tokens 限制在 provider 允许的范围内。"""
         limit = self.PROVIDER_TOKEN_LIMITS.get(self.provider, 8192)
         val = requested or self.max_tokens
+        # reasoner 的 max_tokens 只管最终正文；推理阶段另计，写作场景给足正文额度
+        if self.is_reasoning_model():
+            val = max(val, 2048)
+            limit = min(limit, 8192)
         return min(val, limit)
+
+    @staticmethod
+    def _sanitize_messages(messages: list) -> list:
+        """去掉历史里的 reasoning_content，避免多轮 400。"""
+        cleaned = []
+        for msg in messages or []:
+            if isinstance(msg, dict):
+                cleaned.append(
+                    {k: v for k, v in msg.items() if k != "reasoning_content"}
+                )
+            else:
+                cleaned.append(msg)
+        return cleaned
+
+    @staticmethod
+    def _strip_think_tags(text: str) -> str:
+        if not text:
+            return ""
+        return _THINK_BLOCK_RE.sub("", text).strip()
+
+    @staticmethod
+    def _message_content(message: Any) -> str:
+        """只取最终正文 content（忽略 reasoning_content）。"""
+        if message is None:
+            return ""
+        content = getattr(message, "content", None)
+        if content is None and isinstance(message, dict):
+            content = message.get("content")
+        text = content if isinstance(content, str) else (str(content) if content else "")
+        return AIClient._strip_think_tags(text)
+
+    def _completion_params(
+        self,
+        messages: list,
+        *,
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
+        stream: bool = False,
+        extra: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """组装 chat.completions 参数；推理模型省略 temperature 等无效/易报错字段。"""
+        params: Dict[str, Any] = {
+            "model": self.model,
+            "messages": self._sanitize_messages(messages),
+            "max_tokens": self._clamp_max_tokens(max_tokens),
+            "stream": stream,
+        }
+        if not self.is_reasoning_model():
+            params["temperature"] = (
+                temperature if temperature is not None else self.temperature
+            )
+        else:
+            print(
+                f"[AIClient] 推理模型 {self.model}：省略 temperature，"
+                f"max_tokens={params['max_tokens']}（仅限制正文）"
+            )
+        if extra:
+            # 推理模型禁止调用方强塞 temperature
+            if self.is_reasoning_model():
+                for k in (
+                    "temperature",
+                    "top_p",
+                    "presence_penalty",
+                    "frequency_penalty",
+                    "logprobs",
+                    "top_logprobs",
+                ):
+                    extra.pop(k, None)
+            params.update(extra)
+        return params
 
     def _check_config(self):
         """检查配置是否有效"""
@@ -281,11 +443,15 @@ class AIClient:
         retry_attempts: int = 3,
         **kwargs,
     ) -> str:
-        """通用对话接口（非流式）"""
+        """通用对话接口（非流式）。推理模型只返回最终 content。"""
         import asyncio
 
         # 检查配置
         self._check_config()
+
+        if self.is_reasoning_model():
+            # 推理阶段可能很长，默认超时过短会导致「没生成出字」
+            timeout = max(timeout, 300.0)
 
         # 先测试网络连接（可选；长文本分段场景可关闭以减少延迟）
         if enable_network_test:
@@ -309,28 +475,46 @@ class AIClient:
         # 增加重试机制
         max_retries = max(1, retry_attempts)
         last_error = None
-        
+
         for attempt in range(1, max_retries + 1):
             try:
-                clamped = self._clamp_max_tokens(max_tokens)
-                print(f"[AIClient] 开始调用 AI API (尝试 {attempt}/{max_retries}): model={self.model}, max_tokens={clamped}")
-                response = await asyncio.wait_for(
-                    self.client.chat.completions.create(
-                        model=self.model,
-                        messages=messages,
-                        temperature=temperature or self.temperature,
-                        max_tokens=clamped,
-                        **kwargs,
-                    ),
-                    timeout=timeout
+                params = self._completion_params(
+                    messages,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                    stream=False,
+                    extra=dict(kwargs) if kwargs else None,
                 )
-                print(f"[AIClient] AI API 调用成功")
-                return response.choices[0].message.content
+                print(
+                    f"[AIClient] 开始调用 AI API (尝试 {attempt}/{max_retries}): "
+                    f"model={self.model}, max_tokens={params['max_tokens']}, "
+                    f"reasoning={self.is_reasoning_model()}"
+                )
+                response = await asyncio.wait_for(
+                    self.client.chat.completions.create(**params),
+                    timeout=timeout,
+                )
+                choice = response.choices[0] if response.choices else None
+                message = choice.message if choice else None
+                text = self._message_content(message)
+                reasoning = getattr(message, "reasoning_content", None) if message else None
+                if reasoning:
+                    print(
+                        f"[AIClient] 推理模型已产出思维链 "
+                        f"({len(reasoning)} 字)，正文 {len(text)} 字"
+                    )
+                if not text:
+                    raise RuntimeError(
+                        "模型未返回正文（content 为空）。"
+                        "若使用 deepseek-reasoner / R1，请确认网关支持并适当增大 max_tokens。"
+                    )
+                print(f"[AIClient] AI API 调用成功，正文长度={len(text)}")
+                return text
             except asyncio.TimeoutError as e:
                 last_error = e
-                print(f"[AIClient] 请求超时 (尝试 {attempt}/{max_retries})，{timeout}秒后重试...")
+                print(f"[AIClient] 请求超时 (尝试 {attempt}/{max_retries})，将重试...")
                 if attempt < max_retries:
-                    await asyncio.sleep(5)  # 等待5秒后重试
+                    await asyncio.sleep(5)
             except openai.APIError as e:
                 last_error = e
                 print(f"[AIClient] API 错误 (尝试 {attempt}/{max_retries}): {e.message}")
@@ -341,12 +525,15 @@ class AIClient:
                 print(f"[AIClient] 连接错误 (尝试 {attempt}/{max_retries}): {str(e)[:200]}")
                 if attempt < max_retries:
                     await asyncio.sleep(5)
+            except RuntimeError as e:
+                # 正文为空等业务错误：不重试
+                raise Exception(str(e)) from e
             except Exception as e:
                 last_error = e
                 print(f"[AIClient] 未知错误 (尝试 {attempt}/{max_retries}): {type(e).__name__}: {str(e)[:200]}")
                 if attempt < max_retries:
                     await asyncio.sleep(5)
-        
+
         # 所有重试都失败了
         if isinstance(last_error, asyncio.TimeoutError):
             raise Exception(f"AI 请求超时，请稍后重试\n配置: {self.base_url}\n尝试次数: {max_retries}")
@@ -362,27 +549,47 @@ class AIClient:
         self, messages: list, temperature: Optional[float] = None, max_tokens: Optional[int] = None,
         timeout: float = 120.0
     ) -> AsyncGenerator[str, None]:
-        """流式对话接口，带超时保护"""
+        """流式对话：只推送最终正文；过滤 reasoning_content 与 <think> 块。"""
         import asyncio
 
         # 检查配置
         self._check_config()
 
+        think_filter = _ThinkTagStreamFilter()
         try:
-            clamped = self._clamp_max_tokens(max_tokens)
-            stream = await asyncio.wait_for(
-                self.client.chat.completions.create(
-                    model=self.model,
-                    messages=messages,
-                    temperature=temperature or self.temperature,
-                    max_tokens=clamped,
-                    stream=True,
-                ),
-                timeout=30.0  # 连接超时
+            params = self._completion_params(
+                messages,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                stream=True,
             )
+            connect_timeout = 60.0 if self.is_reasoning_model() else 30.0
+            stream = await asyncio.wait_for(
+                self.client.chat.completions.create(**params),
+                timeout=connect_timeout,
+            )
+            got_content = False
             async for chunk in stream:
-                if chunk.choices[0].delta.content:
-                    yield chunk.choices[0].delta.content
+                if not getattr(chunk, "choices", None):
+                    continue
+                delta = chunk.choices[0].delta
+                # 推理增量：不写入正文（写作场景）
+                _ = getattr(delta, "reasoning_content", None)
+                piece = getattr(delta, "content", None)
+                if not piece:
+                    continue
+                cleaned = think_filter.feed(piece)
+                if cleaned:
+                    got_content = True
+                    yield cleaned
+            tail = think_filter.flush()
+            if tail:
+                got_content = True
+                yield tail
+            if not got_content and self.is_reasoning_model():
+                raise Exception(
+                    "推理模型流式响应未产生正文。可能仍在思考阶段被中断，或网关只返回了 reasoning_content。"
+                )
         except asyncio.TimeoutError:
             raise Exception(f"AI 连接超时\n配置: {self.base_url}\n请检查网络连接")
         except openai.APIError as e:
@@ -402,6 +609,8 @@ class AIClient:
         except openai.AuthenticationError as e:
             raise Exception(f"API Key 无效: {e.message}\n请检查配置的 API Key 是否正确")
         except Exception as e:
+            if "推理模型" in str(e) or "未产生正文" in str(e) or "未返回正文" in str(e):
+                raise
             raise Exception(f"AI 流式请求失败: {type(e).__name__}: {str(e)}")
 
 

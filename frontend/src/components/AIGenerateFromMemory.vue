@@ -33,6 +33,10 @@
             placeholder="例如：写一段主角与反派的第一次对峙"
           />
         </el-form-item>
+
+        <el-form-item label="文风">
+          <StyleAgentPicker v-model="selectedStyleAgentId" :label="''" />
+        </el-form-item>
       </el-form>
 
       <div class="generate-actions">
@@ -77,6 +81,7 @@
 import { ref, computed } from 'vue'
 import { ElMessage } from 'element-plus'
 import { aiApi } from '@/api'
+import StyleAgentPicker from '@/components/StyleAgentPicker.vue'
 import { MagicStick, Promotion, DocumentAdd, CopyDocument } from '@element-plus/icons-vue'
 
 const props = defineProps<{
@@ -87,6 +92,7 @@ const props = defineProps<{
 
 const generateType = ref<'opening' | 'continue' | 'outline_section' | 'scene' | 'custom'>('opening')
 const customInstruction = ref('')
+const selectedStyleAgentId = ref<number | undefined>(undefined)
 const generating = ref(false)
 const streamingContent = ref('')
 const generatedText = ref('')
@@ -117,7 +123,8 @@ async function generate() {
       document_id: props.documentId,
       generate_type: generateType.value,
       custom_instruction: generateType.value === 'custom' ? customInstruction.value.trim() : undefined,
-      current_content: generateType.value === 'continue' ? currentContentText.value || undefined : undefined
+      current_content: generateType.value === 'continue' ? currentContentText.value || undefined : undefined,
+      style_agent_id: selectedStyleAgentId.value,
     })
     if (!res.ok) {
       const err = await res.json().catch(() => ({}))

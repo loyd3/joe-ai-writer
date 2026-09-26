@@ -111,6 +111,9 @@
               <el-radio-button label="温情">温情治愈</el-radio-button>
             </el-radio-group>
           </el-form-item>
+          <el-form-item label="文风智能体">
+            <StyleAgentPicker v-model="selectedStyleAgentId" :label="''" />
+          </el-form-item>
         </el-form>
 
         <div class="action-buttons">
@@ -362,6 +365,7 @@ import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 import PublishDialog from '@/components/PublishDialog.vue'
 import VideoScriptDialog from '@/components/VideoScriptDialog.vue'
+import StyleAgentPicker from '@/components/StyleAgentPicker.vue'
 import { useProjectStore } from '@/stores/project'
 import { API_BASE_URL } from '@/api'
 
@@ -474,6 +478,7 @@ const outlineConfig = ref({
   wordCount: 1500,
   style: '专业'
 })
+const selectedStyleAgentId = ref<number | undefined>(undefined)
 
 const saveConfig = ref({
   projectId: null as number | null,
@@ -600,7 +605,8 @@ const generateOutline = async () => {
         topic_source: selectedTopic.value.source,
         article_type: outlineConfig.value.articleType,
         word_count: outlineConfig.value.wordCount,
-        style: outlineConfig.value.style
+        style: outlineConfig.value.style,
+        style_agent_id: selectedStyleAgentId.value,
       })
     })
 
@@ -689,7 +695,11 @@ const generateArticle = async () => {
       },
       body: JSON.stringify({
         outline: generatedOutline.value,
-        selected_title: selectedTitle.value
+        selected_title: selectedTitle.value,
+        style: outlineConfig.value.style,
+        style_agent_id: selectedStyleAgentId.value,
+        article_type: outlineConfig.value.articleType,
+        word_count: outlineConfig.value.wordCount,
       })
     })
     
@@ -838,6 +848,7 @@ const quickWrite = async () => {
         article_type: outlineConfig.value.articleType,
         word_count: outlineConfig.value.wordCount,
         style: outlineConfig.value.style,
+        style_agent_id: selectedStyleAgentId.value,
         project_id: saveConfig.value.projectId
       })
     })

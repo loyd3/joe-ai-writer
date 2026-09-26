@@ -155,6 +155,28 @@ class FullTextSearchService:
     def _get_global_collection_name(self) -> str:
         return "global_document_index"
     
+    def _block_text(self, block: Dict[str, Any]) -> str:
+        """从块结构提取可检索文本，兼容 content / text / children。"""
+        if not isinstance(block, dict):
+            return str(block) if block else ""
+        parts: List[str] = []
+        for key in ("content", "text", "title", "caption"):
+            val = block.get(key)
+            if isinstance(val, str) and val.strip():
+                parts.append(val)
+            elif isinstance(val, list):
+                for child in val:
+                    child_text = self._block_text(child) if isinstance(child, dict) else str(child or "")
+                    if child_text.strip():
+                        parts.append(child_text)
+        children = block.get("children")
+        if isinstance(children, list):
+            for child in children:
+                child_text = self._block_text(child) if isinstance(child, dict) else str(child or "")
+                if child_text.strip():
+                    parts.append(child_text)
+        return "\n".join(parts)
+
     def _chunks_to_text(self, content: Any) -> str:
         if not content:
             return ""
@@ -164,10 +186,43 @@ class FullTextSearchService:
         text_parts = []
         for block in content:
             if isinstance(block, dict):
-                block_content = block.get("content", "")
+                block_content = self._block_text(block)
                 if block_content:
                     text_parts.append(block_content)
+            elif isinstance(block, str) and block.strip():
+                text_parts.append(block)
         return "\n\n".join(text_parts)
+
+    @staticmethod
+    def _as_int(value: Any) -> Optional[int]:
+        try:
+            if value is None or value == "":
+                return None
+            return int(value)
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _tokenize_query(query: str) -> List[str]:
+        """拆分查询词：空格/标点分隔；去重保序；过短单字保留（中文常靠单字）。"""
+        raw = (query or "").strip()
+        if not raw:
+            return []
+        parts = re.split(r"[\s,，、;；|｜/\\]+", raw)
+        tokens: List[str] = []
+        seen = set()
+        for p in parts:
+            t = p.strip()
+            if not t:
+                continue
+            key = t.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            tokens.append(t)
+        if not tokens:
+            tokens = [raw]
+        return tokens
     
     def _split_into_chunks(
         self, 
@@ -186,7 +241,7 @@ class FullTextSearchService:
             current_offset = 0
             for block in content:
                 if isinstance(block, dict):
-                    block_content = block.get("content", "")
+                    block_content = self._block_text(block)
                     if block_content:
                         blocks_info.append({
                             "id": block.get("id"),
@@ -238,7 +293,10 @@ class FullTextSearchService:
                 ))
                 chunk_index += 1
                 
-                overlap_text = ''.join(current_chunk[-overlap:]) if overlap > 0 else ""
+                # overlap 按字符数回退，而不是按句列表下标
+                overlap_text = chunk_text[-overlap:] if overlap > 0 and len(chunk_text) > overlap else (
+                    chunk_text if overlap > 0 else ""
+                )
                 current_chunk = [overlap_text, sent] if overlap_text else [sent]
                 current_size = len(overlap_text) + sent_len
                 current_start = current_start + len(chunk_text) - len(overlap_text)
@@ -299,12 +357,17 @@ class FullTextSearchService:
 
         text = self._chunks_to_text(content)
         if not text.strip():
+            self.remove_document(document_id)
             return 0
         
         chunks = self._split_into_chunks(text, content)
         if not chunks:
+            self.remove_document(document_id)
             return 0
         
+        # 先清掉旧分片，避免文档缩短后残留幽灵 chunk
+        self.remove_document(document_id)
+
         self._ensure_embedding_model()
         collection_name = self._get_global_collection_name()
         
@@ -394,7 +457,7 @@ class FullTextSearchService:
             ids_to_delete = []
             
             for i, metadata in enumerate(all_results["metadatas"]):
-                if metadata.get("project_id") == project_id:
+                if self._as_int(metadata.get("project_id")) == int(project_id):
                     ids_to_delete.append(all_results["ids"][i])
             
             if ids_to_delete:
@@ -408,18 +471,61 @@ class FullTextSearchService:
         query: str,
         case_sensitive: bool = False
     ) -> List[Tuple[int, int]]:
-        if not query:
+        if not query or not text:
             return []
         
-        matches = []
+        matches: List[Tuple[int, int]] = []
         flags = 0 if case_sensitive else re.IGNORECASE
-        
-        pattern = re.escape(query)
-        for match in re.finditer(pattern, text, flags):
+        tokens = self._tokenize_query(query)
+
+        # 整句精确子串
+        for match in re.finditer(re.escape(query.strip()), text, flags):
             matches.append((match.start(), match.end()))
-        
+
+        # 分词命中（支持「春 天」这类拆开搜）
+        if len(tokens) > 1 or (tokens and tokens[0] != query.strip()):
+            for token in tokens:
+                if len(token) < 1:
+                    continue
+                for match in re.finditer(re.escape(token), text, flags):
+                    span = (match.start(), match.end())
+                    if span not in matches:
+                        matches.append(span)
+
+        matches.sort(key=lambda x: x[0])
         return matches
-    
+
+    def _keyword_hit_score(self, text: str, query: str, matches: List[Tuple[int, int]]) -> float:
+        """关键词命中打分：整句命中最高；多词全中次之。"""
+        if not matches:
+            return 0.0
+        q = query.strip()
+        text_l = text.lower()
+        q_l = q.lower()
+        if q_l in text_l:
+            # 精确子串：按出现次数提权，保底 0.85
+            return min(1.0, 0.85 + min(0.15, len(matches) * 0.03))
+
+        tokens = self._tokenize_query(q)
+        if not tokens:
+            return 0.0
+        hit_tokens = sum(1 for t in tokens if t.lower() in text_l)
+        if hit_tokens == 0:
+            return 0.0
+        # 要求全部 token 都出现才算有效 keyword 结果
+        if hit_tokens < len(tokens):
+            return 0.0
+        return min(0.95, 0.55 + hit_tokens * 0.1 + min(0.2, len(matches) * 0.02))
+
+    def _project_allowed(self, metadata: Dict[str, Any], project_ids: Optional[List[int]]) -> bool:
+        if not project_ids:
+            return True
+        pid = self._as_int(metadata.get("project_id"))
+        if pid is None:
+            return False
+        allowed = {int(x) for x in project_ids}
+        return pid in allowed
+
     def _extract_context(
         self, 
         text: str, 
@@ -440,6 +546,123 @@ class FullTextSearchService:
             context_after = context_after[:context_after.find('\n')]
         
         return context_before, context_after
+
+    def search_documents_content(
+        self,
+        query: str,
+        documents: List[Dict[str, Any]],
+        top_k: int = MAX_SEARCH_RESULTS,
+    ) -> List[SearchResult]:
+        """
+        直接在文档内容上做关键词检索（不依赖向量索引）。
+        documents 项：document_id, document_title, project_id, project_title, content
+        """
+        query = (query or "").strip()
+        if len(query) < 1:
+            return []
+
+        results: List[SearchResult] = []
+        tokens = self._tokenize_query(query)
+
+        for doc in documents:
+            content = doc.get("content")
+            text = self._chunks_to_text(content)
+            title = doc.get("document_title") or ""
+            haystack = f"{title}\n{text}"
+            if not haystack.strip():
+                continue
+
+            # 标题命中也算
+            title_matches = self._find_keyword_matches(title, query)
+            text_matches = self._find_keyword_matches(text, query)
+
+            # 多词：正文/标题需覆盖全部 token
+            hay_l = haystack.lower()
+            if tokens and not all(t.lower() in hay_l for t in tokens):
+                # 允许整句子串例外（已在 tokens 全等时由上面覆盖）
+                if query.lower() not in hay_l:
+                    continue
+
+            if not title_matches and not text_matches and query.lower() not in hay_l:
+                continue
+
+            # 按块定位，便于跳转
+            blocks = content if isinstance(content, list) else []
+            block_hits = 0
+            if isinstance(blocks, list):
+                offset = 0
+                for bi, block in enumerate(blocks):
+                    if not isinstance(block, dict):
+                        continue
+                    block_text = self._block_text(block)
+                    if not block_text:
+                        continue
+                    b_matches = self._find_keyword_matches(block_text, query)
+                    token_ok = all(t.lower() in block_text.lower() for t in tokens) if tokens else False
+                    phrase_ok = query.lower() in block_text.lower()
+                    if b_matches or token_ok or phrase_ok:
+                        score = self._keyword_hit_score(block_text, query, b_matches or [(0, min(len(query), len(block_text)))])
+                        if title_matches:
+                            score = min(1.0, score + 0.05)
+                        ctx_s = b_matches[0][0] if b_matches else block_text.lower().find(tokens[0].lower() if tokens else query.lower())
+                        if ctx_s < 0:
+                            ctx_s = 0
+                        ctx_e = b_matches[0][1] if b_matches else ctx_s + len(query)
+                        context_before, context_after = self._extract_context(block_text, ctx_s, ctx_e, 50)
+                        results.append(SearchResult(
+                            document_id=int(doc["document_id"]),
+                            document_title=title,
+                            project_id=int(doc.get("project_id") or 0),
+                            project_title=doc.get("project_title") or "",
+                            chunk_index=bi,
+                            content=block_text,
+                            start_offset=offset + ctx_s,
+                            end_offset=offset + ctx_e,
+                            block_id=block.get("id"),
+                            block_type=block.get("type"),
+                            score=score,
+                            match_type="keyword",
+                            highlights=b_matches or [(ctx_s, ctx_e)],
+                            context_before=context_before,
+                            context_after=context_after,
+                        ))
+                        block_hits += 1
+                        if block_hits >= 3:
+                            break
+                    offset += len(block_text) + 2
+
+            # 无块结构或未命中块时，整篇回退一条
+            if block_hits == 0:
+                matches = text_matches or title_matches or self._find_keyword_matches(haystack, query)
+                score = self._keyword_hit_score(haystack, query, matches or [(0, len(query))])
+                if title_matches:
+                    score = min(1.0, max(score, 0.9))
+                if matches:
+                    context_before, context_after = self._extract_context(
+                        text or title, matches[0][0], matches[0][1], 50
+                    )
+                else:
+                    context_before, context_after = "", ""
+                results.append(SearchResult(
+                    document_id=int(doc["document_id"]),
+                    document_title=title,
+                    project_id=int(doc.get("project_id") or 0),
+                    project_title=doc.get("project_title") or "",
+                    chunk_index=0,
+                    content=(text or title)[:500],
+                    start_offset=matches[0][0] if matches else 0,
+                    end_offset=matches[0][1] if matches else 0,
+                    block_id=None,
+                    block_type=None,
+                    score=score,
+                    match_type="keyword",
+                    highlights=matches[:20],
+                    context_before=context_before,
+                    context_after=context_after,
+                ))
+
+        results.sort(key=lambda x: x.score, reverse=True)
+        return results[:top_k]
     
     def search(
         self,
@@ -453,25 +676,26 @@ class FullTextSearchService:
     ) -> List[SearchResult]:
         if not query or len(query.strip()) < 2:
             return []
-        if not self._ensure_client():
-            return []
         
         query = query.strip()
-        results = []
+        results: List[SearchResult] = []
         seen_chunks = set()
+
+        if not self._ensure_client():
+            return results
         
         collection_name = self._get_global_collection_name()
         
         try:
             collection = self._client.get_collection(name=collection_name)
         except Exception:
-            return []
+            return results
         
         if use_semantic:
-            # 确保嵌入模型已加载
             if not self._embedding_model:
                 self._ensure_embedding_model()
             
+            query_embedding = None
             if self._embedding_model:
                 query_embedding = self._get_embedding(query)
             
@@ -492,10 +716,12 @@ class FullTextSearchService:
                             if score < min_score:
                                 continue
                             
-                            if project_ids and metadata.get("project_id") not in project_ids:
+                            if not self._project_allowed(metadata, project_ids):
                                 continue
                             
-                            chunk_key = f"{metadata['document_id']}_{metadata['chunk_index']}"
+                            doc_id_int = self._as_int(metadata.get("document_id")) or 0
+                            chunk_idx = self._as_int(metadata.get("chunk_index")) or 0
+                            chunk_key = f"{doc_id_int}_{chunk_idx}"
                             if chunk_key in seen_chunks:
                                 continue
                             seen_chunks.add(chunk_key)
@@ -505,21 +731,21 @@ class FullTextSearchService:
                             context_before, context_after = self._extract_context(
                                 content,
                                 highlights[0][0] if highlights else 0,
-                                highlights[0][1] if highlights else len(query),
+                                highlights[0][1] if highlights else min(len(query), len(content)),
                                 50
                             )
                             
                             results.append(SearchResult(
-                                document_id=metadata["document_id"],
-                                document_title=metadata["document_title"],
-                                project_id=metadata["project_id"],
-                                project_title=metadata.get("project_title", ""),
-                                chunk_index=metadata["chunk_index"],
+                                document_id=doc_id_int,
+                                document_title=metadata.get("document_title") or "",
+                                project_id=self._as_int(metadata.get("project_id")) or 0,
+                                project_title=metadata.get("project_title", "") or "",
+                                chunk_index=chunk_idx,
                                 content=content,
-                                start_offset=metadata["start_offset"],
-                                end_offset=metadata["end_offset"],
-                                block_id=metadata.get("block_id"),
-                                block_type=metadata.get("block_type"),
+                                start_offset=self._as_int(metadata.get("start_offset")) or 0,
+                                end_offset=self._as_int(metadata.get("end_offset")) or 0,
+                                block_id=metadata.get("block_id") or None,
+                                block_type=metadata.get("block_type") or None,
                                 score=score,
                                 match_type="semantic",
                                 highlights=highlights,
@@ -539,44 +765,47 @@ class FullTextSearchService:
                     for i, doc_id in enumerate(keyword_results["ids"]):
                         metadata = keyword_results["metadatas"][i]
                         
-                        if project_ids and metadata.get("project_id") not in project_ids:
+                        if not self._project_allowed(metadata, project_ids):
                             continue
                         
-                        chunk_key = f"{metadata['document_id']}_{metadata['chunk_index']}"
+                        doc_id_int = self._as_int(metadata.get("document_id")) or 0
+                        chunk_idx = self._as_int(metadata.get("chunk_index")) or 0
+                        chunk_key = f"{doc_id_int}_{chunk_idx}"
                         if chunk_key in seen_chunks:
                             continue
                         
-                        content = keyword_results["documents"][i]
+                        content = keyword_results["documents"][i] or ""
                         matches = self._find_keyword_matches(content, query)
+                        score = self._keyword_hit_score(content, query, matches)
+                        if score <= 0:
+                            continue
+
+                        seen_chunks.add(chunk_key)
                         
-                        if matches:
-                            seen_chunks.add(chunk_key)
-                            
-                            score = min(1.0, len(matches) * 0.3)
-                            context_before, context_after = self._extract_context(
-                                content,
-                                matches[0][0],
-                                matches[0][1],
-                                50
-                            )
-                            
-                            results.append(SearchResult(
-                                document_id=metadata["document_id"],
-                                document_title=metadata["document_title"],
-                                project_id=metadata["project_id"],
-                                project_title=metadata.get("project_title", ""),
-                                chunk_index=metadata["chunk_index"],
-                                content=content,
-                                start_offset=metadata["start_offset"],
-                                end_offset=metadata["end_offset"],
-                                block_id=metadata.get("block_id"),
-                                block_type=metadata.get("block_type"),
-                                score=score,
-                                match_type="keyword",
-                                highlights=matches,
-                                context_before=context_before,
-                                context_after=context_after
-                            ))
+                        context_before, context_after = self._extract_context(
+                            content,
+                            matches[0][0] if matches else 0,
+                            matches[0][1] if matches else min(len(query), len(content)),
+                            50
+                        )
+                        
+                        results.append(SearchResult(
+                            document_id=doc_id_int,
+                            document_title=metadata.get("document_title") or "",
+                            project_id=self._as_int(metadata.get("project_id")) or 0,
+                            project_title=metadata.get("project_title", "") or "",
+                            chunk_index=chunk_idx,
+                            content=content,
+                            start_offset=self._as_int(metadata.get("start_offset")) or 0,
+                            end_offset=self._as_int(metadata.get("end_offset")) or 0,
+                            block_id=metadata.get("block_id") or None,
+                            block_type=metadata.get("block_type") or None,
+                            score=score,
+                            match_type="keyword",
+                            highlights=matches,
+                            context_before=context_before,
+                            context_after=context_after
+                        ))
             except Exception as e:
                 print(f"[FullTextSearch] 关键词搜索失败: {e}")
         
@@ -613,38 +842,39 @@ class FullTextSearchService:
                 for i, chunk_id in enumerate(all_results["ids"]):
                     metadata = all_results["metadatas"][i]
                     
-                    if metadata.get("document_id") != document_id:
+                    if self._as_int(metadata.get("document_id")) != int(document_id):
                         continue
                     
-                    content = all_results["documents"][i]
+                    content = all_results["documents"][i] or ""
                     matches = self._find_keyword_matches(content, query)
+                    score = self._keyword_hit_score(content, query, matches)
+                    if score <= 0:
+                        continue
+
+                    context_before, context_after = self._extract_context(
+                        content,
+                        matches[0][0] if matches else 0,
+                        matches[0][1] if matches else min(len(query), len(content)),
+                        50
+                    )
                     
-                    if matches:
-                        score = min(1.0, len(matches) * 0.3)
-                        context_before, context_after = self._extract_context(
-                            content,
-                            matches[0][0],
-                            matches[0][1],
-                            50
-                        )
-                        
-                        results.append(SearchResult(
-                            document_id=metadata["document_id"],
-                            document_title=metadata["document_title"],
-                            project_id=metadata["project_id"],
-                            project_title=metadata.get("project_title", ""),
-                            chunk_index=metadata["chunk_index"],
-                            content=content,
-                            start_offset=metadata["start_offset"],
-                            end_offset=metadata["end_offset"],
-                            block_id=metadata.get("block_id"),
-                            block_type=metadata.get("block_type"),
-                            score=score,
-                            match_type="keyword",
-                            highlights=matches,
-                            context_before=context_before,
-                            context_after=context_after
-                        ))
+                    results.append(SearchResult(
+                        document_id=self._as_int(metadata.get("document_id")) or document_id,
+                        document_title=metadata.get("document_title") or "",
+                        project_id=self._as_int(metadata.get("project_id")) or 0,
+                        project_title=metadata.get("project_title", "") or "",
+                        chunk_index=self._as_int(metadata.get("chunk_index")) or 0,
+                        content=content,
+                        start_offset=self._as_int(metadata.get("start_offset")) or 0,
+                        end_offset=self._as_int(metadata.get("end_offset")) or 0,
+                        block_id=metadata.get("block_id") or None,
+                        block_type=metadata.get("block_type") or None,
+                        score=score,
+                        match_type="keyword",
+                        highlights=matches,
+                        context_before=context_before,
+                        context_after=context_after
+                    ))
         except Exception as e:
             print(f"[FullTextSearch] 文档内搜索失败: {e}")
         
@@ -675,12 +905,12 @@ class FullTextSearchService:
             projects = {}
             
             for metadata in all_results["metadatas"]:
-                documents.add(metadata.get("document_id"))
-                project_id = metadata.get("project_id")
+                documents.add(self._as_int(metadata.get("document_id")))
+                project_id = self._as_int(metadata.get("project_id"))
                 if project_id:
                     projects[project_id] = projects.get(project_id, 0) + 1
             
-            stats["total_documents"] = len(documents)
+            stats["total_documents"] = len([d for d in documents if d is not None])
             stats["projects"] = projects
             
         except Exception:

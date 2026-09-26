@@ -38,7 +38,7 @@
       @closed="resetExtractForm"
     >
       <p class="extract-hint">
-        可粘贴文本，或一次选择多个 .txt / .md / .json 等文本文件。系统会从各文件分段采样（多文件最多约 12 段、合计约 3 万字语料）后综合提炼文风。
+        可粘贴文本，或一次选择多个文件（.txt / .md / .docx / .pdf）。Word 与 PDF 由服务器解析；系统会分段采样后综合提炼文风。
       </p>
       <el-input
         v-model="extractName"
@@ -51,11 +51,11 @@
           ref="fileInputRef"
           type="file"
           multiple
-          accept=".txt,.md,.markdown,.text,.json,.csv,.html,.htm,.log"
+          accept=".txt,.md,.markdown,.text,.json,.csv,.html,.htm,.log,.docx,.pdf,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
           class="file-input-hidden"
           @change="onFilesPicked"
         />
-        <el-button @click="triggerFilePick">选择文件（可多选）</el-button>
+        <el-button :loading="parsingFiles" @click="triggerFilePick">选择文件（可多选）</el-button>
         <span v-if="extractFiles.length" class="file-summary">
           已选 {{ extractFiles.length }} 个 · 约 {{ extractFilesChars }} 字
         </span>
@@ -264,6 +264,7 @@ const showExtract = ref(false)
 const extractText = ref('')
 const extractName = ref('')
 const extracting = ref(false)
+const parsingFiles = ref(false)
 const fileInputRef = ref<HTMLInputElement | null>(null)
 
 interface ExtractFileItem {
@@ -305,13 +306,29 @@ function readFileAsText(file: File): Promise<string> {
   })
 }
 
+function isBinarySample(file: File): boolean {
+  const name = file.name.toLowerCase()
+  return name.endsWith('.docx') || name.endsWith('.pdf')
+}
+
+function upsertExtractFile(name: string, text: string, sizeHint = 0) {
+  const existIdx = extractFiles.value.findIndex((f) => f.name === name)
+  const item: ExtractFileItem = {
+    id: `${name}-${sizeHint}-${Date.now()}-${Math.random()}`,
+    name,
+    text,
+    chars: text.length,
+  }
+  if (existIdx >= 0) extractFiles.value.splice(existIdx, 1, item)
+  else extractFiles.value.push(item)
+}
+
 async function onFilesPicked(ev: Event) {
   const input = ev.target as HTMLInputElement
   const files = Array.from(input.files || [])
   if (!files.length) return
 
   const maxFiles = 20
-  const maxPerFile = 2_000_000 // ~2MB 文本
   const remaining = maxFiles - extractFiles.value.length
   if (remaining <= 0) {
     ElMessage.warning(`最多同时选择 ${maxFiles} 个文件`)
@@ -319,33 +336,68 @@ async function onFilesPicked(ev: Event) {
     return
   }
 
+  const picked = files.slice(0, remaining)
+  const binaryFiles = picked.filter(isBinarySample)
+  const textFiles = picked.filter((f) => !isBinarySample(f))
+
   let added = 0
-  for (const file of files.slice(0, remaining)) {
-    if (file.size > maxPerFile) {
-      ElMessage.warning(`「${file.name}」过大，已跳过（单文件建议 ≤ 2MB）`)
-      continue
+  parsingFiles.value = true
+  try {
+    // Word / PDF → 后端解析
+    if (binaryFiles.length) {
+      for (const file of binaryFiles) {
+        if (file.size > 8 * 1024 * 1024) {
+          ElMessage.warning(`「${file.name}」超过 8MB，已跳过`)
+          continue
+        }
+        if (file.name.toLowerCase().endsWith('.doc') && !file.name.toLowerCase().endsWith('.docx')) {
+          ElMessage.warning(`「${file.name}」为旧版 .doc，请另存为 .docx`)
+          continue
+        }
+      }
+      const okBinary = binaryFiles.filter(
+        (f) =>
+          f.size <= 8 * 1024 * 1024 &&
+          !(f.name.toLowerCase().endsWith('.doc') && !f.name.toLowerCase().endsWith('.docx'))
+      )
+      if (okBinary.length) {
+        try {
+          const { data } = await styleAgentApi.parseFiles(okBinary)
+          for (const s of data.sources || []) {
+            upsertExtractFile(s.name, s.text, s.chars)
+            added += 1
+          }
+          if (data.errors?.length) {
+            ElMessage.warning(data.errors.slice(0, 3).join('；'))
+          }
+        } catch (e: any) {
+          ElMessage.error(e?.response?.data?.detail || e?.message || 'Word/PDF 解析失败')
+        }
+      }
     }
-    try {
-      const text = (await readFileAsText(file)).trim()
-      if (text.length < 20) {
-        ElMessage.warning(`「${file.name}」内容过短或非文本，已跳过`)
+
+    // 纯文本本地读
+    for (const file of textFiles) {
+      if (file.size > 2_000_000) {
+        ElMessage.warning(`「${file.name}」过大，已跳过（文本单文件建议 ≤ 2MB）`)
         continue
       }
-      // 同名则替换
-      const existIdx = extractFiles.value.findIndex((f) => f.name === file.name)
-      const item: ExtractFileItem = {
-        id: `${file.name}-${file.size}-${Date.now()}-${Math.random()}`,
-        name: file.name,
-        text,
-        chars: text.length,
+      try {
+        const text = (await readFileAsText(file)).trim()
+        if (text.length < 20) {
+          ElMessage.warning(`「${file.name}」内容过短或非文本，已跳过`)
+          continue
+        }
+        upsertExtractFile(file.name, text, file.size)
+        added += 1
+      } catch (e: any) {
+        ElMessage.error(e?.message || `无法读取 ${file.name}`)
       }
-      if (existIdx >= 0) extractFiles.value.splice(existIdx, 1, item)
-      else extractFiles.value.push(item)
-      added += 1
-    } catch (e: any) {
-      ElMessage.error(e?.message || `无法读取 ${file.name}`)
     }
+  } finally {
+    parsingFiles.value = false
   }
+
   if (added) ElMessage.success(`已加入 ${added} 个文件`)
   input.value = ''
 }

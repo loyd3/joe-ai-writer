@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -19,6 +19,7 @@ from app.schemas.schemas import (
     StyleAgentResponse,
     StyleAgentUpdate,
 )
+from app.services.document_text_extract import extract_text_from_bytes
 from app.services.style_agent_service import StyleAgentService
 
 router = APIRouter(prefix="/api", tags=["文风智能体"])
@@ -55,6 +56,63 @@ class StyleExtractResponse(BaseModel):
 def list_style_presets(current_user: dict = Depends(get_current_user)):
     """内置文风预设列表。"""
     return StyleAgentService.list_presets()
+
+
+class ParsedStyleSource(BaseModel):
+    name: str
+    text: str
+    chars: int
+    format: str = "txt"
+
+
+@router.post("/style-agents/parse-files")
+async def parse_style_sample_files(
+    files: List[UploadFile] = File(...),
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    解析范文文件为纯文本（支持 txt/md/docx/pdf，可多文件）。
+    前端拿到 sources 后再调用 extract-from-text。
+    """
+    if not files:
+        raise HTTPException(status_code=400, detail="请至少上传一个文件")
+    if len(files) > 20:
+        raise HTTPException(status_code=400, detail="一次最多 20 个文件")
+
+    sources: List[dict] = []
+    errors: List[str] = []
+    max_bytes = 8 * 1024 * 1024  # 8MB / file
+
+    for f in files:
+        filename = f.filename or "未命名"
+        try:
+            data = await f.read()
+            if len(data) > max_bytes:
+                errors.append(f"「{filename}」超过 8MB，已跳过")
+                continue
+            text, fmt = extract_text_from_bytes(filename, data)
+            sources.append(
+                {
+                    "name": filename,
+                    "text": text,
+                    "chars": len(text),
+                    "format": fmt,
+                }
+            )
+        except ValueError as e:
+            errors.append(f"「{filename}」: {e}")
+        except Exception as e:
+            errors.append(f"「{filename}」解析失败: {e}")
+
+    if not sources:
+        detail = "；".join(errors) if errors else "未能解析出任何文本"
+        raise HTTPException(status_code=400, detail=detail)
+
+    return {
+        "sources": sources,
+        "errors": errors,
+        "count": len(sources),
+    }
 
 
 @router.get("/style-agents", response_model=List[StyleAgentResponse])

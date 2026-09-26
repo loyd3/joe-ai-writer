@@ -80,6 +80,10 @@
           />
         </el-form-item>
 
+        <el-form-item label="文风智能体">
+          <StyleAgentPicker v-model="selectedStyleAgentId" :label="''" />
+        </el-form-item>
+
         <div class="action-buttons">
           <el-button class="btn-primary btn-lg" @click="generateStory" :loading="generating">
             <el-icon><MagicStick /></el-icon>
@@ -317,6 +321,7 @@ import { MagicStick, Refresh, Delete, FolderChecked, Plus, Check, Document } fro
 import { useProjectStore } from '@/stores/project'
 import { useAuthStore } from '@/stores/auth'
 import { API_BASE_URL } from '@/api'
+import StyleAgentPicker from '@/components/StyleAgentPicker.vue'
 
 const router = useRouter()
 const projectStore = useProjectStore()
@@ -346,6 +351,7 @@ const form = ref({
   chapterCount: 5,
   additional: ''
 })
+const selectedStyleAgentId = ref<number | undefined>(undefined)
 
 const applyForm = ref({
   projectId: null as number | null,
@@ -405,7 +411,8 @@ const generateStory = async () => {
         genre: form.value.genre || undefined,
         word_count: form.value.wordCount,
         chapter_count: form.value.chapterCount,
-        additional_requirements: form.value.additional || undefined
+        additional_requirements: form.value.additional || undefined,
+        style_agent_id: selectedStyleAgentId.value,
       })
     })
 

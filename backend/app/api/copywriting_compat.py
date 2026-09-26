@@ -57,7 +57,8 @@ from typing import Any, Dict, Optional
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.orm import Session
 
-from app.api.auth import get_current_user
+from app.api.auth import get_current_user, get_current_user_optional
+from app.services.style_agent_service import StyleAgentService
 from app.api.dependencies import get_llm_service
 from app.database import get_db
 from app.models.models import Document, Project
@@ -68,12 +69,18 @@ from app.utils.document_format import parse_formatted_text_to_blocks
 router = APIRouter(prefix="/api/copywriting", tags=["文案写作(compat)"])
 
 
-def _index_document_async(background_tasks: BackgroundTasks, doc_id: int, content: str, title: str, project_id: int, project_title: str = ""):
+def _index_document_async(background_tasks: BackgroundTasks, doc_id: int, content, title: str, project_id: int, project_title: str = ""):
     """后台异步写入全文检索索引（本文件落库路径暂未挂用，保留便于后续接上）。"""
     def do_index():
         try:
             service = FullTextSearchService()
-            service.index_document(doc_id, content, title, project_id, project_title)
+            service.index_document(
+                document_id=doc_id,
+                document_title=title,
+                project_id=project_id,
+                content=content,
+                metadata={"project_title": project_title},
+            )
         except Exception as e:
             print(f"[SearchIndex] 后台索引文档 {doc_id} 失败: {e}")
     background_tasks.add_task(do_index)
@@ -91,15 +98,28 @@ def _require_project(db: Session, project_id: int, user_id: int) -> Project:
 async def generate_copywriting(
     payload: Dict[str, Any],
     llm=Depends(get_llm_service),
+    db: Session = Depends(get_db),
+    current_user: Optional[dict] = Depends(get_current_user_optional),
 ):
     """
     仅生成营销/广告/引流文案（不落库；可不登录）。
 
-    Body（字段宽松，见模块头「接口一览」）。
+    Body（字段宽松，见模块头「接口一览」）；可含 style_agent_id。
     成功：{ success: true, data: CopywritingService 结果 + blocks }。
     失败：500。
     """
     try:
+        tone = payload.get("tone", "专业且有说服力")
+        style_section = StyleAgentService.prompt_style_section(
+            db,
+            current_user["id"] if current_user else None,
+            payload.get("style_agent_id"),
+            fallback_label=tone,
+        )
+        extra = (payload.get("additional_requirements") or "").strip()
+        if style_section:
+            extra = f"{extra}\n{style_section}".strip()
+
         result = await CopywritingService.generate_copywriting(
             llm,
             product=payload.get("product", ""),
@@ -109,9 +129,9 @@ async def generate_copywriting(
             pain_points=payload.get("pain_points", payload.get("painPoints", "")),
             evidence_cases=payload.get("evidence_cases", payload.get("cases", "")),
             cta=payload.get("cta", payload.get("call_to_action", "")),
-            tone=payload.get("tone", "专业且有说服力"),
+            tone=tone,
             word_count=int(payload.get("word_count", 900) or 900),
-            additional_requirements=payload.get("additional_requirements", ""),
+            additional_requirements=extra,
         )
 
         # 生成后直接解析为文档块：保证未保存时 PublishDialog 也能正确按平台排版
@@ -179,6 +199,17 @@ async def quick_write_and_save(
 
     _require_project(db, project_id, current_user["id"])
 
+    tone = payload.get("tone", "专业且有说服力")
+    style_section = StyleAgentService.prompt_style_section(
+        db,
+        current_user["id"],
+        payload.get("style_agent_id"),
+        fallback_label=tone,
+    )
+    extra = (payload.get("additional_requirements") or "").strip()
+    if style_section:
+        extra = f"{extra}\n{style_section}".strip()
+
     result = await CopywritingService.generate_copywriting(
         llm,
         product=payload.get("product", ""),
@@ -188,9 +219,9 @@ async def quick_write_and_save(
         pain_points=payload.get("pain_points", payload.get("painPoints", "")),
         evidence_cases=payload.get("evidence_cases", payload.get("cases", "")),
         cta=payload.get("cta", payload.get("call_to_action", "")),
-        tone=payload.get("tone", "专业且有说服力"),
+        tone=tone,
         word_count=int(payload.get("word_count", 900) or 900),
-        additional_requirements=payload.get("additional_requirements", ""),
+        additional_requirements=extra,
     )
 
     title = (result.get("title") or "").strip() or "营销文案"

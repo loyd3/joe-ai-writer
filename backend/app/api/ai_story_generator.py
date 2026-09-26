@@ -49,6 +49,7 @@ import json
 
 from app.database import get_db
 from app.api.auth import get_current_user
+from app.services.style_agent_service import StyleAgentService
 from app.services.ai_story_generator_service import AIStoryGeneratorService
 from app.services.ai_memory_service import AIMemoryService
 from app.models.models import Project
@@ -63,6 +64,7 @@ router = APIRouter(prefix="/api/ai-story-generator", tags=["ai-story-generator"]
 @router.post("/generate")
 async def generate_story(
     request: dict,
+    db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
 ):
     """
@@ -76,7 +78,8 @@ async def generate_story(
         "genre": "故事类型（可选）",
         "word_count": 5000,                     # 目标规模，影响大纲粒度
         "chapter_count": 可选章节/幕数量,
-        "additional_requirements": "额外要求（可选）"
+        "additional_requirements": "额外要求（可选）",
+        "style_agent_id": 可选文风智能体
     }
 
     Response: { "success": true, "data": <story_data> }
@@ -86,6 +89,16 @@ async def generate_story(
     theme = request.get("theme")
     if not theme:
         raise HTTPException(status_code=400, detail="请提供主题")
+
+    style_section = StyleAgentService.prompt_style_section(
+        db,
+        current_user["id"],
+        request.get("style_agent_id"),
+        fallback_label="",
+    )
+    extra = (request.get("additional_requirements") or "").strip()
+    if style_section:
+        extra = f"{extra}\n{style_section}".strip()
     
     try:
         result = await AIStoryGeneratorService.generate_full_story(
@@ -93,7 +106,7 @@ async def generate_story(
             genre=request.get("genre"),
             word_count=request.get("word_count", 5000),
             chapter_count=request.get("chapter_count"),
-            additional_requirements=request.get("additional_requirements")
+            additional_requirements=extra or None,
         )
         
         if "error" in result:
@@ -110,6 +123,7 @@ async def generate_story(
 @router.post("/generate/stream")
 async def generate_story_stream(
     request: dict,
+    db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
 ):
     """
@@ -119,11 +133,21 @@ async def generate_story_stream(
     事件格式：`data: <chunk>\\n\\n`，结束为 `data: [DONE]\\n\\n`。
     chunk 内容由 Service 决定（多为文本片段或最终 JSON 字符串）。
 
-    Body 字段同 /generate。
+    Body 字段同 /generate（含 style_agent_id）。
     """
     theme = request.get("theme")
     if not theme:
         raise HTTPException(status_code=400, detail="请提供主题")
+
+    style_section = StyleAgentService.prompt_style_section(
+        db,
+        current_user["id"],
+        request.get("style_agent_id"),
+        fallback_label="",
+    )
+    extra = (request.get("additional_requirements") or "").strip()
+    if style_section:
+        extra = f"{extra}\n{style_section}".strip()
     
     async def generate():
         async for chunk in AIStoryGeneratorService.generate_full_story_stream(
@@ -131,7 +155,7 @@ async def generate_story_stream(
             genre=request.get("genre"),
             word_count=request.get("word_count", 5000),
             chapter_count=request.get("chapter_count"),
-            additional_requirements=request.get("additional_requirements")
+            additional_requirements=extra or None,
         ):
             yield f"data: {chunk}\n\n"
         yield "data: [DONE]\n\n"
