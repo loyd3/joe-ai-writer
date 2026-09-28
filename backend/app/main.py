@@ -217,7 +217,7 @@ def startup():
     if not _init_database():
         logger.error(
             "无法连接数据库，请检查 DATABASE_URL；"
-            "若使用 Docker MySQL：docker compose up -d mysql，并确认端口 3307"
+            "请确认本机 MySQL 已启动（默认 localhost:3306）"
         )
     try:
         _ensure_avatar_column()

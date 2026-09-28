@@ -25,6 +25,8 @@ build/
 .env
 .env.local
 .env.*.local
+.mysql-client.cnf
+backend/.requirements.core.txt
 
 # IDE
 .idea/

@@ -30,33 +30,74 @@ def get_project_root():
     """获取项目根目录"""
     return Path(__file__).parent.absolute()
 
+# 向量检索和 WeasyPrint 在当前环境往往装不上，且主流程不依赖它们。
+_OPTIONAL_REQUIREMENTS = {"chromadb", "sentence-transformers", "numpy", "weasyprint"}
+
+
+def _requirement_name(line: str) -> str:
+    body = line.split("#", 1)[0].strip()
+    if not body:
+        return ""
+    return body.split("==", 1)[0].split(">=", 1)[0].split("<", 1)[0].strip().lower()
+
+
+def _pip_install(req_file: Path, env: dict) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        [sys.executable, "-m", "pip", "install", "-r", str(req_file)],
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+
+
 def check_backend_deps(backend_path):
-    """检查后端依赖"""
+    """检查后端依赖。完整安装失败时，跳过可选包再试一次。"""
     req_file = backend_path / "requirements.txt"
     if not req_file.exists():
         log("未找到 requirements.txt", Colors.YELLOW)
         return True
     
     log("检查后端依赖...")
+    env = os.environ.copy()
+    env["PYTHONUTF8"] = "1"
+    probe = subprocess.run(
+        [sys.executable, "-c", "import fastapi, uvicorn, sqlalchemy, pymysql, aiohttp"],
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+    if probe.returncode == 0:
+        log("后端核心依赖已安装")
+        return True
     try:
-        # 设置 UTF-8 编码环境变量，解决 Windows 编码问题
-        env = os.environ.copy()
-        env["PYTHONUTF8"] = "1"
-        
-        result = subprocess.run(
-            [sys.executable, "-m", "pip", "install", "-r", str(req_file)],
-            capture_output=True,
-            text=True,
-            env=env,
-        )
-        if result.returncode != 0:
-            log("安装依赖失败:", Colors.RED)
-            if result.stdout:
-                print(result.stdout)
-            if result.stderr:
-                print(result.stderr)
+        result = _pip_install(req_file, env)
+        if result.returncode == 0:
+            log("后端依赖已就绪")
+            return True
+
+        log("完整依赖未全部装上，改为安装运行所需的核心依赖...", Colors.YELLOW)
+        core_lines = []
+        for line in req_file.read_text(encoding="utf-8").splitlines():
+            if _requirement_name(line) in _OPTIONAL_REQUIREMENTS:
+                continue
+            core_lines.append(line)
+        core_file = backend_path / ".requirements.core.txt"
+        core_file.write_text("\n".join(core_lines) + "\n", encoding="utf-8")
+        try:
+            core_result = _pip_install(core_file, env)
+        finally:
+            try:
+                core_file.unlink()
+            except OSError:
+                pass
+        if core_result.returncode != 0:
+            log("安装核心依赖失败:", Colors.RED)
+            if core_result.stdout:
+                print(core_result.stdout)
+            if core_result.stderr:
+                print(core_result.stderr)
             return False
-        log("后端依赖已就绪")
+        log("核心依赖已就绪（已跳过 chromadb / sentence-transformers / weasyprint）", Colors.YELLOW)
         return True
     except Exception as e:
         log(f"安装依赖失败: {e}", Colors.RED)
@@ -88,54 +129,97 @@ def check_frontend_deps(frontend_path):
         log("未找到 npm，请安装 Node.js", Colors.RED)
         return False
 
-def ensure_docker_mysql(root: Path, timeout: int = 90) -> bool:
-    """确保 Docker MySQL 已启动并健康（供本地 start.py 连接 localhost:3307）。"""
-    try:
-        subprocess.run(["docker", "info"], check=True, capture_output=True)
-    except Exception:
-        log("未检测到 Docker，请自行保证 DATABASE_URL 指向可用数据库", Colors.YELLOW)
+def _load_env_file(root: Path) -> None:
+    """把项目根目录 .env 读进环境变量（不覆盖已有值）。"""
+    env_file = root / ".env"
+    if not env_file.exists():
+        return
+    for line in env_file.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        os.environ.setdefault(key.strip(), value.strip())
+
+
+def _mysql_client() -> str | None:
+    """查找本机 mysql 客户端，不启动 Docker。"""
+    from shutil import which
+
+    found = which("mysql")
+    if found:
+        return found
+    if _WIN:
+        candidate = Path(r"C:\Program Files\MySQL\MySQL Server 8.0\bin\mysql.exe")
+        if candidate.exists():
+            return str(candidate)
+    return None
+
+
+def ensure_local_mysql(root: Path) -> bool:
+    """确认本机 MySQL 可连接，并创建 DATABASE_URL 里的数据库。"""
+    from urllib.parse import unquote, urlparse
+
+    _load_env_file(root)
+    url = os.environ.get(
+        "DATABASE_URL",
+        "mysql+pymysql://root:password@localhost:3306/joe_writer?charset=utf8mb4",
+    )
+    if url.lower().startswith("sqlite"):
+        log("DATABASE_URL 使用 SQLite，跳过本机 MySQL 检查")
+        return True
+    if "mysql" not in url.lower():
+        log("DATABASE_URL 不是 MySQL，跳过本机数据库检查", Colors.YELLOW)
+        return True
+
+    parsed = urlparse(url.replace("mysql+pymysql://", "mysql://", 1))
+    user = unquote(parsed.username or "root")
+    password = unquote(parsed.password or "")
+    host = parsed.hostname or "127.0.0.1"
+    port = parsed.port or 3306
+    db_name = (parsed.path or "").lstrip("/").split("?")[0] or "joe_writer"
+    if not db_name.replace("_", "").isalnum():
+        log(f"数据库名不合法: {db_name}", Colors.RED)
         return False
 
-    log("检查 / 启动 Docker MySQL...")
+    client = _mysql_client()
+    if not client:
+        log("未找到 mysql 客户端，请确认本机 MySQL 已安装且可连接", Colors.RED)
+        return False
+
+    log(f"检查本机 MySQL ({host}:{port}/{db_name})...")
+    defaults = root / ".mysql-client.cnf"
+    defaults.write_text(
+        "[client]\n"
+        f"user={user}\n"
+        f"password={password}\n"
+        f"host={host}\n"
+        f"port={port}\n",
+        encoding="utf-8",
+    )
     try:
-        subprocess.run(
-            ["docker", "compose", "up", "-d", "mysql"],
-            cwd=str(root),
-            check=True,
+        sql = (
+            f"CREATE DATABASE IF NOT EXISTS `{db_name}` "
+            "CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+        )
+        result = subprocess.run(
+            [client, f"--defaults-extra-file={defaults}", "-e", sql],
             capture_output=True,
             text=True,
         )
-    except subprocess.CalledProcessError as e:
-        log(f"启动 MySQL 容器失败: {e.stderr or e}", Colors.RED)
+    finally:
+        try:
+            defaults.unlink()
+        except OSError:
+            pass
+
+    if result.returncode != 0:
+        err = (result.stderr or result.stdout or "连接失败").strip()
+        log(f"本机 MySQL 不可用: {err}", Colors.RED)
         return False
 
-    start = time.time()
-    while time.time() - start < timeout:
-        try:
-            result = subprocess.run(
-                [
-                    "docker", "inspect",
-                    "-f", "{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}",
-                    "joe-writer-mysql",
-                ],
-                capture_output=True,
-                text=True,
-                check=True,
-            )
-            status = (result.stdout or "").strip().lower()
-            if status == "healthy":
-                log("Docker MySQL 已就绪 (localhost:3307)", Colors.GREEN)
-                return True
-            # 无 healthcheck 时 State.Status 可能是 running
-            if status == "running":
-                log("Docker MySQL 已运行 (localhost:3307)", Colors.GREEN)
-                return True
-        except Exception:
-            pass
-        time.sleep(2)
-
-    log("MySQL 启动超时，后端可能暂时连不上库", Colors.YELLOW)
-    return False
+    log(f"本机 MySQL 已就绪 ({host}:{port}/{db_name})", Colors.GREEN)
+    return True
 
 
 def start_backend(backend_path, port=8000, reload=True):
@@ -260,8 +344,8 @@ def main():
     try:
         # 启动后端
         if not args.frontend_only:
-            # 本地开发默认依赖 Docker MySQL（.env 中 localhost:3307）
-            ensure_docker_mysql(root)
+            if not ensure_local_mysql(root):
+                sys.exit(1)
 
             if not check_backend_deps(backend_path):
                 sys.exit(1)
