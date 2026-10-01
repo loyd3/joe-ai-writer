@@ -58,6 +58,11 @@ htmlcov/
 # Chroma DB (will be created in container)
 chroma_db/
 
+# Local search index / model caches (mounted from F: in compose)
+search_index/
+**/search_index/
+*.vhdx
+
 # Environment
 .env
 .env.local

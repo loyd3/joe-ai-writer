@@ -11,6 +11,20 @@
 | `frontend/Dockerfile` | 前端镜像 |
 | `.env.docker` | Docker 环境变量模板 |
 
+## 磁盘策略（不占 C 盘）
+
+| 内容 | 位置 |
+|------|------|
+| MySQL 数据 | `F:\joe-ai-writer\docker-data\mysql` |
+| 搜索索引 | `F:\joe-ai-writer\docker-data\search_index` |
+| HF / 向量模型缓存 | `F:\joe-ai-writer\docker-data\hf-cache` |
+| 后端其它数据 | `F:\joe-ai-writer\docker-data\backend-data` |
+| Docker 镜像 / 构建缓存 | Docker Desktop 磁盘（建议 junction 到 `F:\Docker\wsl\disk`） |
+
+可通过 `.env` 中 `DOCKER_DATA_ROOT` 修改数据根目录。
+
+当前机器若已将 `%LOCALAPPDATA%\Docker\wsl\disk` junction 到 `F:\Docker\wsl\disk`，则镜像层也不占 C 盘。
+
 ## 快速开始
 
 1. 安装并启动 [Docker Desktop](https://www.docker.com/products/docker-desktop)
@@ -45,10 +59,17 @@ docker compose up -d --build
 mysql+pymysql://joewriter:joewriter123@mysql:3306/joe_writer?charset=utf8mb4
 ```
 
+宿主机工具连接（已映射）：
+
+```
+mysql://joewriter:joewriter123@localhost:3307/joe_writer
+```
+
 | 项 | 默认值 |
 |----|--------|
-| 主机 | `mysql`（compose 服务名） |
-| 端口 | `3306`（仅容器网络内） |
+| 主机（容器内） | `mysql`（compose 服务名） |
+| 端口（容器内） | `3306` |
+| 宿主机端口 | `3307` |
 | 库名 | `joe_writer` |
 | 用户 | `joewriter` / `joewriter123` |
 | root | `root` / `rootpassword` |
@@ -64,20 +85,23 @@ docker exec -it joe-writer-mysql mysql -ujoewriter -pjoewriter123 joe_writer
 ```powershell
 .\deploy.bat              # 构建并启动
 .\deploy.bat logs         # 查看日志
-.\deploy.bat status       # 查看状态
+.\deploy.bat status       # 查看状态与磁盘
 .\deploy.bat restart      # 重启
-.\deploy.bat down         # 停止
+.\deploy.bat down         # 停止（保留 F 盘数据）
+.\deploy.bat prune        # 清理无用镜像/构建缓存
 
-# 等价 docker compose 命令
 docker compose up -d --build
 docker compose logs -f
 docker compose ps
 docker compose down
-docker compose down -v    # 停止并删除 MySQL 数据卷（慎用）
 ```
 
-## 说明
+## 从本地 MySQL 迁移数据
 
-- Docker 前端 **8080**、后端 **9000**，与本地开发（5173 / 8000）互不冲突
-- MySQL **未映射到宿主机**，仅后端容器可访问；需要本机工具连接时再在 `docker-compose.yml` 的 `mysql` 下加 `ports: ["3307:3306"]`
-- 数据持久化在 Docker Volume `mysql_data`
+本地库 `aiwriter@3306` → Docker 库 `joe_writer@3307`（数据在 `F:\joe-ai-writer\docker-data\mysql`）：
+
+```powershell
+.\migrate-local-db-to-docker.bat
+```
+
+迁移后可用原账号登录 Docker 前端 http://localhost:8080 。

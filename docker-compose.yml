@@ -2,13 +2,14 @@
 # Joe AI Writer - Docker Compose 配置
 # ============================================
 # 使用方法:
-#   1. 复制 .env.example 为 .env 并配置
-#   2. docker-compose up -d        # 启动所有服务
-#   3. docker-compose down         # 停止服务
-#   4. docker-compose logs -f      # 查看日志
+#   1. 复制 .env.docker 为 .env 并配置
+#   2. .\deploy.bat                 # 一键启动（数据默认落 F 盘）
+#   3. docker compose down          # 停止服务
 # ============================================
-
-version: '3.8'
+# 磁盘策略：持久化数据默认写到 F:\joe-ai-writer\docker-data
+# （Docker Desktop 镜像盘若已 junction 到 F:\Docker\wsl\disk，镜像也不占 C 盘）
+# 可通过 .env 中 DOCKER_DATA_ROOT 修改路径
+# ============================================
 
 services:
   # MySQL 数据库
@@ -23,7 +24,8 @@ services:
       MYSQL_PASSWORD: ${MYSQL_PASSWORD:-joewriter123}
       TZ: Asia/Shanghai
     volumes:
-      - mysql_data:/var/lib/mysql
+      # 绑定到 F 盘（或 DOCKER_DATA_ROOT），避免占 C 盘 Docker Volume
+      - ${DOCKER_DATA_ROOT:-F:/joe-ai-writer/docker-data}/mysql:/var/lib/mysql
       - ./backend/database/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
     # 仅 Docker 部署时映射到宿主机 3307；本地 start.py 使用本机 MySQL 3306
     ports:
@@ -45,7 +47,7 @@ services:
     restart: unless-stopped
     environment:
       # 数据库配置
-      DATABASE_URL: mysql+pymysql://${MYSQL_USER:-joewriter}:${MYSQL_PASSWORD:-joewriter123}@mysql:3306/${MYSQL_DATABASE:-joe_writer}?charset=utf8mb4  # 内部仍使用 3306，容器间通信
+      DATABASE_URL: mysql+pymysql://${MYSQL_USER:-joewriter}:${MYSQL_PASSWORD:-joewriter123}@mysql:3306/${MYSQL_DATABASE:-joe_writer}?charset=utf8mb4
       DB_POOL_SIZE: 5
       DB_MAX_OVERFLOW: 10
       DB_POOL_RECYCLE: 3600
@@ -54,22 +56,26 @@ services:
       AI_TEMPERATURE: ${AI_TEMPERATURE:-0.7}
       AI_MAX_TOKENS: ${AI_MAX_TOKENS:-4096}
       # DeepSeek
-      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
       DEEPSEEK_MODEL: ${DEEPSEEK_MODEL:-deepseek-chat}
       # OpenAI
-      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4}
       # SiliconFlow
-      SILICONFLOW_API_KEY: ${SILICONFLOW_API_KEY}
+      SILICONFLOW_API_KEY: ${SILICONFLOW_API_KEY:-}
       SILICONFLOW_MODEL: ${SILICONFLOW_MODEL:-deepseek-ai/DeepSeek-V3}
       # 意心 YXAI
-      YXAI_API_KEY: ${YXAI_API_KEY}
+      YXAI_API_KEY: ${YXAI_API_KEY:-}
       YXAI_BASE_URL: ${YXAI_BASE_URL:-https://yxai.chat/v1}
       YXAI_MODEL: ${YXAI_MODEL:-deepseek-flash}
       # Custom
-      CUSTOM_API_KEY: ${CUSTOM_API_KEY}
-      CUSTOM_BASE_URL: ${CUSTOM_BASE_URL}
-      CUSTOM_MODEL: ${CUSTOM_MODEL}
+      CUSTOM_API_KEY: ${CUSTOM_API_KEY:-}
+      CUSTOM_BASE_URL: ${CUSTOM_BASE_URL:-}
+      CUSTOM_MODEL: ${CUSTOM_MODEL:-}
+      # HuggingFace / 模型缓存放到 F 盘挂载点
+      HF_HOME: /data/hf-cache
+      TRANSFORMERS_CACHE: /data/hf-cache
+      SENTENCE_TRANSFORMERS_HOME: /data/hf-cache
       # 应用配置
       SECRET_KEY: ${SECRET_KEY:-your-secret-key-change-in-production}
       DEBUG: "false"
@@ -77,6 +83,10 @@ services:
     volumes:
       - ./backend:/app
       - /app/__pycache__
+      # 搜索索引、模型缓存、其它运行时数据 → F 盘
+      - ${DOCKER_DATA_ROOT:-F:/joe-ai-writer/docker-data}/search_index:/app/search_index
+      - ${DOCKER_DATA_ROOT:-F:/joe-ai-writer/docker-data}/hf-cache:/data/hf-cache
+      - ${DOCKER_DATA_ROOT:-F:/joe-ai-writer/docker-data}/backend-data:/data/app
     ports:
       - "9000:8000"  # Docker 使用 9000，避免与本地开发 8000 冲突
     depends_on:
@@ -110,26 +120,6 @@ services:
     command: >
       sh -c "echo 'VITE_API_URL=http://localhost:9000' > /app/.env.local &&
              npm run dev -- --host 0.0.0.0"
-
-  # 前端生产环境 (可选)
-  # 取消注释下方配置以启用 Nginx 生产服务器
-  # nginx:
-  #   image: nginx:alpine
-  #   container_name: joe-writer-nginx
-  #   restart: unless-stopped
-  #   ports:
-  #     - "80:80"
-  #   volumes:
-  #     - ./frontend/dist:/usr/share/nginx/html:ro
-  #     - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
-  #   depends_on:
-  #     - backend
-  #   networks:
-  #     - joe-writer-network
-
-volumes:
-  mysql_data:
-    driver: local
 
 networks:
   joe-writer-network:
