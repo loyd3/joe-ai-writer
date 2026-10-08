@@ -34,8 +34,10 @@ class Settings(BaseSettings):
     db_max_overflow: int = 10
     db_pool_recycle: int = 3600
 
-    # AI Provider Configuration (支持多个大模型)
-    ai_provider: Literal["openai", "deepseek", "siliconflow", "yxai", "custom"] = "deepseek"
+    # AI Provider Configuration (支持多个大模型；ollama 为本地)
+    ai_provider: Literal["openai", "deepseek", "siliconflow", "yxai", "custom", "ollama"] = "deepseek"
+    # 默认使用线上还是本地（Ollama）
+    ai_preferred_mode: Literal["online", "local"] = "online"
 
     # OpenAI 配置
     openai_api_key: str = ""
@@ -61,6 +63,14 @@ class Settings(BaseSettings):
     custom_api_key: str = ""
     custom_base_url: str = ""
     custom_model: str = ""
+
+    # 本地 Ollama（OpenAI 兼容）
+    ollama_api_key: str = "ollama"
+    ollama_base_url: str = "http://localhost:11434/v1"
+    ollama_model: str = "qwen2.5:14b"
+    ai_local_fallback: bool = True
+    # 本地模型是否开启思考（Qwen3 / qwen3.8 等）；默认关闭，直接出正文
+    ai_local_think: bool = False
 
     # AI 参数（提高上限以支持长文生成）
     ai_temperature: float = 0.7

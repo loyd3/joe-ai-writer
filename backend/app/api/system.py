@@ -30,15 +30,24 @@ class CurrentAIConfig(BaseModel):
 
 
 class AIConfigUpdate(BaseModel):
-    provider: Literal["openai", "deepseek", "siliconflow", "yxai", "custom"]
+    provider: Literal["openai", "deepseek", "siliconflow", "yxai", "custom", "ollama"]
     api_key: Optional[str] = None
     base_url: Optional[str] = None
     model: Optional[str] = None
     temperature: Optional[float] = None
     max_tokens: Optional[int] = None
+    preferred_mode: Optional[Literal["online", "local"]] = None
+    local_model: Optional[str] = None
+    local_base_url: Optional[str] = None
+    local_fallback: Optional[bool] = None
+    local_think: Optional[bool] = None
 
 
-# 支持的 AI 提供商配置
+class AIPreferredModeUpdate(BaseModel):
+    preferred_mode: Literal["online", "local"]
+
+
+# 支持的线上 AI 提供商（本地 Ollama 单独配置，不放在此列表）
 AVAILABLE_PROVIDERS = [
     AIProviderInfo(
         id="openai",
@@ -173,11 +182,12 @@ async def test_ai_connection(
             "deepseek": config.base_url or "https://api.deepseek.com/v1",
             "siliconflow": config.base_url or "https://api.siliconflow.cn/v1",
             "yxai": config.base_url or "https://yxai.chat/v1",
-            "custom": config.base_url or ""
+            "custom": config.base_url or "",
+            "ollama": config.base_url or "http://localhost:11434/v1",
         }
         
         base_url = base_url_map.get(config.provider, "")
-        api_key = config.api_key or ""
+        api_key = config.api_key or ("ollama" if config.provider == "ollama" else "")
         
         # 先测试 HTTP 连接
         import httpx
@@ -195,7 +205,7 @@ async def test_ai_connection(
                 follow_redirects=True
             ) as client:
                 # 测试 API 地址是否可达
-                test_url = f"{base_url}/models" if base_url else ""
+                test_url = f"{base_url.rstrip('/')}/models" if base_url else ""
                 if test_url:
                     headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
                     response = await client.get(test_url, headers=headers)
@@ -362,6 +372,28 @@ def get_user_ai_config(
     base_url = _get_db_config(db, "ai_base_url")
     temperature = _get_db_config(db, "ai_temperature")
     max_tokens = _get_db_config(db, "ai_max_tokens")
+    preferred_mode = _get_db_config(db, "ai_preferred_mode")
+    local_model = _get_db_config(db, "ai_local_model")
+    local_base_url = _get_db_config(db, "ai_local_base_url")
+    local_fallback = _get_db_config(db, "ai_local_fallback")
+    local_think = _get_db_config(db, "ai_local_think")
+    settings = get_settings()
+
+    local_payload = {
+        "preferred_mode": preferred_mode or getattr(settings, "ai_preferred_mode", "online") or "online",
+        "local_model": local_model or settings.ollama_model or "qwen2.5:14b",
+        "local_base_url": local_base_url or settings.ollama_base_url or "http://localhost:11434/v1",
+        "local_fallback": (
+            bool(local_fallback)
+            if local_fallback is not None
+            else bool(getattr(settings, "ai_local_fallback", True))
+        ),
+        "local_think": (
+            bool(local_think)
+            if local_think is not None
+            else bool(getattr(settings, "ai_local_think", False))
+        ),
+    }
     
     if provider:
         return {
@@ -371,22 +403,27 @@ def get_user_ai_config(
             "base_url": base_url,
             "temperature": float(temperature) if temperature else 0.7,
             "max_tokens": int(max_tokens) if max_tokens else 4096,
-            "source": "database"
+            "source": "database",
+            **local_payload,
         }
     
     # 回退到配置文件
-    settings = get_settings()
+    env_model = (
+        settings.deepseek_model if settings.ai_provider == "deepseek" else
+        settings.openai_model if settings.ai_provider == "openai" else
+        settings.siliconflow_model if settings.ai_provider == "siliconflow" else
+        settings.yxai_model if settings.ai_provider == "yxai" else
+        settings.ollama_model if settings.ai_provider == "ollama" else
+        settings.custom_model
+    )
     return {
         "provider": settings.ai_provider,
-        "model": settings.deepseek_model if settings.ai_provider == "deepseek" else 
-                 settings.openai_model if settings.ai_provider == "openai" else
-                 settings.siliconflow_model if settings.ai_provider == "siliconflow" else
-                 settings.yxai_model if settings.ai_provider == "yxai" else
-                 settings.custom_model,
+        "model": env_model,
         "temperature": settings.ai_temperature,
         "max_tokens": settings.ai_max_tokens,
         "source": "env",
-        "message": "尚未保存配置到数据库，使用的是环境变量默认值"
+        "message": "尚未保存配置到数据库，使用的是环境变量默认值",
+        **local_payload,
     }
 
 
@@ -406,7 +443,8 @@ def save_user_ai_config(
             "deepseek": "https://api.deepseek.com/v1",
             "siliconflow": "https://api.siliconflow.cn/v1",
             "yxai": "https://yxai.chat/v1",
-            "custom": ""
+            "custom": "",
+            "ollama": "http://localhost:11434/v1",
         }
         
         default_models = {
@@ -414,12 +452,19 @@ def save_user_ai_config(
             "deepseek": "deepseek-chat",
             "siliconflow": "deepseek-ai/DeepSeek-V3",
             "yxai": "deepseek-flash",
-            "custom": "custom"
+            "custom": "custom",
+            "ollama": "qwen2.5:14b",
         }
+
+        preferred_mode = (config.preferred_mode or "online").strip()
+        if preferred_mode not in ("online", "local"):
+            preferred_mode = "online"
 
         api_key = (config.api_key or "").strip()
         # 前端可能回填脱敏值（如 sk-xxxx...），不应覆盖已有真实 key
-        if api_key.endswith("...") or api_key == "":
+        if config.provider == "ollama":
+            api_key = api_key or "ollama"
+        elif api_key.endswith("...") or api_key == "":
             existing_key = _get_db_config(db, "ai_api_key")
             if existing_key and (api_key == "" or api_key.endswith("...")):
                 api_key = existing_key
@@ -428,30 +473,50 @@ def save_user_ai_config(
                     status_code=400,
                     detail="请重新输入完整的 API Key 后再保存",
                 )
-            elif not api_key:
-                raise HTTPException(status_code=400, detail="请填写 API Key")
+            elif not api_key and preferred_mode == "online":
+                raise HTTPException(status_code=400, detail="请填写线上模型 API Key")
         
+        local_model = (config.local_model or "").strip() or "qwen2.5:14b"
+        local_base_url = (config.local_base_url or "").strip() or "http://localhost:11434/v1"
+        if preferred_mode == "local" and not local_base_url:
+            raise HTTPException(status_code=400, detail="请填写 Ollama 地址")
+
         # 保存到 system_configs 表
-        print(f"[SystemAPI] 保存 AI 配置: provider={config.provider}, model={config.model}")
-        print(f"[SystemAPI] API Key: 已提供 ({api_key[:8]}...)")
+        print(f"[SystemAPI] 保存 AI 配置: mode={preferred_mode}, provider={config.provider}, model={config.model}")
         
         _set_db_config(db, "ai_provider", config.provider)
         _set_db_config(db, "ai_model", config.model or default_models.get(config.provider, "custom"))
-        _set_db_config(db, "ai_api_key", api_key)
+        if api_key:
+            _set_db_config(db, "ai_api_key", api_key)
         _set_db_config(db, "ai_base_url", config.base_url or base_url_map.get(config.provider, ""))
         _set_db_config(db, "ai_temperature", config.temperature if config.temperature is not None else 0.7)
         _set_db_config(db, "ai_max_tokens", config.max_tokens or 4096)
+        _set_db_config(db, "ai_preferred_mode", preferred_mode)
+        _set_db_config(db, "ai_local_model", local_model)
+        _set_db_config(db, "ai_local_base_url", local_base_url)
+        _set_db_config(
+            db,
+            "ai_local_fallback",
+            True if config.local_fallback is None else bool(config.local_fallback),
+        )
+        _set_db_config(
+            db,
+            "ai_local_think",
+            False if config.local_think is None else bool(config.local_think),
+        )
         
         print(f"[SystemAPI] 配置已保存到数据库")
         
         # 刷新 AI 客户端（使用新配置；勿绑定请求 session，避免请求结束后会话失效）
         refresh_ai_client()
         
+        active = f"本地 Ollama/{local_model}" if preferred_mode == "local" else f"{config.provider}/{config.model}"
         return {
             "success": True,
-            "message": f"AI 配置已保存，将优先使用你的 API Key: {config.provider} - {config.model}",
+            "message": f"AI 配置已保存，当前使用：{active}",
             "provider": config.provider,
             "model": config.model,
+            "preferred_mode": preferred_mode,
             "source": "user"
         }
         
@@ -459,6 +524,67 @@ def save_user_ai_config(
         raise
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"配置更新失败: {str(e)}")
+
+
+def _apply_preferred_mode(db: Session, preferred_mode: str) -> dict:
+    """仅切换本地/线上模式，不改动 API Key 等其它配置。"""
+    from app.core.ai_client import refresh_ai_client
+
+    if preferred_mode not in ("online", "local"):
+        preferred_mode = "online"
+    settings = get_settings()
+
+    if preferred_mode == "online":
+        env_key_map = {
+            "deepseek": settings.deepseek_api_key,
+            "openai": settings.openai_api_key,
+            "siliconflow": settings.siliconflow_api_key,
+            "yxai": settings.yxai_api_key,
+            "custom": settings.custom_api_key,
+        }
+        provider = _get_db_config(db, "ai_provider") or settings.ai_provider
+        api_key = _get_db_config(db, "ai_api_key") or env_key_map.get(provider) or ""
+        if not str(api_key).strip():
+            raise HTTPException(
+                status_code=400,
+                detail="尚未配置线上 API Key，请先到「大模型设置」填写",
+            )
+    else:
+        local_model = _get_db_config(db, "ai_local_model") or settings.ollama_model or "qwen2.5:14b"
+        local_base_url = (
+            _get_db_config(db, "ai_local_base_url")
+            or settings.ollama_base_url
+            or "http://localhost:11434/v1"
+        )
+        _set_db_config(db, "ai_local_model", local_model)
+        _set_db_config(db, "ai_local_base_url", local_base_url)
+
+    _set_db_config(db, "ai_preferred_mode", preferred_mode)
+    refresh_ai_client()
+
+    if preferred_mode == "local":
+        model = _get_db_config(db, "ai_local_model") or "qwen2.5:14b"
+        active = f"本地 Ollama/{model}"
+    else:
+        provider = _get_db_config(db, "ai_provider") or settings.ai_provider
+        model = _get_db_config(db, "ai_model") or "default"
+        active = f"{provider}/{model}"
+
+    return {
+        "success": True,
+        "preferred_mode": preferred_mode,
+        "message": f"已切换为{active}",
+    }
+
+
+@router.patch("/user-ai-config/mode")
+@router.post("/user-ai-config/mode")
+def set_user_ai_preferred_mode(
+    body: AIPreferredModeUpdate,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    return _apply_preferred_mode(db, body.preferred_mode)
 
 
 @router.delete("/user-ai-config")
@@ -471,7 +597,11 @@ def delete_user_ai_config(
     
     try:
         # 删除 system_configs 中的 AI 配置
-        keys = ["ai_provider", "ai_model", "ai_api_key", "ai_base_url", "ai_temperature", "ai_max_tokens"]
+        keys = [
+            "ai_provider", "ai_model", "ai_api_key", "ai_base_url",
+            "ai_temperature", "ai_max_tokens",
+            "ai_preferred_mode", "ai_local_model", "ai_local_base_url", "ai_local_fallback",
+        ]
         for key in keys:
             config = db.query(SystemConfig).filter(SystemConfig.config_key == key).first()
             if config:

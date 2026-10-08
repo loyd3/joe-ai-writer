@@ -1,5 +1,15 @@
-import { createRouter, createWebHistory } from 'vue-router'
+import { createRouter, createWebHistory, type NavigationGuardNext, type RouteLocationNormalized } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+import { useSettingsDrawerStore, type SettingsPanel } from '@/stores/settingsDrawer'
+
+/** 旧设置页路由：打开右侧抽屉并停留在当前页 */
+function openSettingsDrawer(panel: SettingsPanel) {
+  return (to: RouteLocationNormalized, from: RouteLocationNormalized, next: NavigationGuardNext) => {
+    useSettingsDrawerStore().show(panel)
+    if (from.matched.length) next(false)
+    else next({ name: 'home', replace: true })
+  }
+}
 
 const router = createRouter({
   history: createWebHistory(),
@@ -21,10 +31,28 @@ const router = createRouter({
           component: () => import('@/views/ProjectList.vue')
         },
         {
+          path: 'profile',
+          name: 'profile',
+          component: () => import('@/views/ProjectList.vue'),
+          beforeEnter: openSettingsDrawer('profile'),
+        },
+        {
           path: 'writing-style',
           name: 'writing-style',
-          component: () => import('@/views/WritingStyleView.vue'),
-          meta: { title: '文风库' }
+          component: () => import('@/views/ProjectList.vue'),
+          beforeEnter: openSettingsDrawer('writing-style'),
+        },
+        {
+          path: 'ai-config',
+          name: 'ai-config',
+          component: () => import('@/views/ProjectList.vue'),
+          beforeEnter: openSettingsDrawer('ai-config'),
+        },
+        {
+          path: 'theme-settings',
+          name: 'theme-settings',
+          component: () => import('@/views/ProjectList.vue'),
+          beforeEnter: openSettingsDrawer('theme'),
         },
         {
           path: 'project/:id/writing-style',

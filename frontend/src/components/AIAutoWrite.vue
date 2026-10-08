@@ -94,8 +94,8 @@
 
         <el-form-item v-if="autoInsert" label="自动插入方式">
           <el-radio-group v-model="autoInsertMode">
-            <el-radio label="create">智能匹配：有则更新，无则创建</el-radio>
-            <el-radio v-if="props.documentId > 0" label="append">全部追加到当前文档</el-radio>
+            <el-radio value="create">智能匹配：有则更新，无则创建</el-radio>
+            <el-radio v-if="props.documentId > 0" value="append">全部追加到当前文档</el-radio>
           </el-radio-group>
           <p class="form-hint" v-if="autoInsertMode === 'create'">
             系统会自动匹配章节标题与现有文档标题，匹配成功则更新原文档，不匹配则创建新文档

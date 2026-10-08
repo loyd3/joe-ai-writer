@@ -1,97 +1,98 @@
 <template>
-  <div class="profile-center">
-    <h3>
+  <div class="profile-center settings-fill" :class="{ embedded: hideTitle }" v-loading="loading">
+    <h3 v-if="!hideTitle">
       <el-icon><User /></el-icon>
       个人中心
     </h3>
 
-    <div class="profile-form" v-loading="loading">
-      <!-- 头像 -->
-      <div class="avatar-section">
-        <div class="avatar-preview">
-          <el-avatar :size="80" :src="avatarDisplayUrl">
-            {{ profile?.username?.charAt(0) || '?' }}
-          </el-avatar>
+    <div class="profile-grid">
+      <section class="profile-card">
+        <h4>基本资料</h4>
+        <div class="avatar-section">
+          <div class="avatar-preview">
+            <el-avatar :size="72" :src="avatarDisplayUrl">
+              {{ profile?.username?.charAt(0) || '?' }}
+            </el-avatar>
+          </div>
+          <div class="avatar-actions">
+            <el-upload
+              :show-file-list="false"
+              :before-upload="beforeAvatarUpload"
+              :http-request="handleAvatarUpload"
+              accept="image/jpeg,image/png,image/gif,image/webp"
+            >
+              <el-button type="primary" size="small" :loading="uploading">
+                <el-icon><Upload /></el-icon>
+                上传头像
+              </el-button>
+            </el-upload>
+            <span class="avatar-hint">JPG / PNG / GIF / WebP，≤ 2MB</span>
+          </div>
         </div>
-        <div class="avatar-actions">
-          <el-upload
-            :show-file-list="false"
-            :before-upload="beforeAvatarUpload"
-            :http-request="handleAvatarUpload"
-            accept="image/jpeg,image/png,image/gif,image/webp"
-          >
-            <el-button type="primary" size="small" :loading="uploading">
-              <el-icon><Upload /></el-icon>
-              上传头像
+
+        <el-form :model="form" label-position="top" class="profile-fields">
+          <el-form-item label="用户名">
+            <el-input
+              v-model="form.username"
+              placeholder="3-50 个字符"
+              maxlength="50"
+              show-word-limit
+              clearable
+            />
+          </el-form-item>
+          <el-form-item label="邮箱">
+            <el-input
+              v-model="form.email"
+              type="email"
+              placeholder="用于登录与找回"
+              clearable
+            />
+          </el-form-item>
+          <el-form-item>
+            <el-button type="primary" @click="saveProfile" :loading="saving">
+              保存资料
             </el-button>
-          </el-upload>
-          <span class="avatar-hint">支持 JPG、PNG、GIF、WebP，不超过 2MB</span>
-        </div>
-      </div>
+          </el-form-item>
+        </el-form>
+      </section>
 
-      <!-- 用户名、邮箱 -->
-      <el-form :model="form" label-width="80px" label-position="top" class="profile-fields">
-        <el-form-item label="用户名">
-          <el-input
-            v-model="form.username"
-            placeholder="3-50 个字符"
-            maxlength="50"
-            show-word-limit
-            clearable
-          />
-        </el-form-item>
-        <el-form-item label="邮箱">
-          <el-input
-            v-model="form.email"
-            type="email"
-            placeholder="用于登录与找回"
-            clearable
-          />
-        </el-form-item>
-        <el-form-item>
-          <el-button type="primary" @click="saveProfile" :loading="saving">
-            保存资料
-          </el-button>
-        </el-form-item>
-      </el-form>
-
-      <!-- 修改密码 -->
-      <el-divider />
-      <h4>修改密码</h4>
-      <el-form :model="passwordForm" label-width="100px" label-position="top" class="password-form">
-        <el-form-item label="当前密码">
-          <el-input
-            v-model="passwordForm.old_password"
-            type="password"
-            placeholder="请输入当前密码"
-            show-password
-            clearable
-          />
-        </el-form-item>
-        <el-form-item label="新密码">
-          <el-input
-            v-model="passwordForm.new_password"
-            type="password"
-            placeholder="6-100 位"
-            show-password
-            clearable
-          />
-        </el-form-item>
-        <el-form-item label="确认新密码">
-          <el-input
-            v-model="passwordForm.confirm_password"
-            type="password"
-            placeholder="再次输入新密码"
-            show-password
-            clearable
-          />
-        </el-form-item>
-        <el-form-item>
-          <el-button type="primary" @click="savePassword" :loading="changingPassword">
-            修改密码
-          </el-button>
-        </el-form-item>
-      </el-form>
+      <section class="profile-card">
+        <h4>修改密码</h4>
+        <el-form :model="passwordForm" label-position="top" class="password-form">
+          <el-form-item label="当前密码">
+            <el-input
+              v-model="passwordForm.old_password"
+              type="password"
+              placeholder="请输入当前密码"
+              show-password
+              clearable
+            />
+          </el-form-item>
+          <el-form-item label="新密码">
+            <el-input
+              v-model="passwordForm.new_password"
+              type="password"
+              placeholder="6-100 位"
+              show-password
+              clearable
+            />
+          </el-form-item>
+          <el-form-item label="确认新密码">
+            <el-input
+              v-model="passwordForm.confirm_password"
+              type="password"
+              placeholder="再次输入新密码"
+              show-password
+              clearable
+            />
+          </el-form-item>
+          <el-form-item>
+            <el-button type="primary" @click="savePassword" :loading="changingPassword">
+              修改密码
+            </el-button>
+          </el-form-item>
+        </el-form>
+      </section>
     </div>
   </div>
 </template>
@@ -102,6 +103,11 @@ import { useAuthStore } from '@/stores/auth'
 import { ElMessage } from 'element-plus'
 import { User, Upload } from '@element-plus/icons-vue'
 import { API_BASE_URL } from '@/api'
+
+defineProps<{
+  /** 作为独立页面内容时隐藏内置标题 */
+  hideTitle?: boolean
+}>()
 
 const authStore = useAuthStore()
 const loading = ref(false)
@@ -223,8 +229,13 @@ onMounted(() => {
 .profile-center {
   padding: 20px;
 
+  &.embedded {
+    padding: 0;
+    width: 100%;
+  }
+
   h3 {
-    margin: 0 0 24px;
+    margin: 0 0 20px;
     font-size: 18px;
     display: flex;
     align-items: center;
@@ -237,19 +248,39 @@ onMounted(() => {
   }
 
   h4 {
-    margin: 0 0 16px;
+    margin: 0 0 14px;
     font-size: 14px;
-    color: var(--coffee-text-secondary);
+    font-weight: 600;
+    color: var(--coffee-text);
   }
+}
+
+.profile-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 16px;
+  align-items: start;
+
+  @media (min-width: 720px) {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.profile-card {
+  border: 1px solid var(--coffee-border);
+  border-radius: 12px;
+  padding: 18px 20px;
+  background: var(--coffee-bg-card);
+  min-width: 0;
 }
 
 .avatar-section {
   display: flex;
   align-items: center;
-  gap: 24px;
-  margin-bottom: 28px;
-  padding-bottom: 24px;
-  border-bottom: 1px solid var(--el-border-color-lighter);
+  gap: 16px;
+  margin-bottom: 18px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--coffee-border-light, var(--el-border-color-lighter));
 }
 
 .avatar-preview {
@@ -259,7 +290,7 @@ onMounted(() => {
 .avatar-actions {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
 
   .avatar-hint {
     font-size: 12px;
@@ -269,6 +300,8 @@ onMounted(() => {
 
 .profile-fields,
 .password-form {
-  max-width: 400px;
+  :deep(.el-form-item) {
+    margin-bottom: 14px;
+  }
 }
 </style>

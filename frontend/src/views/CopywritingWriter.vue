@@ -91,10 +91,10 @@
 
           <el-form-item label="写作语气">
             <el-radio-group v-model="form.tone">
-              <el-radio-button label="专业且有说服力" />
-              <el-radio-button label="活泼种草风" />
-              <el-radio-button label="温柔治愈风" />
-              <el-radio-button label="犀利反差风" />
+              <el-radio-button value="专业且有说服力" />
+              <el-radio-button value="活泼种草风" />
+              <el-radio-button value="温柔治愈风" />
+              <el-radio-button value="犀利反差风" />
             </el-radio-group>
           </el-form-item>
 

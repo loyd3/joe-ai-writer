@@ -1,12 +1,13 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse, RedirectResponse
+from starlette.datastructures import MutableHeaders
 import logging
 import os
 import time
+import json as _json
 from app.database import engine, Base
 from app.core.config import configure_huggingface_env
 
@@ -247,21 +248,60 @@ def _add_cors_to_response(response, origin: str | None):
         response.headers.setdefault("Access-Control-Allow-Credentials", "true")
 
 
-class EnsureCORSHeadersMiddleware(BaseHTTPMiddleware):
-    """确保所有响应（含 500 等异常）都带上 CORS 头"""
-    async def dispatch(self, request: Request, call_next):
-        origin = request.headers.get("origin")
+class EnsureCORSHeadersMiddleware:
+    """纯 ASGI 中间件：给响应补 CORS，且不缓冲 StreamingResponse（避免 SSE 被截断）。"""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        origin = None
+        for key, value in scope.get("headers") or []:
+            if key == b"origin":
+                origin = value.decode("latin-1")
+                break
+
+        response_started = False
+
+        async def send_with_cors(message):
+            nonlocal response_started
+            if message["type"] == "http.response.start":
+                response_started = True
+                if origin and origin in _frontend_origins:
+                    headers = MutableHeaders(scope=message)
+                    headers.setdefault("access-control-allow-origin", origin)
+                    headers.setdefault("access-control-allow-credentials", "true")
+            await send(message)
+
         try:
-            response = await call_next(request)
-            _add_cors_to_response(response, origin)
-            return response
+            await self.app(scope, receive, send_with_cors)
         except Exception as e:
-            resp = JSONResponse(
-                status_code=500,
-                content={"detail": "Internal server error", "error": str(e)},
-            )
-            _add_cors_to_response(resp, origin)
-            return resp
+            logger.exception("未捕获异常: %s", e)
+            # 流式响应头已发出时不能再发新的 response.start，否则浏览器会报
+            # net::ERR_INCOMPLETE_CHUNKED_ENCODING
+            if response_started:
+                try:
+                    await send({"type": "http.response.body", "body": b"", "more_body": False})
+                except Exception:
+                    pass
+                return
+            body = _json.dumps(
+                {"detail": "Internal server error", "error": str(e)},
+                ensure_ascii=False,
+            ).encode("utf-8")
+            headers = [
+                (b"content-type", b"application/json; charset=utf-8"),
+                (b"content-length", str(len(body)).encode("ascii")),
+            ]
+            if origin and origin in _frontend_origins:
+                headers.append((b"access-control-allow-origin", origin.encode("latin-1")))
+                headers.append((b"access-control-allow-credentials", b"true"))
+            await send({"type": "http.response.start", "status": 500, "headers": headers})
+            await send({"type": "http.response.body", "body": body})
 
 
 app.add_middleware(EnsureCORSHeadersMiddleware)

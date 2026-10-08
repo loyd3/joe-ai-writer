@@ -105,10 +105,10 @@
 
           <el-form-item label="写作风格">
             <el-radio-group v-model="outlineConfig.style">
-              <el-radio-button label="专业">专业严谨</el-radio-button>
-              <el-radio-button label="轻松">轻松易懂</el-radio-button>
-              <el-radio-button label="犀利">观点犀利</el-radio-button>
-              <el-radio-button label="温情">温情治愈</el-radio-button>
+              <el-radio-button value="专业">专业严谨</el-radio-button>
+              <el-radio-button value="轻松">轻松易懂</el-radio-button>
+              <el-radio-button value="犀利">观点犀利</el-radio-button>
+              <el-radio-button value="温情">温情治愈</el-radio-button>
             </el-radio-group>
           </el-form-item>
           <el-form-item label="文风智能体">
@@ -667,8 +667,13 @@ const generateOutline = async () => {
     outlineProgress.value = 100
     currentStep.value = 2
     generatingOutline.value = false
-  } catch (error) {
-    ElMessage.error('生成大纲失败')
+  } catch (error: unknown) {
+    const raw = String(error instanceof Error ? error.message : error || '')
+    let msg = raw || '生成大纲失败'
+    if (/network error|failed to fetch|incomplete_chunked|ERR_INCOMPLETE/i.test(raw)) {
+      msg = '与 AI 的连接中断。请确认 Ollama 已启动，或改用线上通道后重试'
+    }
+    ElMessage.error(msg)
     console.error(error)
     generatingOutline.value = false
   }
@@ -746,8 +751,13 @@ const generateArticle = async () => {
     
     currentStep.value = 3
     saveConfig.value.title = selectedTitle.value
-  } catch (error) {
-    ElMessage.error('生成文章失败')
+  } catch (error: unknown) {
+    const raw = String(error instanceof Error ? error.message : error || '')
+    let msg = raw || '生成文章失败'
+    if (/network error|failed to fetch|incomplete_chunked|ERR_INCOMPLETE/i.test(raw)) {
+      msg = '与 AI 的连接中断。请确认 Ollama 已启动，或改用线上通道后重试'
+    }
+    ElMessage.error(msg)
     console.error(error)
   } finally {
     generatingArticle.value = false

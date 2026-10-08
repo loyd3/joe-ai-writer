@@ -381,12 +381,25 @@ export interface DocumentVersion {
 
 // 系统配置
 export interface AIConfig {
-  provider: 'openai' | 'deepseek' | 'siliconflow' | 'yxai' | 'custom'
+  provider: 'openai' | 'deepseek' | 'siliconflow' | 'yxai' | 'custom' | 'ollama'
   model?: string
   api_key?: string
   base_url?: string
   temperature?: number
   max_tokens?: number
+  preferred_mode?: 'online' | 'local'
+  local_model?: string
+  local_base_url?: string
+  local_fallback?: boolean
+  local_think?: boolean
+  available_providers?: Array<{
+    id: string
+    name: string
+    description: string
+    models: string[]
+  }>
+  source?: string
+  message?: string
 }
 
 // 主题

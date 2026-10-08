@@ -33,6 +33,10 @@
           </template>
         </div>
         <div class="toolbar-actions">
+          <el-button class="btn" :loading="expanding" @click="showExpandDialog = true">
+            <el-icon><MagicStick /></el-icon>
+            AI 扩展设定
+          </el-button>
           <el-button class="btn" @click="activeTab = 'rewrite'">
             根据设定重写
           </el-button>
@@ -559,6 +563,52 @@
         </section>
       </div>
     </div>
+
+    <el-dialog
+      v-model="showExpandDialog"
+      title="AI 扩展项目设定"
+      width="480px"
+      destroy-on-close
+      append-to-body
+    >
+      <p class="hint" style="margin-top: 0">
+        基于当前设定，用 AI 充实所选范围。已有核心信息会尽量保留并补充细节。
+      </p>
+      <div class="expand-mode-row">
+        <span class="expand-mode-label">AI 通道</span>
+        <el-radio-group
+          :model-value="aiModeStore.preferredMode"
+          size="small"
+          :disabled="aiModeStore.switching || expanding"
+          @change="onExpandAiModeChange"
+        >
+          <el-radio-button value="local">本地</el-radio-button>
+          <el-radio-button value="online">线上</el-radio-button>
+        </el-radio-group>
+      </div>
+      <div class="expand-scopes">
+        <el-checkbox-group v-model="expandScopes">
+          <el-checkbox v-for="s in expandScopeOptions" :key="s.value" :label="s.value">
+            {{ s.label }}
+          </el-checkbox>
+        </el-checkbox-group>
+      </div>
+      <el-input
+        v-model="expandInstruction"
+        type="textarea"
+        :rows="3"
+        maxlength="500"
+        show-word-limit
+        placeholder="可选：扩展方向，如更偏玄幻、补全反派动机、世界观再细一点…"
+        style="margin-top: 12px"
+      />
+      <template #footer>
+        <el-button @click="showExpandDialog = false">取消</el-button>
+        <el-button type="primary" :loading="expanding" :disabled="!expandScopes.length" @click="runExpandSettings">
+          开始扩展
+        </el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -568,11 +618,12 @@ import { useRouter } from 'vue-router'
 import { useProjectStore } from '@/stores/project'
 import { ElMessage } from 'element-plus'
 import {
-  Plus, Delete, Check, Star, Loading, CircleCheck, ArrowUp, ArrowDown, DocumentAdd
+  Plus, Delete, Check, Star, Loading, CircleCheck, ArrowUp, ArrowDown, DocumentAdd, MagicStick
 } from '@element-plus/icons-vue'
 import AiAssistButton from '@/components/AiAssistButton.vue'
 import AIRewriteFromSettings from '@/components/AIRewriteFromSettings.vue'
-import { aiApi, styleAgentApi } from '@/api'
+import { aiApi, styleAgentApi, memoryApi } from '@/api'
+import { useAiModeStore, type AiPreferredMode } from '@/stores/aiMode'
 import { parseFormattedTextToBlocks } from '@/utils/formatToBlocks'
 import {
   normalizeStoryline,
@@ -595,11 +646,30 @@ const props = defineProps<{
 
 const router = useRouter()
 const store = useProjectStore()
+const aiModeStore = useAiModeStore()
 const activeTab = ref('outline')
 const saving = ref(false)
 const dirty = ref(false)
 const lastSaved = ref(false)
 const loaded = ref(false)
+const showExpandDialog = ref(false)
+const expanding = ref(false)
+const expandInstruction = ref('')
+
+async function onExpandAiModeChange(mode: string | number | boolean | undefined) {
+  if (mode !== 'local' && mode !== 'online') return
+  await aiModeStore.setMode(mode as AiPreferredMode)
+}
+const expandScopeOptions = [
+  { value: 'outline', label: '大纲' },
+  { value: 'storyline', label: '故事线' },
+  { value: 'characters', label: '角色' },
+  { value: 'world_building', label: '世界观' },
+  { value: 'writing_style', label: '文风说明' },
+  { value: 'key_points', label: '关键情节' },
+  { value: 'notes', label: '备注' },
+]
+const expandScopes = ref(expandScopeOptions.map((s) => s.value))
 /** 正在按章节创建文章的大纲下标；null 表示空闲 */
 const creatingChapterIndex = ref<number | null>(null)
 let saveTimer: ReturnType<typeof setTimeout> | null = null
@@ -696,6 +766,29 @@ async function loadSettings() {
     ElMessage.error(e?.message || '加载设定失败')
   }
   loaded.value = true
+}
+
+async function runExpandSettings() {
+  if (!props.projectId || !expandScopes.value.length) return
+  if (dirty.value) await saveSettings(false)
+  expanding.value = true
+  try {
+    const res = await memoryApi.expand(props.projectId, {
+      instruction: expandInstruction.value.trim() || undefined,
+      scopes: [...expandScopes.value],
+      apply: true,
+    })
+    if (res.data?.memory) applyMemory(res.data.memory)
+    dirty.value = false
+    lastSaved.value = true
+    showExpandDialog.value = false
+    expandInstruction.value = ''
+    ElMessage.success(`已扩展：${(res.data.scopes || []).join('、') || '设定'}`)
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.detail || e?.message || 'AI 扩展失败')
+  } finally {
+    expanding.value = false
+  }
 }
 
 function markDirty() {
@@ -980,7 +1073,9 @@ function moveKeyPoint(index: number, delta: number) {
 }
 
 function goWritingStylePage() {
-  router.push('/writing-style')
+  import('@/stores/settingsDrawer').then(({ useSettingsDrawerStore }) => {
+    useSettingsDrawerStore().show('writing-style')
+  })
 }
 
 async function resolveDefaultStyleAgentId(): Promise<number | undefined> {
@@ -1154,6 +1249,27 @@ async function saveSettings(showToast = true) {
   width: 100%;
   max-width: none;
   &.wide { max-width: none; }
+}
+
+.expand-mode-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.expand-mode-label {
+  font-size: 13px;
+  color: var(--coffee-text-secondary);
+  flex-shrink: 0;
+}
+
+.expand-scopes {
+  :deep(.el-checkbox-group) {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 12px;
+  }
 }
 
 .hint {

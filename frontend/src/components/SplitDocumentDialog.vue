@@ -13,16 +13,16 @@
     <el-form label-position="top">
       <el-form-item label="拆分依据">
         <el-radio-group v-model="level">
-          <el-radio-button label="heading">大标题（##）</el-radio-button>
-          <el-radio-button label="subheading">小标题（###）</el-radio-button>
+          <el-radio-button value="heading">大标题（##）</el-radio-button>
+          <el-radio-button value="subheading">小标题（###）</el-radio-button>
         </el-radio-group>
       </el-form-item>
 
       <el-form-item label="原文档处理">
         <el-radio-group v-model="originalAction">
-          <el-radio label="keep">保留原文档不动</el-radio>
-          <el-radio label="stub">原文档改为目录索引</el-radio>
-          <el-radio label="delete">拆分后删除原文档</el-radio>
+          <el-radio value="keep">保留原文档不动</el-radio>
+          <el-radio value="stub">原文档改为目录索引</el-radio>
+          <el-radio value="delete">拆分后删除原文档</el-radio>
         </el-radio-group>
       </el-form-item>
     </el-form>

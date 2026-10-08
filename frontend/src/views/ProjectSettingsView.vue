@@ -68,7 +68,9 @@ function goProject() {
 }
 
 function goWritingStyle() {
-  router.push('/writing-style')
+  import('@/stores/settingsDrawer').then(({ useSettingsDrawerStore }) => {
+    useSettingsDrawerStore().show('writing-style')
+  })
 }
 </script>
 

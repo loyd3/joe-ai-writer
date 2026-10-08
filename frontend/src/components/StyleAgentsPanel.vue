@@ -1,7 +1,7 @@
 <template>
-  <div class="style-agents-panel">
+  <div class="style-agents-panel" :class="{ compact: compact }">
     <div class="panel-toolbar">
-      <p class="hint">
+      <p v-if="!compact" class="hint">
         系统级文风库，所有项目写作时可选用。标记为「默认」的会在未指定时自动注入；也可粘贴或上传多份范文自动提炼。
       </p>
       <div class="toolbar-actions">
@@ -244,6 +244,9 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus } from '@element-plus/icons-vue'
 import { styleAgentApi } from '@/api'
 import type { StyleAgent, StyleAgentPreset } from '@/api/types'
+
+/** 作为独立设置页时隐藏重复说明，只留操作按钮 */
+withDefaults(defineProps<{ compact?: boolean }>(), { compact: false })
 
 const STYLE_TONES = ['自然克制', '冷峻疏离', '温暖细腻', '轻松幽默', '压抑紧张', '庄重开阔']
 const STYLE_POVS = ['第三人称有限', '第三人称全知', '第一人称', '第二人称']
@@ -618,6 +621,7 @@ defineExpose({ reload: load })
   flex-direction: column;
   height: 100%;
   min-height: 0;
+  flex: 1;
   background: var(--coffee-bg);
 }
 
@@ -626,9 +630,15 @@ defineExpose({ reload: load })
   align-items: flex-start;
   gap: 16px;
   flex-wrap: wrap;
-  padding: 16px 24px;
+  padding: 12px 20px;
   border-bottom: 1px solid var(--coffee-border);
   background: var(--coffee-bg-card);
+}
+
+.compact .panel-toolbar {
+  align-items: center;
+  justify-content: flex-end;
+  padding: 10px 20px;
 }
 
 .hint {
@@ -754,7 +764,7 @@ defineExpose({ reload: load })
   flex: 1;
   min-height: 0;
   display: grid;
-  grid-template-columns: 220px 1fr;
+  grid-template-columns: minmax(220px, 280px) 1fr;
   overflow: hidden;
 }
 

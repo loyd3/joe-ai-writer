@@ -150,17 +150,37 @@ async def generate_story_stream(
         extra = f"{extra}\n{style_section}".strip()
     
     async def generate():
-        async for chunk in AIStoryGeneratorService.generate_full_story_stream(
-            theme=theme,
-            genre=request.get("genre"),
-            word_count=request.get("word_count", 5000),
-            chapter_count=request.get("chapter_count"),
-            additional_requirements=extra or None,
-        ):
-            yield f"data: {chunk}\n\n"
-        yield "data: [DONE]\n\n"
-    
-    return StreamingResponse(generate(), media_type="text/event-stream")
+        try:
+            async for chunk in AIStoryGeneratorService.generate_full_story_stream(
+                theme=theme,
+                genre=request.get("genre"),
+                word_count=request.get("word_count", 5000),
+                chapter_count=request.get("chapter_count"),
+                additional_requirements=extra or None,
+            ):
+                yield f"data: {chunk}\n\n"
+        except Exception as e:
+            # 避免未捕获异常打断 SSE，导致前端 net::ERR_INCOMPLETE_CHUNKED_ENCODING
+            msg = str(e)
+            # anyio/Starlette 偶发包成 ExceptionGroup
+            subs = getattr(e, "exceptions", None)
+            if subs:
+                msg = str(subs[0])
+            # 折叠换行，避免 \n\n 拆成多个 SSE 事件
+            msg = " | ".join(line.strip() for line in msg.splitlines() if line.strip())
+            yield f"data: [ERROR] {msg}\n\n"
+        finally:
+            yield "data: [DONE]\n\n"
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @router.post("/generate-outline")

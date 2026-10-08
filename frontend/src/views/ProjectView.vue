@@ -525,7 +525,9 @@ function goSettings() {
 }
 
 function goWritingStyle() {
-  router.push('/writing-style')
+  import('@/stores/settingsDrawer').then(({ useSettingsDrawerStore }) => {
+    useSettingsDrawerStore().show('writing-style')
+  })
 }
 
 async function onDocumentCreated(docId: number) {

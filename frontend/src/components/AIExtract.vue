@@ -10,8 +10,8 @@
 
     <div class="extend-mode">
       <el-radio-group v-model="extendMode" size="large">
-        <el-radio-button label="new">新建项目</el-radio-button>
-        <el-radio-button label="overwrite">覆盖当前项目设定</el-radio-button>
+        <el-radio-button value="new">新建项目</el-radio-button>
+        <el-radio-button value="overwrite">覆盖当前项目设定</el-radio-button>
       </el-radio-group>
     </div>
 

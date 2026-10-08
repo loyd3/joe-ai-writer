@@ -308,7 +308,20 @@ export const memoryApi = {
       `/projects/${projectId}/memory/assist`,
       data,
       { timeout: 120000 }
-    )
+    ),
+  expand: (
+    projectId: number,
+    data: {
+      instruction?: string
+      scopes?: string[]
+      apply?: boolean
+    }
+  ) =>
+    api.post<{ memory: AIMemory; scopes: string[]; applied: boolean }>(
+      `/projects/${projectId}/memory/expand`,
+      data,
+      { timeout: 300000 }
+    ),
 }
 
 // ========== 文风智能体 API（用户级） ==========
@@ -503,6 +516,36 @@ export const systemApi = {
     api.get<AIConfig & { source?: string; message?: string }>('/system/user-ai-config'),
   saveUserAIConfig: (data: AIConfig) =>
     api.post('/system/user-ai-config', data),
+  setPreferredMode: async (preferred_mode: 'online' | 'local') => {
+    try {
+      return await api.post<{ success: boolean; preferred_mode: string; message: string }>(
+        '/system/user-ai-config/mode',
+        { preferred_mode },
+      )
+    } catch (err: any) {
+      // 旧 Docker 镜像可能还没有 mode 接口：回退到整份配置保存
+      if (err?.response?.status !== 404) throw err
+      const { data: cur } = await api.get<AIConfig & { source?: string }>('/system/user-ai-config')
+      await api.post('/system/user-ai-config', {
+        provider: (cur.provider || 'deepseek') as AIConfig['provider'],
+        model: cur.model,
+        base_url: cur.base_url,
+        temperature: cur.temperature,
+        max_tokens: cur.max_tokens,
+        preferred_mode,
+        local_model: cur.local_model,
+        local_base_url: cur.local_base_url,
+        local_fallback: cur.local_fallback,
+      })
+      return {
+        data: {
+          success: true,
+          preferred_mode,
+          message: preferred_mode === 'local' ? '已切换到本地 AI' : '已切换到线上 AI',
+        },
+      } as any
+    }
+  },
   deleteUserAIConfig: () =>
     api.delete('/system/user-ai-config'),
 }

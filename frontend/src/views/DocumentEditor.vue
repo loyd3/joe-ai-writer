@@ -581,7 +581,9 @@ function goProjectSettings() {
 }
 
 function goWritingStyle() {
-  router.push('/writing-style')
+  import('@/stores/settingsDrawer').then(({ useSettingsDrawerStore }) => {
+    useSettingsDrawerStore().show('writing-style')
+  })
 }
 
 function handleMoreCommand(command: string) {

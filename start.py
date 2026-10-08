@@ -150,9 +150,22 @@ def _mysql_client() -> str | None:
     if found:
         return found
     if _WIN:
-        candidate = Path(r"C:\Program Files\MySQL\MySQL Server 8.0\bin\mysql.exe")
-        if candidate.exists():
-            return str(candidate)
+        # 常见安装路径：MySQL Server 8.0 / 8.4 / 9.x，不一定在 PATH 里
+        mysql_root = Path(r"C:\Program Files\MySQL")
+        if mysql_root.is_dir():
+            candidates = sorted(
+                mysql_root.glob("MySQL Server */bin/mysql.exe"),
+                key=lambda p: p.as_posix(),
+                reverse=True,
+            )
+            if candidates:
+                return str(candidates[0])
+        for extra in (
+            Path(os.environ.get("MYSQL_HOME", "")) / "bin" / "mysql.exe",
+            Path(r"C:\xampp\mysql\bin\mysql.exe"),
+        ):
+            if extra.is_file():
+                return str(extra)
     return None
 
 

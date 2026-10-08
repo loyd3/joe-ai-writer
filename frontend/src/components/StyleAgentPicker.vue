@@ -22,9 +22,14 @@
         {{ a.name }}
         <span v-if="a.is_default" class="chip-badge">默</span>
       </button>
-      <router-link v-if="showManageLink" class="manage-link" to="/writing-style">
+      <button
+        v-if="showManageLink"
+        type="button"
+        class="manage-link"
+        @click="openWritingStyle"
+      >
         管理文风
-      </router-link>
+      </button>
     </div>
   </div>
 </template>
@@ -33,6 +38,11 @@
 import { onMounted, ref, watch } from 'vue'
 import { styleAgentApi } from '@/api'
 import type { StyleAgent } from '@/api/types'
+import { useSettingsDrawerStore } from '@/stores/settingsDrawer'
+
+function openWritingStyle() {
+  useSettingsDrawerStore().show('writing-style')
+}
 
 const props = withDefaults(
   defineProps<{

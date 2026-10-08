@@ -17,7 +17,28 @@ from sqlalchemy.orm import Session
 from app.database import SessionLocal
 from app.models.models import SystemConfig
 import json
+import os
 import re
+from pathlib import Path
+
+
+def _running_in_docker() -> bool:
+    if os.environ.get("RUNNING_IN_DOCKER", "").lower() in ("1", "true", "yes"):
+        return True
+    return Path("/.dockerenv").exists()
+
+
+def _rewrite_ollama_url_for_runtime(url: str) -> str:
+    """容器内 localhost 指向容器自身，需改写为 host.docker.internal 才能访问宿主机 Ollama。"""
+    if not url or not _running_in_docker():
+        return url
+    rewritten = (
+        url.replace("://localhost:", "://host.docker.internal:")
+        .replace("://127.0.0.1:", "://host.docker.internal:")
+    )
+    if rewritten != url:
+        print(f"[AIClient] Docker 环境：Ollama 地址 {url} → {rewritten}")
+    return rewritten
 
 
 # 模型名命中则按「推理模式」处理请求参数与响应解析
@@ -107,6 +128,11 @@ class AIClient:
         "base_url": "ai_base_url",
         "temperature": "ai_temperature",
         "max_tokens": "ai_max_tokens",
+        "preferred_mode": "ai_preferred_mode",
+        "local_model": "ai_local_model",
+        "local_base_url": "ai_local_base_url",
+        "local_fallback": "ai_local_fallback",
+        "local_think": "ai_local_think",
     }
 
     def __init__(self, settings: Optional[Settings] = None, db: Optional[Session] = None):
@@ -163,6 +189,22 @@ class AIClient:
                     result["temperature"] = float(configs["ai_temperature"])
                 if "ai_max_tokens" in configs:
                     result["max_tokens"] = int(configs["ai_max_tokens"])
+                if "ai_preferred_mode" in configs:
+                    result["preferred_mode"] = configs["ai_preferred_mode"]
+                if "ai_local_model" in configs:
+                    result["local_model"] = configs["ai_local_model"]
+                if "ai_local_base_url" in configs:
+                    result["local_base_url"] = configs["ai_local_base_url"]
+                if "ai_local_fallback" in configs:
+                    val = configs["ai_local_fallback"]
+                    result["local_fallback"] = (
+                        val if isinstance(val, bool) else str(val).lower() in ("1", "true", "yes")
+                    )
+                if "ai_local_think" in configs:
+                    val = configs["ai_local_think"]
+                    result["local_think"] = (
+                        val if isinstance(val, bool) else str(val).lower() in ("1", "true", "yes")
+                    )
 
                 print(
                     f"[AIClient] DB读取结果: keys={list(result.keys())}, "
@@ -198,6 +240,10 @@ class AIClient:
             api_key = self.settings.yxai_api_key
             base_url = self.settings.yxai_base_url or "https://yxai.chat/v1"
             model = self.settings.yxai_model or "deepseek-flash"
+        elif provider == "ollama":
+            api_key = self.settings.ollama_api_key or "ollama"
+            base_url = self.settings.ollama_base_url or "http://localhost:11434/v1"
+            model = self.settings.ollama_model or "qwen2.5:14b"
         elif provider == "custom":
             api_key = self.settings.custom_api_key
             base_url = self.settings.custom_base_url
@@ -214,22 +260,64 @@ class AIClient:
             "base_url": base_url,
             "temperature": self.settings.ai_temperature,
             "max_tokens": self.settings.ai_max_tokens,
+            "preferred_mode": getattr(self.settings, "ai_preferred_mode", "online") or "online",
+            "local_model": self.settings.ollama_model or "qwen2.5:14b",
+            "local_base_url": self.settings.ollama_base_url or "http://localhost:11434/v1",
+            "local_fallback": bool(getattr(self.settings, "ai_local_fallback", True)),
+            "local_think": bool(getattr(self.settings, "ai_local_think", False)),
         }
 
     def _init_client(self):
-        """初始化客户端：用户前端配置（DB）优先，未设置字段回退到 env"""
+        """初始化客户端：用户前端配置（DB）优先，未设置字段回退到 env；preferred_mode=local 时走 Ollama"""
         env_config = self._get_config_from_env()
         db_config = self._get_config_from_db() or {}
 
-        # 逐字段合并：DB 有值则用 DB，否则用 env
-        self.provider = db_config.get("provider") or env_config["provider"]
-        self.model = db_config.get("model") or env_config["model"]
-        self.api_key = db_config.get("api_key") or env_config["api_key"]
-        self.base_url = (
+        preferred_mode = (
+            db_config.get("preferred_mode")
+            or env_config.get("preferred_mode")
+            or "online"
+        )
+        if preferred_mode not in ("online", "local"):
+            preferred_mode = "online"
+        self.preferred_mode = preferred_mode
+        self.local_fallback = (
+            db_config["local_fallback"]
+            if "local_fallback" in db_config
+            else bool(env_config.get("local_fallback", True))
+        )
+        self.local_think = (
+            db_config["local_think"]
+            if "local_think" in db_config
+            else bool(env_config.get("local_think", False))
+        )
+        self.local_model = db_config.get("local_model") or env_config.get("local_model") or "qwen2.5:14b"
+        self.local_base_url = _rewrite_ollama_url_for_runtime(
+            db_config.get("local_base_url")
+            or env_config.get("local_base_url")
+            or "http://localhost:11434/v1"
+        )
+
+        # 逐字段合并：DB 有值则用 DB，否则用 env（线上配置）
+        online_provider = db_config.get("provider") or env_config["provider"]
+        online_model = db_config.get("model") or env_config["model"]
+        online_api_key = db_config.get("api_key") or env_config["api_key"]
+        online_base_url = (
             db_config.get("base_url")
             or env_config.get("base_url")
-            or self._get_default_base_url(self.provider)
+            or self._get_default_base_url(online_provider)
         )
+
+        if preferred_mode == "local":
+            self.provider = "ollama"
+            self.model = self.local_model
+            self.api_key = "ollama"
+            self.base_url = self.local_base_url
+        else:
+            self.provider = online_provider
+            self.model = online_model
+            self.api_key = online_api_key
+            self.base_url = online_base_url
+
         self.temperature = (
             db_config["temperature"]
             if "temperature" in db_config
@@ -241,20 +329,20 @@ class AIClient:
             else env_config["max_tokens"]
         )
 
-        if db_config.get("api_key"):
-            self.config_source = "user"  # 前端保存到 DB 的用户配置
+        if db_config.get("api_key") or db_config.get("preferred_mode") or db_config.get("local_model"):
+            self.config_source = "user"
         elif db_config:
-            self.config_source = "mixed"  # 部分用户配置 + env
+            self.config_source = "mixed"
         else:
             self.config_source = "env"
 
         print(
-            f"[AIClient] 配置加载完成: source={self.config_source}, "
+            f"[AIClient] 配置加载完成: source={self.config_source}, mode={self.preferred_mode}, "
             f"provider={self.provider}, model={self.model}, "
             f"api_key_from={'user' if db_config.get('api_key') else 'env'}"
         )
 
-        if not self.api_key or self.api_key == "your-deepseek-api-key":
+        if self.provider != "ollama" and (not self.api_key or self.api_key == "your-deepseek-api-key"):
             print(f"[AIClient] 警告: API Key 未配置或使用的是默认值")
 
         # 打印诊断信息
@@ -269,39 +357,43 @@ class AIClient:
         # 创建客户端时增加错误处理
         try:
             import os
+            import httpx
             ssl_no_verify = os.environ.get('SSL_NO_VERIFY', '').lower() in ('1', 'true', 'yes')
-            
-            if ssl_no_verify:
-                print(f"[AIClient] SSL 验证已禁用")
-                import httpx
+            # 本地 Ollama 长 JSON/故事生成常超过 5 分钟
+            client_timeout = 600.0 if self._is_local_ollama() else 300.0
+
+            if ssl_no_verify or self._is_local_ollama():
+                if ssl_no_verify:
+                    print(f"[AIClient] SSL 验证已禁用")
                 import ssl
                 ssl_context = ssl.create_default_context()
                 ssl_context.check_hostname = False
                 ssl_context.verify_mode = ssl.CERT_NONE
-                
-                # 长文生成（高 max_tokens）可能超过 60s，与 chat_completion 的 wait_for 对齐
+
                 http_client = httpx.AsyncClient(
-                    verify=ssl_context,
-                    timeout=300.0,
+                    verify=ssl_context if ssl_no_verify else True,
+                    timeout=httpx.Timeout(client_timeout, connect=60.0),
                 )
-                
+
                 self._client = openai.AsyncOpenAI(
                     api_key=self.api_key,
                     base_url=self.base_url,
-                    timeout=300.0,
-                    max_retries=1,
+                    timeout=client_timeout,
+                    max_retries=0,
                     http_client=http_client,
                 )
             else:
-                # 使用默认客户端
                 self._client = openai.AsyncOpenAI(
                     api_key=self.api_key,
                     base_url=self.base_url,
-                    timeout=300.0,
+                    timeout=client_timeout,
                     max_retries=1,
                 )
-            
-            print(f"[AIClient] 客户端创建成功 (SSL验证: {'禁用' if ssl_no_verify else '启用'})")
+
+            print(
+                f"[AIClient] 客户端创建成功 "
+                f"(SSL验证: {'禁用' if ssl_no_verify else '启用'}, timeout={client_timeout}s)"
+            )
         except Exception as e:
             print(f"[AIClient] 创建客户端失败: {e}")
             raise
@@ -312,6 +404,7 @@ class AIClient:
         "siliconflow": 8192,
         "yxai": 64000,  # 意心聚合多模型，上下文普遍较大
         "custom": 64000,  # 支持长文本润色，如 Claude 3.5 Sonnet 等
+        "ollama": 32768,
     }
 
     def _get_default_base_url(self, provider: str) -> str:
@@ -322,6 +415,7 @@ class AIClient:
             "siliconflow": "https://api.siliconflow.cn/v1",
             "yxai": "https://yxai.chat/v1",
             "custom": "",
+            "ollama": "http://localhost:11434/v1",
         }
         return urls.get(provider, "")
 
@@ -408,10 +502,73 @@ class AIClient:
                 ):
                     extra.pop(k, None)
             params.update(extra)
+        if self._is_local_ollama():
+            # Ollama OpenAI 兼容接口用顶层 think 控制 Qwen3 等是否先思考
+            body = dict(params.get("extra_body") or {})
+            body["think"] = bool(getattr(self, "local_think", False))
+            params["extra_body"] = body
         return params
+
+    def _is_local_ollama(self) -> bool:
+        return (
+            getattr(self, "preferred_mode", "") == "local"
+            or getattr(self, "provider", "") == "ollama"
+            or "11434" in (getattr(self, "base_url", "") or "")
+            or "11435" in (getattr(self, "base_url", "") or "")
+        )
+
+    def _format_call_error(self, last_error: Any, max_retries: int) -> str:
+        """把最终失败转成可读提示（本地 Ollama 不误报成 API Key 问题）。"""
+        import asyncio
+
+        msg = ""
+        if isinstance(last_error, asyncio.TimeoutError):
+            msg = f"AI 请求超时，请稍后重试\n配置: {self.base_url}\n尝试次数: {max_retries}"
+        elif isinstance(last_error, openai.APIConnectionError):
+            msg = f"AI 连接失败\nAPI 地址: {self.base_url}\n错误详情: {str(last_error)[:400]}"
+        elif isinstance(last_error, openai.APIError):
+            err_text = (getattr(last_error, "message", None) or str(last_error) or "").strip()
+            # openai 偶发把连不上也包成 APIError("Connection error.")
+            if "connection" in err_text.lower() or "connect" in err_text.lower():
+                msg = f"AI 连接失败: {err_text}\nAPI 地址: {self.base_url}"
+            else:
+                hint = "请检查本地模型名是否已 pull" if self._is_local_ollama() else "请检查 API Key 是否有效 / 账号是否有余额"
+                msg = f"AI API 错误: {err_text}\n{hint}"
+        else:
+            msg = f"AI 请求失败: {type(last_error).__name__}: {str(last_error)[:500]}"
+
+        if self._is_local_ollama() and (
+            "连接" in msg or "Connection" in msg or "connect" in msg.lower()
+        ):
+            docker_hint = (
+                "\n2. 若后端跑在 Docker：已自动改写为 host.docker.internal；"
+                "请确认宿主机 Ollama 已启动"
+                if _running_in_docker()
+                else "\n2. 大模型设置地址默认可填 http://localhost:11434/v1"
+            )
+            msg += (
+                "\n本地 Ollama 未就绪。请确认："
+                "\n1. 已启动 Ollama（托盘图标 / ollama serve）"
+                f"{docker_hint}"
+                f"\n3. 已安装模型：ollama pull {getattr(self, 'model', 'qwen2.5:14b')}"
+            )
+        return msg
+
+    def _ensure_local_endpoint(self):
+        """Docker 内若仍指向 localhost，运行时纠正并重建客户端。"""
+        if not self._is_local_ollama():
+            return
+        fixed = _rewrite_ollama_url_for_runtime(self.base_url or "")
+        if not fixed or fixed == self.base_url:
+            return
+        print(f"[AIClient] 运行时纠正 Ollama 地址: {self.base_url} → {fixed}")
+        self.base_url = fixed
+        self.local_base_url = fixed
+        self._client = None
 
     def _check_config(self):
         """检查配置是否有效"""
+        self._ensure_local_endpoint()
         print(f"[AIClient] 检查配置: provider={self.provider}, api_key={'已设置' if self.api_key else '未设置'}, base_url={self.base_url}")
 
         if not self.api_key:
@@ -429,6 +586,7 @@ class AIClient:
 
     @property
     def client(self):
+        self._ensure_local_endpoint()
         if not self._client:
             self._init_client()
         return self._client
@@ -452,6 +610,9 @@ class AIClient:
         if self.is_reasoning_model():
             # 推理阶段可能很长，默认超时过短会导致「没生成出字」
             timeout = max(timeout, 300.0)
+        elif self._is_local_ollama():
+            # 本地长 JSON / 扩写常超过默认 120s
+            timeout = max(timeout, 600.0)
 
         # 先测试网络连接（可选；长文本分段场景可关闭以减少延迟）
         if enable_network_test:
@@ -535,15 +696,7 @@ class AIClient:
                     await asyncio.sleep(5)
 
         # 所有重试都失败了
-        if isinstance(last_error, asyncio.TimeoutError):
-            raise Exception(f"AI 请求超时，请稍后重试\n配置: {self.base_url}\n尝试次数: {max_retries}")
-        elif isinstance(last_error, openai.APIError):
-            raise Exception(f"AI API 错误: {last_error.message}\n请检查 API Key 是否有效")
-        elif isinstance(last_error, openai.APIConnectionError):
-            error_detail = str(last_error)
-            raise Exception(f"AI 连接失败\nAPI 地址: {self.base_url}\n错误详情: {error_detail[:500]}\n可能原因:\n1. 网络连接问题\n2. 防火墙/代理阻止\n3. VPN 需要开启")
-        else:
-            raise Exception(f"AI 请求失败: {type(last_error).__name__}: {str(last_error)[:500]}")
+        raise Exception(self._format_call_error(last_error, max_retries))
 
     async def stream_completion(
         self, messages: list, temperature: Optional[float] = None, max_tokens: Optional[int] = None,
@@ -555,63 +708,83 @@ class AIClient:
         # 检查配置
         self._check_config()
 
-        think_filter = _ThinkTagStreamFilter()
-        try:
-            params = self._completion_params(
-                messages,
-                temperature=temperature,
-                max_tokens=max_tokens,
-                stream=True,
-            )
-            connect_timeout = 60.0 if self.is_reasoning_model() else 30.0
-            stream = await asyncio.wait_for(
-                self.client.chat.completions.create(**params),
-                timeout=connect_timeout,
-            )
+        # 本地 Ollama 偶发 Connection error：仅在尚未产出正文时重试
+        max_attempts = 3 if self._is_local_ollama() else 1
+        last_error: Any = None
+
+        for attempt in range(1, max_attempts + 1):
+            think_filter = _ThinkTagStreamFilter()
             got_content = False
-            async for chunk in stream:
-                if not getattr(chunk, "choices", None):
-                    continue
-                delta = chunk.choices[0].delta
-                # 推理增量：不写入正文（写作场景）
-                _ = getattr(delta, "reasoning_content", None)
-                piece = getattr(delta, "content", None)
-                if not piece:
-                    continue
-                cleaned = think_filter.feed(piece)
-                if cleaned:
-                    got_content = True
-                    yield cleaned
-            tail = think_filter.flush()
-            if tail:
-                got_content = True
-                yield tail
-            if not got_content and self.is_reasoning_model():
-                raise Exception(
-                    "推理模型流式响应未产生正文。可能仍在思考阶段被中断，或网关只返回了 reasoning_content。"
+            try:
+                params = self._completion_params(
+                    messages,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                    stream=True,
                 )
-        except asyncio.TimeoutError:
-            raise Exception(f"AI 连接超时\n配置: {self.base_url}\n请检查网络连接")
-        except openai.APIError as e:
-            raise Exception(f"AI API 错误: {e.message}\n请检查 API Key 是否有效")
-        except openai.APIConnectionError as e:
-            error_detail = str(e.__cause__) if e.__cause__ else str(e)
-            raise Exception(
-                f"AI 连接失败\n"
-                f"API 地址: {self.base_url}\n"
-                f"错误详情: {error_detail}\n"
-                f"可能原因:\n"
-                f"1. 网络连接问题\n"
-                f"2. 防火墙/代理阻止\n"
-                f"3. SSL 证书问题\n"
-                f"4. VPN 需要开启"
-            )
-        except openai.AuthenticationError as e:
-            raise Exception(f"API Key 无效: {e.message}\n请检查配置的 API Key 是否正确")
-        except Exception as e:
-            if "推理模型" in str(e) or "未产生正文" in str(e) or "未返回正文" in str(e):
-                raise
-            raise Exception(f"AI 流式请求失败: {type(e).__name__}: {str(e)}")
+                # 本地 Ollama 首次拉模型 / 长提示加载可能较慢
+                if self.is_reasoning_model():
+                    connect_timeout = 90.0
+                elif self._is_local_ollama():
+                    connect_timeout = 180.0
+                else:
+                    connect_timeout = 30.0
+                stream = await asyncio.wait_for(
+                    self.client.chat.completions.create(**params),
+                    timeout=connect_timeout,
+                )
+                async for chunk in stream:
+                    if not getattr(chunk, "choices", None):
+                        continue
+                    delta = chunk.choices[0].delta
+                    # 推理增量：不写入正文（写作场景）
+                    _ = getattr(delta, "reasoning_content", None)
+                    piece = getattr(delta, "content", None)
+                    if not piece:
+                        continue
+                    cleaned = think_filter.feed(piece)
+                    if cleaned:
+                        got_content = True
+                        yield cleaned
+                tail = think_filter.flush()
+                if tail:
+                    got_content = True
+                    yield tail
+                if not got_content and self.is_reasoning_model():
+                    raise Exception(
+                        "推理模型流式响应未产生正文。可能仍在思考阶段被中断，或网关只返回了 reasoning_content。"
+                    )
+                return
+            except asyncio.TimeoutError as e:
+                last_error = e
+            except openai.AuthenticationError as e:
+                raise Exception(f"API Key 无效: {e.message}\n请检查配置的 API Key 是否正确") from e
+            except (openai.APIConnectionError, openai.APIError) as e:
+                last_error = e
+            except Exception as e:
+                if "推理模型" in str(e) or "未产生正文" in str(e) or "未返回正文" in str(e):
+                    raise
+                last_error = e
+
+            # 已开始推流则不能重试（避免内容重复）
+            if got_content:
+                break
+            if attempt < max_attempts:
+                print(
+                    f"[AIClient] stream 连接失败，重试 {attempt}/{max_attempts}: "
+                    f"{type(last_error).__name__}: {str(last_error)[:200]}"
+                )
+                # 连接失败时重建客户端，避免复用坏连接
+                old = self._client
+                self._client = None
+                if old is not None:
+                    try:
+                        await old.close()
+                    except Exception:
+                        pass
+                await asyncio.sleep(1.5 * attempt)
+
+        raise Exception(self._format_call_error(last_error, max_attempts))
 
 
 # 全局客户端实例（延迟初始化）

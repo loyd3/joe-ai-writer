@@ -1,4 +1,4 @@
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from sqlalchemy.orm import Session
 from app.models.models import AIMemory, Project
 from app.schemas.schemas import AIMemoryUpdate
@@ -11,7 +11,18 @@ from app.services.memory_normalize import (
     normalize_memory_fields,
     memory_orm_to_dict,
 )
+import json
 import re
+
+EXPAND_SCOPES = (
+    "outline",
+    "storyline",
+    "characters",
+    "world_building",
+    "writing_style",
+    "key_points",
+    "notes",
+)
 
 
 FIELD_META: Dict[str, Dict[str, str]] = {
@@ -334,3 +345,106 @@ class AIMemoryService:
     @staticmethod
     def extract_memory_from_content(db: Session, project_id: int, content: str) -> dict:
         return {"suggested_outline": [], "detected_characters": [], "summary": ""}
+
+    @staticmethod
+    def _extract_json_object(text: str) -> dict:
+        raw = (text or "").strip()
+        raw = re.sub(r"^```(?:json)?\s*", "", raw, flags=re.IGNORECASE)
+        raw = re.sub(r"\s*```$", "", raw)
+        try:
+            data = json.loads(raw)
+            if isinstance(data, dict):
+                return data
+        except Exception:
+            pass
+        start = raw.find("{")
+        end = raw.rfind("}")
+        if start >= 0 and end > start:
+            data = json.loads(raw[start : end + 1])
+            if isinstance(data, dict):
+                return data
+        raise ValueError("AI 未返回合法的 JSON 设定")
+
+    @staticmethod
+    async def expand_memory(
+        db: Session,
+        project_id: int,
+        instruction: Optional[str] = None,
+        scopes: Optional[List[str]] = None,
+        apply: bool = True,
+    ) -> Dict[str, Any]:
+        """基于现有项目设定，用 AI 扩展指定范围并可选写回。"""
+        project = db.query(Project).filter(Project.id == project_id).first()
+        if not project:
+            raise ValueError("项目不存在")
+
+        memory = AIMemoryService.get_or_create_memory(db, project_id)
+        current = normalize_memory_fields(
+            outline=memory.outline,
+            storyline=memory.storyline,
+            characters=memory.characters,
+            world_building=memory.world_building,
+            writing_style=memory.writing_style,
+            key_points=memory.key_points,
+            notes=memory.notes,
+        )
+
+        selected = [s for s in (scopes or list(EXPAND_SCOPES)) if s in EXPAND_SCOPES]
+        if not selected:
+            selected = list(EXPAND_SCOPES)
+
+        seed = {k: current.get(k) for k in selected}
+        system = (
+            "你是资深网文/小说设定顾问。根据已有项目设定扩展内容，保持风格一致、细节可感、可直接用于写作。"
+            "只输出合法 JSON 对象，不要 markdown 代码块，不要解释。"
+        )
+        prompt = (
+            f"项目标题：{project.title or ''}\n"
+            f"需要扩展的字段：{', '.join(selected)}\n"
+            f"用户额外要求：{(instruction or '').strip() or '无；在现有基础上合理充实'}\n\n"
+            "现有设定（JSON）：\n"
+            f"{json.dumps(seed, ensure_ascii=False, indent=2)}\n\n"
+            "请输出 JSON，且只包含上述需要扩展的字段。字段结构要求：\n"
+            '- outline: [{"title":"...","description":"..."}]\n'
+            '- storyline: {"summary":"...","stages":[{"title":"...","summary":"..."}]}\n'
+            '- characters: [{"name":"...","description":"...","personality":"...","background":"...","goals":"...","role":"主角|配角|反派"}]\n'
+            '- world_building: {"categories":[{"name":"...","items":[{"title":"...","content":"..."}]}]}\n'
+            '- writing_style: 字符串\n'
+            '- key_points: [{"title":"...","summary":"..."}]\n'
+            '- notes: 字符串\n'
+            "要求：在保留原意与关键名的前提下显著充实细节；空字段请合理生成；不要删光原有核心信息。"
+        )
+
+        raw = await LLMService.generate_text(prompt=prompt, system_prompt=system, temperature=0.75)
+        parsed = AIMemoryService._extract_json_object(raw)
+
+        patch: Dict[str, Any] = {}
+        if "outline" in selected and "outline" in parsed:
+            patch["outline"] = parsed.get("outline") or []
+        if "storyline" in selected and "storyline" in parsed:
+            patch["storyline"] = normalize_storyline(parsed.get("storyline"))
+        if "characters" in selected and "characters" in parsed:
+            patch["characters"] = normalize_characters(parsed.get("characters") or [])
+        if "world_building" in selected and "world_building" in parsed:
+            patch["world_building"] = normalize_world_building(parsed.get("world_building") or {})
+        if "writing_style" in selected and "writing_style" in parsed:
+            patch["writing_style"] = str(parsed.get("writing_style") or "")
+        if "key_points" in selected and "key_points" in parsed:
+            patch["key_points"] = normalize_key_points(parsed.get("key_points") or [])
+        if "notes" in selected and "notes" in parsed:
+            patch["notes"] = str(parsed.get("notes") or "")
+
+        if not patch:
+            raise ValueError("AI 未返回可应用的扩展内容")
+
+        if apply:
+            memory = AIMemoryService.update_memory(db, project_id, AIMemoryUpdate(**patch))
+            result_memory = AIMemoryService.to_response(memory)
+        else:
+            result_memory = {**AIMemoryService.to_response(memory), **patch}
+
+        return {
+            "memory": result_memory,
+            "scopes": selected,
+            "applied": bool(apply),
+        }

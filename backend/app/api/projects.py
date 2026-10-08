@@ -8,6 +8,7 @@ from app.schemas.schemas import (
     DocumentCreate, DocumentUpdate, DocumentResponse,
     AIMemoryUpdate, AIMemoryResponse,
     MemoryAssistRequest, MemoryAssistResponse,
+    MemoryExpandRequest, MemoryExpandResponse,
 )
 from app.services.ai_memory_service import AIMemoryService
 from app.services.fulltext_search_service import fulltext_search_service
@@ -367,3 +368,31 @@ async def assist_memory_field(
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"AI 辅助失败: {str(e)}")
+
+
+@router.post("/projects/{project_id}/memory/expand", response_model=MemoryExpandResponse)
+async def expand_project_memory(
+    project_id: int,
+    body: MemoryExpandRequest,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    """用 AI 扩展整份（或指定范围）项目设定并写回"""
+    check_project_owner(db, project_id, current_user["id"])
+    try:
+        result = await AIMemoryService.expand_memory(
+            db=db,
+            project_id=project_id,
+            instruction=body.instruction,
+            scopes=body.scopes,
+            apply=body.apply,
+        )
+        return MemoryExpandResponse(
+            memory=result["memory"],
+            scopes=result["scopes"],
+            applied=result["applied"],
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"AI 扩展设定失败: {str(e)}")

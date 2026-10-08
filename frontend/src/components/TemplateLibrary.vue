@@ -10,10 +10,10 @@
 
     <div class="template-categories">
       <el-radio-group v-model="selectedCategory" size="large">
-        <el-radio-button label="all">全部</el-radio-button>
-        <el-radio-button label="novel">小说</el-radio-button>
-        <el-radio-button label="blog">博客</el-radio-button>
-        <el-radio-button label="work">工作</el-radio-button>
+        <el-radio-button value="all">全部</el-radio-button>
+        <el-radio-button value="novel">小说</el-radio-button>
+        <el-radio-button value="blog">博客</el-radio-button>
+        <el-radio-button value="work">工作</el-radio-button>
       </el-radio-group>
     </div>
 

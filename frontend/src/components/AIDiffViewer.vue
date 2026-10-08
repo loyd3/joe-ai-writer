@@ -319,8 +319,8 @@ watch(() => props.visible, (visible) => {
     }
 
     &.rewritten {
-      background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
-      border: 1px solid #bae6fd;
+      background: color-mix(in srgb, var(--coffee-primary) 14%, var(--coffee-bg-card));
+      border: 1px solid color-mix(in srgb, var(--coffee-primary) 40%, var(--coffee-border));
       color: var(--coffee-text);
     }
 
@@ -356,22 +356,22 @@ watch(() => props.visible, (visible) => {
   }
 
   &.removed {
-    background: #fee2e2;
-    color: #991b1b;
+    background: color-mix(in srgb, #ef4444 16%, var(--coffee-bg-card));
+    color: var(--coffee-text);
 
     .mark {
-      color: #dc2626;
+      color: #f87171;
       font-weight: bold;
       margin-right: 8px;
     }
   }
 
   &.added {
-    background: #dcfce7;
-    color: #166534;
+    background: color-mix(in srgb, #22c55e 16%, var(--coffee-bg-card));
+    color: var(--coffee-text);
 
     .mark {
-      color: #16a34a;
+      color: #4ade80;
       font-weight: bold;
       margin-right: 8px;
     }

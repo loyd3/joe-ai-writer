@@ -946,8 +946,9 @@ function scrollToBottom() {
     }
     
     .message-text {
-      background: linear-gradient(135deg, #fff 0%, var(--coffee-bg-warm) 100%);
-      border: 1px solid var(--coffee-border-light);
+      background: var(--coffee-bg-card);
+      color: var(--coffee-text);
+      border: 1px solid var(--coffee-border);
     }
   }
   
@@ -968,7 +969,9 @@ function scrollToBottom() {
 }
 
 .streaming .message-text {
-  background: linear-gradient(135deg, #fff 0%, var(--coffee-bg-warm) 100%);
+  background: var(--coffee-bg-card);
+  color: var(--coffee-text);
+  border: 1px solid var(--coffee-border);
 }
 
 .cursor {

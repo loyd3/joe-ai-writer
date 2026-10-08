@@ -1,236 +1,146 @@
 <template>
-  <div class="ai-config-panel">
-    <h3>
-      <el-icon><Setting /></el-icon>
-      AI 模型配置
-    </h3>
-    
-    <!-- 当前状态 -->
-    <el-card class="status-card" :class="{ 'is-active': isConfigured }">
-      <div class="status-header">
-        <el-avatar 
-          :size="40" 
-          :class="`provider-${currentProvider?.id || 'default'}`"
-        >
-          {{ currentProvider?.name?.charAt(0) || '?' }}
-        </el-avatar>
-        <div class="status-info">
-          <div class="status-title">
-            {{ currentProvider?.name || '未配置' }}
-            <el-tag v-if="isConfigured" type="success" size="small">已配置</el-tag>
-            <el-tag v-else type="warning" size="small">未配置</el-tag>
-          </div>
-          <div class="status-model">{{ config?.model || '请选择模型' }}</div>
-        </div>
-      </div>
-    </el-card>
-    
-    <!-- 配置表单 -->
-    <el-form :model="form" label-width="100px" v-loading="loading" class="config-form">
-      
-      <!-- 提供商选择 -->
-      <el-form-item label="AI 提供商">
-        <el-radio-group v-model="form.provider" @change="onProviderChange" size="large">
-          <el-radio-button 
-            v-for="p in providers" 
-            :key="p.id" 
-            :label="p.id"
-          >
-            <el-icon v-if="p.id === 'deepseek'"><ChromeFilled /></el-icon>
-            <el-icon v-else-if="p.id === 'openai'"><Open /></el-icon>
-            <el-icon v-else-if="p.id === 'siliconflow'"><Cpu /></el-icon>
-            <el-icon v-else-if="p.id === 'yxai'"><MagicStick /></el-icon>
-            <el-icon v-else><Link /></el-icon>
-            {{ p.name }}
-          </el-radio-button>
-        </el-radio-group>
-        <div class="form-hint">{{ currentProvider?.description }}</div>
-      </el-form-item>
-      
-      <!-- 模型选择 -->
-      <el-form-item label="选择模型">
-        <el-select v-model="form.model" style="width: 100%" size="large" placeholder="请选择模型">
-          <el-option-group label="推荐模型">
-            <el-option
-              v-for="m in currentProvider?.models?.slice(0, 3) || []"
-              :key="m"
-              :label="m"
-              :value="m"
-            >
-              <span>{{ m }}</span>
-              <el-tag v-if="m.includes('deepseek-chat')" size="small" type="success" style="margin-left: 8px">推荐</el-tag>
-              <el-tag v-if="m.includes('reasoner') || m.includes('R1')" size="small" type="warning" style="margin-left: 8px">推理·较慢</el-tag>
-            </el-option>
-          </el-option-group>
-          <el-option-group label="其他模型" v-if="currentProvider?.models?.length > 3">
-            <el-option
-              v-for="m in currentProvider?.models?.slice(3) || []"
-              :key="m"
-              :label="m"
-              :value="m"
-            />
-          </el-option-group>
-        </el-select>
-        <div
-          v-if="form.model && (form.model.includes('reasoner') || form.model.includes('R1') || form.model.toLowerCase().includes('r1'))"
-          class="form-hint"
-          style="margin-top: 8px"
-        >
-          <el-icon><InfoFilled /></el-icon>
-          推理模型会先思考再写正文，生成更慢；写作场景已自动只取最终正文。日常写作用 deepseek-chat 更稳更快。
-        </div>
-      </el-form-item>
-      
-      <!-- API Key -->
-      <el-form-item label="API Key" required>
-        <el-input
-          v-model="form.apiKey"
-          type="password"
-          show-password
-          placeholder="输入你的 API Key"
-          size="large"
-        >
-          <template #prefix>
-            <el-icon><Key /></el-icon>
-          </template>
-        </el-input>
-        <div class="form-hint">
-          <el-icon><InfoFilled /></el-icon>
-          保存后优先使用你填写的 API Key；未配置时才使用服务器环境变量
-        </div>
-      </el-form-item>
-      
-      <!-- 自定义 API 地址 -->
-      <el-form-item label="API 地址" v-if="form.provider === 'custom'" required>
-        <el-input
-          v-model="form.baseUrl"
-          placeholder="https://your-api-endpoint.com/v1"
-          size="large"
-        />
-      </el-form-item>
-      
-      <!-- 高级设置折叠面板 -->
-      <el-collapse v-model="activeCollapse">
-        <el-collapse-item title="高级设置" name="advanced">
-          
-          <!-- Temperature -->
-          <el-form-item label="Temperature">
-            <el-slider 
-              v-model="form.temperature" 
-              :min="0" 
-              :max="2" 
-              :step="0.1" 
-              show-stops 
-              show-input
-            />
-            <div class="slider-labels">
-              <span>精确</span>
-              <span>平衡</span>
-              <span>创造性</span>
+  <div class="ai-config-panel settings-fill" v-loading="loading">
+    <div class="top-bar">
+      <div class="status-models">
+        <div class="status-model">
+          <div class="provider-badge local">本</div>
+          <div class="min-w-0">
+            <div class="status-title">
+              本地
+              <el-tag v-if="form.local_model && form.local_base_url" size="small" type="success">已填</el-tag>
+              <el-tag v-else size="small" type="warning">待配置</el-tag>
             </div>
+            <div class="status-sub">Ollama · {{ form.local_model || '未填模型' }}</div>
+          </div>
+        </div>
+        <div class="status-model">
+          <div class="provider-badge">线</div>
+          <div class="min-w-0">
+            <div class="status-title">
+              线上
+              <el-tag v-if="hasOnlineKey" size="small" type="success">可用</el-tag>
+              <el-tag v-else size="small" type="warning">待配置</el-tag>
+            </div>
+            <div class="status-sub">{{ currentProvider?.name || form.provider }} · {{ form.model || '未填模型' }}</div>
+          </div>
+        </div>
+      </div>
+      <div class="top-bar-right">
+        <el-tag size="small" :type="configSource === 'database' ? 'success' : 'info'" effect="plain">
+          {{ configSource === 'database' ? '已保存' : '环境默认' }}
+        </el-tag>
+        <el-radio-group v-model="form.preferred_mode" size="small" class="mode-group" @change="onPreferredModeChange">
+          <el-radio-button value="local">用本地</el-radio-button>
+          <el-radio-button value="online">用线上</el-radio-button>
+        </el-radio-group>
+      </div>
+    </div>
+
+    <div class="config-columns">
+      <section class="config-section draft-box">
+        <div class="section-title">本地 Ollama</div>
+        <p class="hint">
+          Docker 访问本机用 <code>http://host.docker.internal:11434/v1</code>；中文建议 <code>qwen2.5:14b</code>
+        </p>
+        <el-form label-position="top" class="config-form">
+          <el-form-item label="模型">
+            <el-input v-model="form.local_model" placeholder="例如 qwen2.5:14b" clearable />
           </el-form-item>
-          
-          <!-- Max Tokens -->
-          <el-form-item label="最大长度">
-            <el-slider 
-              v-model="form.maxTokens" 
-              :min="256" 
-              :max="8192" 
-              :step="256" 
-              show-stops
-              :marks="{1024: '1K', 4096: '4K', 8192: '8K'}"
+          <el-form-item label="Ollama 地址">
+            <el-input v-model="form.local_base_url" placeholder="http://localhost:11434/v1" />
+          </el-form-item>
+          <el-form-item label="思考模式">
+            <el-switch v-model="form.local_think" active-text="开启" inactive-text="关闭" />
+            <div class="form-hint">Qwen3 / qwen3.8 等支持思考的模型生效。关闭后直接写正文，更省时间和显存。</div>
+          </el-form-item>
+          <el-form-item>
+            <el-checkbox v-model="form.local_fallback">本地失败时提示改用线上</el-checkbox>
+          </el-form-item>
+          <el-button :loading="testingLocal" @click="testLocal">测试本地连接</el-button>
+        </el-form>
+      </section>
+
+      <section class="config-section">
+        <div class="section-title">线上模型</div>
+        <div class="provider-grid">
+          <button
+            v-for="p in providers"
+            :key="p.id"
+            type="button"
+            class="provider-card"
+            :class="{ active: form.provider === p.id }"
+            @click="selectProvider(p.id)"
+          >
+            <strong>{{ p.name }}</strong>
+            <span>{{ p.description }}</span>
+          </button>
+        </div>
+
+        <el-form :model="form" label-position="top" class="config-form">
+          <el-form-item label="API Key" required>
+            <el-input
+              v-model="form.apiKey"
+              type="password"
+              show-password
+              :placeholder="apiKeyPlaceholder"
             />
           </el-form-item>
-          
-        </el-collapse-item>
-      </el-collapse>
-      
-      <!-- 操作按钮 -->
-      <el-form-item class="action-buttons">
-        <el-button 
-          type="primary" 
-          @click="testConnection" 
-          :loading="testing"
-          size="large"
-          plain
-        >
-          <el-icon><Connection /></el-icon>
-          测试连接
-        </el-button>
-        <el-button 
-          @click="saveConfig" 
-          type="success" 
-          :loading="saving"
-          size="large"
-        >
-          <el-icon><Check /></el-icon>
-          保存配置
-        </el-button>
-        <el-button 
-          @click="resetToDefault" 
-          size="large"
-        >
-          <el-icon><RefreshLeft /></el-icon>
-          重置
-        </el-button>
-      </el-form-item>
-    </el-form>
-    
-    <!-- 测试结果 -->
-    <el-alert
-      v-if="testResult"
-      :title="testResult.success ? '连接成功' : '连接失败'"
-      :type="testResult.success ? 'success' : 'error'"
-      :closable="true"
-      @close="testResult = null"
-      style="margin-top: 20px"
-    >
-      <template #default>
+
+          <div class="form-row">
+            <el-form-item label="模型" class="grow">
+              <el-select v-model="form.model" style="width: 100%" filterable allow-create default-first-option>
+                <el-option v-for="m in currentProvider?.models || []" :key="m" :label="m" :value="m" />
+              </el-select>
+            </el-form-item>
+          </div>
+
+          <el-form-item v-if="form.provider === 'custom'" label="API 地址" required>
+            <el-input v-model="form.baseUrl" placeholder="https://your-api-endpoint.com/v1" />
+          </el-form-item>
+
+          <el-collapse v-model="advancedOpen">
+            <el-collapse-item title="采样参数" name="advanced">
+              <el-form-item label="Temperature">
+                <el-slider v-model="form.temperature" :min="0" :max="2" :step="0.1" show-input />
+              </el-form-item>
+              <el-form-item label="Max Tokens">
+                <el-slider v-model="form.maxTokens" :min="256" :max="16384" :step="256" show-input />
+              </el-form-item>
+            </el-collapse-item>
+          </el-collapse>
+
+          <div class="actions">
+            <el-button :loading="testing" @click="testOnline">测试线上</el-button>
+          </div>
+        </el-form>
+      </section>
+    </div>
+
+    <div class="footer-bar">
+      <el-alert
+        v-if="testResult"
+        class="test-alert"
+        :title="testResult.success ? '连接成功' : '连接失败'"
+        :type="testResult.success ? 'success' : 'error'"
+        :closable="true"
+        show-icon
+        @close="testResult = null"
+      >
         <div>{{ testResult.message }}</div>
-        <div v-if="testResult.response" class="test-response">
-          响应: {{ testResult.response }}
-        </div>
-      </template>
-    </el-alert>
-    
-    <!-- 帮助信息 -->
-    <el-divider />
-    <div class="help-section">
-      <h4>如何获取 API Key</h4>
-      <div v-if="form.provider === 'deepseek'" class="help-content">
-        <p>1. 访问 <el-link href="https://platform.deepseek.com" target="_blank" type="primary">DeepSeek 开放平台</el-link></p>
-        <p>2. 注册/登录账号</p>
-        <p>3. 进入「API Keys」页面创建密钥</p>
-        <p>4. 复制密钥并粘贴到上方输入框</p>
-      </div>
-      <div v-else-if="form.provider === 'openai'" class="help-content">
-        <p>1. 访问 <el-link href="https://platform.openai.com" target="_blank" type="primary">OpenAI 平台</el-link></p>
-        <p>2. 进入「API Keys」页面</p>
-        <p>3. 点击「Create new secret key」</p>
-      </div>
-      <div v-else-if="form.provider === 'siliconflow'" class="help-content">
-        <p>1. 访问 <el-link href="https://cloud.siliconflow.cn" target="_blank" type="primary">SiliconFlow 云平台</el-link></p>
-        <p>2. 注册/登录账号</p>
-        <p>3. 进入「API 密钥」页面创建密钥</p>
-      </div>
-      <div v-else-if="form.provider === 'yxai'" class="help-content">
-        <p>1. 访问 <el-link href="https://yxai.chat" target="_blank" type="primary">意心 AI 平台</el-link>（无需 VPN）</p>
-        <p>2. 注册/登录账号并完成认证</p>
-        <p>3. 在控制台创建 API Key，复制到上方输入框</p>
-        <p>4. 默认地址为 <code>https://yxai.chat/v1</code>，兼容 OpenAI Chat Completions</p>
-        <p>文档：<el-link href="https://yxai.chat/docs/platform-overview" target="_blank" type="primary">平台概览</el-link></p>
-      </div>
-      <div v-else class="help-content">
-        <p>请输入兼容 OpenAI API 格式的自定义端点地址</p>
+      </el-alert>
+      <div class="actions">
+        <el-button @click="resetToDefault">重置</el-button>
+        <el-button type="primary" :loading="saving" @click="saveConfig">保存配置</el-button>
       </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
-import { systemApi } from '@/api'
+import { computed, onMounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
+import { systemApi } from '@/api'
+import { useAiModeStore, type AiPreferredMode } from '@/stores/aiMode'
 
 interface Provider {
   id: string
@@ -239,369 +149,483 @@ interface Provider {
   models: string[]
 }
 
-interface AIConfig {
-  provider: string
-  model: string
-  available_providers: Provider[]
-}
+const emit = defineEmits<{ saved: [] }>()
+const aiModeStore = useAiModeStore()
 
 const loading = ref(false)
-const testing = ref(false)
 const saving = ref(false)
-const config = ref<AIConfig | null>(null)
+const testing = ref(false)
+const testingLocal = ref(false)
+const advancedOpen = ref<string[]>([])
 const providers = ref<Provider[]>([])
-const testResult = ref<{ success: boolean; message: string; response?: string } | null>(null)
-const activeCollapse = ref<string[]>([])
+const configSource = ref('env')
+const testResult = ref<{ success: boolean; message: string } | null>(null)
 
-// 默认配置 - DeepSeek
-const defaultConfig = {
-  provider: 'deepseek' as const,
+const form = ref({
+  provider: 'deepseek',
   model: 'deepseek-chat',
   apiKey: '',
   baseUrl: '',
   temperature: 0.7,
-  maxTokens: 4096
-}
-
-const form = ref({ ...defaultConfig })
-
-const currentProvider = computed(() => {
-  return providers.value.find(p => p.id === form.value.provider)
+  maxTokens: 4096,
+  preferred_mode: 'online' as 'online' | 'local',
+  local_model: 'qwen2.5:14b',
+  local_base_url: 'http://localhost:11434/v1',
+  local_fallback: true,
+  local_think: false,
 })
 
-const isConfigured = computed(() => {
-  return !!form.value.apiKey && !!form.value.model
-})
+const currentProvider = computed(() => providers.value.find((p) => p.id === form.value.provider))
+const hasOnlineKey = computed(() => !!form.value.apiKey && !String(form.value.apiKey).endsWith('...'))
+const apiKeyPlaceholder = computed(() =>
+  form.value.apiKey && String(form.value.apiKey).endsWith('...')
+    ? `已配置（${form.value.apiKey}），留空或重填`
+    : '输入 API Key'
+)
 
-onMounted(async () => {
-  await loadConfig()
-})
+onMounted(() => loadConfig())
+
+watch(
+  () => aiModeStore.preferredMode,
+  (mode) => {
+    if (form.value.preferred_mode !== mode) form.value.preferred_mode = mode
+  },
+)
 
 async function loadConfig() {
   loading.value = true
   try {
     const res = await systemApi.aiConfig()
-    config.value = res.data
-    providers.value = res.data.available_providers
-    
-    // 使用后端默认配置初始化
-    if (res.data.provider) {
+    providers.value = (res.data.available_providers || []).filter((p: Provider) => p.id !== 'ollama')
+    if (res.data.provider && res.data.provider !== 'ollama') {
       form.value.provider = res.data.provider
-      form.value.model = res.data.model
+      form.value.model = res.data.model || form.value.model
     }
-
-    // 优先加载已保存到服务端的用户配置（真正会被后端 AI 调用使用）
+    let serverMode: 'online' | 'local' | null = null
     try {
       const userRes = await systemApi.getUserAIConfig()
-      const userCfg = userRes.data
-      if (userCfg?.provider) {
-        form.value.provider = userCfg.provider
-        form.value.model = userCfg.model || form.value.model
-        form.value.baseUrl = userCfg.base_url || ''
-        form.value.temperature = userCfg.temperature ?? form.value.temperature
-        form.value.maxTokens = userCfg.max_tokens ?? form.value.maxTokens
-        // 脱敏 key 仅作占位提示；真正完整 key 优先从本地读取
-        if (userCfg.api_key && !form.value.apiKey) {
-          form.value.apiKey = userCfg.api_key
-        }
-        config.value = {
-          ...config.value!,
-          provider: userCfg.provider,
-          model: userCfg.model || config.value?.model || ''
-        }
+      const u = userRes.data
+      if (u?.provider && u.provider !== 'ollama') {
+        form.value.provider = u.provider
+        form.value.model = u.model || form.value.model
+        form.value.baseUrl = u.base_url || ''
+        form.value.temperature = u.temperature ?? form.value.temperature
+        form.value.maxTokens = u.max_tokens ?? form.value.maxTokens
+        if (u.api_key) form.value.apiKey = u.api_key
       }
-    } catch (e) {
-      console.log('尚未保存用户 AI 配置，将使用环境变量回退')
+      serverMode = u.preferred_mode === 'local' ? 'local' : 'online'
+      form.value.preferred_mode = serverMode
+      form.value.local_model = u.local_model || form.value.local_model
+      form.value.local_base_url = u.local_base_url || form.value.local_base_url
+      form.value.local_fallback = u.local_fallback !== false
+      form.value.local_think = u.local_think === true
+      configSource.value = u.source || 'env'
+    } catch {
+      /* env fallback */
     }
-
-    // 本地完整 API Key 覆盖脱敏占位
-    loadFromLocalStorage()
+    loadFromLocalStorage({ keepPreferredMode: serverMode })
+    aiModeStore.syncFromConfig(form.value.preferred_mode, {
+      local_model: form.value.local_model,
+      provider: form.value.provider,
+      model: form.value.model,
+    })
   } catch (e) {
-    console.error('加载配置失败:', e)
-    // 使用默认 DeepSeek 配置
-    form.value.provider = 'deepseek'
-    form.value.model = 'deepseek-chat'
+    console.error(e)
     loadFromLocalStorage()
   } finally {
     loading.value = false
   }
 }
 
-function loadFromLocalStorage() {
+async function onPreferredModeChange(mode: string | number | boolean | undefined) {
+  if (mode !== 'local' && mode !== 'online') return
+  const ok = await aiModeStore.setMode(mode as AiPreferredMode)
+  if (!ok) {
+    form.value.preferred_mode = aiModeStore.preferredMode
+  }
+}
+
+function loadFromLocalStorage(opts?: { keepPreferredMode?: 'online' | 'local' | null }) {
   try {
     const saved = localStorage.getItem('joe-ai-config')
-    if (saved) {
-      const parsed = JSON.parse(saved)
-      // 本地有完整 key 时覆盖脱敏值
-      if (parsed.apiKey && !String(parsed.apiKey).endsWith('...')) {
-        form.value = { ...form.value, ...parsed }
-      } else {
-        const { apiKey: _ignored, ...rest } = parsed
-        form.value = { ...form.value, ...rest }
-      }
+    if (!saved) return
+    const parsed = JSON.parse(saved)
+    const { preferred_mode: _mode, ...rest } = parsed
+    if (parsed.apiKey && !String(parsed.apiKey).endsWith('...')) {
+      form.value = { ...form.value, ...rest }
+    } else {
+      const { apiKey: _i, ...withoutKey } = rest
+      form.value = { ...form.value, ...withoutKey }
     }
-  } catch (e) {
-    console.error('加载本地配置失败:', e)
-  }
+    if (opts?.keepPreferredMode) {
+      form.value.preferred_mode = opts.keepPreferredMode
+    }
+  } catch { /* ignore */ }
 }
 
-function onProviderChange() {
-  // 切换提供商时，自动选择推荐模型
-  const provider = currentProvider.value
-  if (provider?.models.length) {
-    // 优先选择推荐的模型
-    const recommendedModel = provider.models.find(m => 
-      (provider.id === 'deepseek' && m === 'deepseek-chat') ||
-      (provider.id === 'openai' && m === 'gpt-4') ||
-      (provider.id === 'siliconflow' && m.includes('DeepSeek-V3')) ||
-      (provider.id === 'yxai' && m === 'deepseek-flash')
+function selectProvider(id: string) {
+  form.value.provider = id
+  const provider = providers.value.find((p) => p.id === id)
+  if (provider?.models?.length) {
+    const recommended = provider.models.find((m) =>
+      (id === 'deepseek' && m === 'deepseek-chat') ||
+      (id === 'openai' && m === 'gpt-4') ||
+      (id === 'siliconflow' && m.includes('DeepSeek-V3')) ||
+      (id === 'yxai' && m === 'deepseek-flash')
     )
-    form.value.model = recommendedModel || provider.models[0]
+    form.value.model = recommended || provider.models[0]
   }
-  
-  // 重置 API Key
   form.value.apiKey = ''
   form.value.baseUrl = ''
-  
-  // 清除测试结果
   testResult.value = null
 }
 
-async function testConnection() {
-  if (!form.value.apiKey) {
-    ElMessage.warning('请输入 API Key')
+async function testOnline() {
+  if (!form.value.apiKey || String(form.value.apiKey).endsWith('...')) {
+    ElMessage.warning('请输入完整的线上 API Key')
     return
   }
-  
   testing.value = true
   testResult.value = null
-  
   try {
     const res = await systemApi.testAI({
-      provider: form.value.provider,
+      provider: form.value.provider as any,
       model: form.value.model,
       api_key: form.value.apiKey,
       base_url: form.value.baseUrl || undefined,
-      temperature: form.value.temperature
+      temperature: form.value.temperature,
     })
-    testResult.value = res.data
-    
-    if (res.data.success) {
-      ElMessage.success('连接测试成功！')
-    } else {
-      ElMessage.error('连接测试失败')
-    }
-  } catch (e) {
-    testResult.value = {
-      success: false,
-      message: '请求失败，请检查网络连接'
-    }
-    ElMessage.error('测试请求失败')
+    testResult.value = { success: !!res.data.success, message: res.data.message || '' }
+    if (res.data.success) ElMessage.success('线上连接成功')
+    else ElMessage.error('线上连接失败')
+  } catch {
+    testResult.value = { success: false, message: '请求失败，请检查网络' }
   } finally {
     testing.value = false
   }
 }
 
+async function testLocal() {
+  if (!form.value.local_base_url.trim()) {
+    ElMessage.warning('请填写 Ollama 地址')
+    return
+  }
+  testingLocal.value = true
+  testResult.value = null
+  try {
+    const res = await systemApi.testAI({
+      provider: 'ollama',
+      model: form.value.local_model,
+      api_key: 'ollama',
+      base_url: form.value.local_base_url,
+    })
+    testResult.value = { success: !!res.data.success, message: res.data.message || '' }
+    if (res.data.success) ElMessage.success('本地 Ollama 连接成功')
+    else ElMessage.error('本地连接失败，请确认 Ollama 已启动')
+  } catch {
+    testResult.value = { success: false, message: '本地连接失败' }
+  } finally {
+    testingLocal.value = false
+  }
+}
+
 async function saveConfig() {
-  if (!form.value.apiKey) {
-    ElMessage.warning('请输入 API Key 后再保存')
+  const preferredMode = aiModeStore.preferredMode
+  if (preferredMode === 'online') {
+    if (!form.value.apiKey) {
+      ElMessage.warning('使用线上模式时请填写 API Key')
+      return
+    }
+    // 脱敏 key（sk-xxx...）表示库里已有真实 key，后端会保留，不必重填
+  }
+  if (preferredMode === 'local' && !form.value.local_base_url.trim()) {
+    ElMessage.warning('使用本地模式时请填写 Ollama 地址')
     return
   }
-  if (String(form.value.apiKey).endsWith('...')) {
-    ElMessage.warning('请重新输入完整的 API Key 后再保存')
+  if (form.value.provider === 'custom' && !form.value.baseUrl.trim()) {
+    ElMessage.warning('自定义提供商需要填写 API 地址')
     return
   }
-  
+
   saving.value = true
   try {
-    // 1. 必须先保存到后端（AI 调用实际读取服务端配置）
-    await systemApi.saveUserAIConfig({
+    const preferredMode = aiModeStore.preferredMode
+    form.value.preferred_mode = preferredMode
+    const payload: any = {
       provider: form.value.provider,
       model: form.value.model,
-      api_key: form.value.apiKey,
       base_url: form.value.baseUrl || undefined,
       temperature: form.value.temperature,
-      max_tokens: form.value.maxTokens
-    })
+      max_tokens: form.value.maxTokens,
+      preferred_mode: preferredMode,
+      local_model: form.value.local_model,
+      local_base_url: form.value.local_base_url,
+      local_fallback: form.value.local_fallback,
+      local_think: form.value.local_think,
+    }
+    if (form.value.apiKey && !String(form.value.apiKey).endsWith('...')) {
+      payload.api_key = form.value.apiKey
+    } else if (preferredMode === 'online') {
+      payload.api_key = form.value.apiKey
+    }
 
-    // 2. 同步本地缓存（方便下次打开表单回填完整 key）
+    await systemApi.saveUserAIConfig(payload)
     localStorage.setItem('joe-ai-config', JSON.stringify({
       provider: form.value.provider,
       model: form.value.model,
       apiKey: form.value.apiKey,
       baseUrl: form.value.baseUrl,
       temperature: form.value.temperature,
-      maxTokens: form.value.maxTokens
+      maxTokens: form.value.maxTokens,
+      preferred_mode: preferredMode,
+      local_model: form.value.local_model,
+      local_base_url: form.value.local_base_url,
+      local_fallback: form.value.local_fallback,
+      local_think: form.value.local_think,
     }))
-    
-    ElMessage.success('配置已保存，将优先使用你的 API Key')
-    
-    // 更新状态显示
-    config.value = {
-      ...config.value!,
+    configSource.value = 'database'
+    aiModeStore.syncFromConfig(preferredMode, {
+      local_model: form.value.local_model,
       provider: form.value.provider,
-      model: form.value.model
-    }
+      model: form.value.model,
+    })
+    ElMessage.success(
+      preferredMode === 'local'
+        ? '已保存，当前默认使用本地 Ollama'
+        : '已保存，当前默认使用线上模型'
+    )
+    emit('saved')
   } catch (e: any) {
     const msg = e?.response?.data?.detail || e?.message || '保存失败'
-    ElMessage.error(typeof msg === 'string' ? msg : '保存失败，请确认已登录')
+    ElMessage.error(typeof msg === 'string' ? msg : '保存失败')
   } finally {
     saving.value = false
   }
 }
 
 async function resetToDefault() {
-  form.value = { ...defaultConfig }
+  form.value = {
+    provider: 'deepseek',
+    model: 'deepseek-chat',
+    apiKey: '',
+    baseUrl: '',
+    temperature: 0.7,
+    maxTokens: 4096,
+    preferred_mode: 'online',
+    local_model: 'qwen2.5:14b',
+    local_base_url: 'http://localhost:11434/v1',
+    local_fallback: true,
+    local_think: false,
+  }
   localStorage.removeItem('joe-ai-config')
   try {
     await systemApi.deleteUserAIConfig()
     ElMessage.success('已清除用户配置，将使用服务器环境变量')
+    configSource.value = 'env'
   } catch {
-    ElMessage.success('已重置本地配置（服务端清除失败，可能未登录）')
+    ElMessage.success('已重置本地配置')
   }
+  aiModeStore.syncFromConfig('online', {
+    local_model: form.value.local_model,
+    provider: form.value.provider,
+    model: form.value.model,
+  })
   testResult.value = null
 }
 </script>
 
-<style scoped>
+<style scoped lang="scss">
 .ai-config-panel {
-  padding: 0 20px;
-  max-width: 800px;
-  margin: 0 auto;
-}
-
-.ai-config-panel h3 {
-  margin: 0 0 20px 0;
-  font-size: 20px;
-  font-weight: 500;
   display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.status-card {
-  margin-bottom: 24px;
-  transition: all 0.3s;
-}
-
-.status-card.is-active {
-  border-color: #67c23a;
-  background: #f0f9ff;
-}
-
-.status-header {
-  display: flex;
-  align-items: center;
+  flex-direction: column;
   gap: 16px;
+  padding-bottom: 8px;
+  width: 100%;
+  max-width: none;
 }
 
-.status-info {
+.top-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 14px 16px;
+  border: 1px solid var(--coffee-border);
+  border-radius: 12px;
+  background: var(--coffee-bg-card);
+}
+
+.status-models {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  min-width: 0;
   flex: 1;
 }
 
-.status-title {
-  font-size: 16px;
-  font-weight: 500;
+.status-model {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-bottom: 4px;
+  gap: 10px;
+  min-width: 0;
 }
 
-.status-model {
+.top-bar-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.provider-badge {
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 13px;
+  color: #fff;
+  background: var(--coffee-primary, #8b6914);
+  flex-shrink: 0;
+  &.local { background: #3d8b5a; }
+}
+
+.status-title {
+  font-size: 13px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--coffee-text);
+}
+
+.status-sub {
+  font-size: 12px;
+  color: var(--coffee-text-muted);
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 220px;
+}
+
+.form-hint,
+.hint {
+  font-size: 12px;
+  color: var(--coffee-text-muted);
+  line-height: 1.5;
+  margin: 0 0 12px;
+  code {
+    font-size: 11px;
+    padding: 1px 5px;
+    border-radius: 4px;
+    background: rgba(0, 0, 0, 0.06);
+  }
+}
+
+.config-columns {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 16px;
+  align-items: start;
+
+  @media (min-width: 900px) {
+    grid-template-columns: 1fr 1.15fr;
+  }
+}
+
+.config-section {
+  border: 1px solid var(--coffee-border);
+  border-radius: 12px;
+  padding: 16px 18px;
+  background: var(--coffee-bg-card);
+  min-width: 0;
+}
+
+.draft-box {
+  border-color: rgba(61, 139, 90, 0.35);
+  background: linear-gradient(180deg, rgba(61, 139, 90, 0.06), var(--coffee-bg-card));
+}
+
+.section-title {
   font-size: 14px;
-  color: #606266;
+  font-weight: 700;
+  margin-bottom: 8px;
+  color: var(--coffee-text);
 }
 
-/* Provider colors */
-:deep(.provider-deepseek) {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: white;
-  font-weight: bold;
+.provider-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 8px;
+  margin: 0 0 14px;
 }
 
-:deep(.provider-openai) {
-  background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
-  color: white;
-  font-weight: bold;
-}
-
-:deep(.provider-siliconflow) {
-  background: linear-gradient(135deg, #fc4a1a 0%, #f7b733 100%);
-  color: white;
-  font-weight: bold;
-}
-
-:deep(.provider-yxai) {
-  background: linear-gradient(135deg, #5b6cfa 0%, #8b5cf6 100%);
-  color: white;
-  font-weight: bold;
-}
-
-:deep(.provider-custom) {
-  background: linear-gradient(135deg, #6366f1 0%, #a855f7 100%);
-  color: white;
-  font-weight: bold;
-}
-
-:deep(.provider-default) {
-  background: #909399;
-  color: white;
+.provider-card {
+  text-align: left;
+  border: 1px solid var(--coffee-border);
+  border-radius: 10px;
+  padding: 8px 10px;
+  background: transparent;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+  strong {
+    display: block;
+    font-size: 12px;
+    color: var(--coffee-text);
+    margin-bottom: 2px;
+  }
+  span {
+    font-size: 11px;
+    color: var(--coffee-text-muted);
+    line-height: 1.3;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  &.active {
+    border-color: var(--coffee-primary, #8b6914);
+    background: rgba(139, 105, 20, 0.08);
+  }
 }
 
 .config-form {
-  margin-top: 20px;
+  :deep(.el-form-item) { margin-bottom: 12px; }
 }
 
-.form-hint {
-  font-size: 12px;
-  color: #909399;
-  margin-top: 5px;
+.form-row {
+  display: flex;
+  gap: 12px;
+  .grow { flex: 1; min-width: 0; }
+}
+
+.mode-group {
+  flex-shrink: 0;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.footer-bar {
   display: flex;
   align-items: center;
-  gap: 4px;
-}
-
-.slider-labels {
-  display: flex;
   justify-content: space-between;
-  font-size: 12px;
-  color: #909399;
-  margin-top: 5px;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding-top: 4px;
 }
 
-.action-buttons {
-  margin-top: 24px;
-  padding-top: 20px;
-  border-top: 1px solid #e4e7ed;
-}
-
-.test-response {
-  margin-top: 8px;
-  padding: 8px;
-  background: #f5f7fa;
-  border-radius: 4px;
-  font-size: 13px;
-  color: #606266;
-}
-
-.help-section {
-  margin-top: 20px;
-}
-
-.help-section h4 {
-  margin: 0 0 12px 0;
-  font-size: 14px;
-  color: #606266;
-}
-
-.help-content {
-  font-size: 13px;
-  color: #606266;
-  line-height: 1.8;
-}
-
-.help-content p {
-  margin: 4px 0;
+.test-alert {
+  flex: 1;
+  min-width: 200px;
+  margin: 0;
 }
 </style>

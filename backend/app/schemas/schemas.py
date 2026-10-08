@@ -158,6 +158,22 @@ class MemoryAssistResponse(BaseModel):
     field: str
     mode: str
 
+
+class MemoryExpandRequest(BaseModel):
+    """用 AI 扩展整份项目设定"""
+    instruction: Optional[str] = Field(default=None, max_length=2000)
+    scopes: Optional[List[str]] = Field(
+        default=None,
+        description="要扩展的范围：outline/storyline/characters/world_building/writing_style/key_points/notes；空=全部",
+    )
+    apply: bool = Field(default=True, description="是否直接写回项目设定")
+
+
+class MemoryExpandResponse(BaseModel):
+    memory: AIMemoryResponse
+    scopes: List[str]
+    applied: bool
+
 # ========== Document Schemas ==========
 class Block(BaseModel):
     id: str = Field(default_factory=lambda: uuid.uuid4().hex[:8])

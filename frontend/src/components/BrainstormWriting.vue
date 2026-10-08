@@ -208,10 +208,10 @@
           <el-form :model="writeSettings" label-width="100px">
             <el-form-item label="内容类型">
               <el-radio-group v-model="writeSettings.contentType">
-                <el-radio-button label="opening">开头</el-radio-button>
-                <el-radio-button label="scene">场景</el-radio-button>
-                <el-radio-button label="dialogue">对话</el-radio-button>
-                <el-radio-button label="ending">结尾</el-radio-button>
+                <el-radio-button value="opening">开头</el-radio-button>
+                <el-radio-button value="scene">场景</el-radio-button>
+                <el-radio-button value="dialogue">对话</el-radio-button>
+                <el-radio-button value="ending">结尾</el-radio-button>
               </el-radio-group>
             </el-form-item>
             <el-form-item label="目标字数">
