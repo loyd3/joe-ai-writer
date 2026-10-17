@@ -148,18 +148,23 @@
 
       <el-container>
         <el-main class="main-content">
-          <router-view />
+          <router-view v-slot="{ Component }">
+            <component :is="Component" ref="pageView" />
+          </router-view>
         </el-main>
       </el-container>
     </el-container>
 
+    <FloatingProjectAgent :project-id="agentProjectId" :project-title="agentProjectTitle" :before-open="prepareAgent" @changed="onAgentChanged" />
     <SettingsDrawer />
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { computed, onMounted, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { useProjectStore } from '@/stores/project'
+import FloatingProjectAgent from '@/components/FloatingProjectAgent.vue'
 import { useAuthStore } from '@/stores/auth'
 import { useAiModeStore, type AiPreferredMode } from '@/stores/aiMode'
 import { useSettingsDrawerStore } from '@/stores/settingsDrawer'
@@ -171,12 +176,48 @@ import {
   EditPen, UserFilled, ArrowDown, User, Setting, SwitchButton, Cpu,
   HomeFilled, DataLine, TrendCharts, MagicStick, Lightning, Promotion, Brush,
 } from '@element-plus/icons-vue'
-import { ElMessageBox } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 
 const router = useRouter()
 const authStore = useAuthStore()
 const aiModeStore = useAiModeStore()
 const settingsDrawer = useSettingsDrawerStore()
+const route = useRoute()
+const projectStore = useProjectStore()
+const pageView = ref<{ prepareProjectAgent?: () => Promise<boolean>; onAgentProjectChanged?: () => Promise<void> }>()
+const agentProjectId = computed(() => {
+  if (route.name === 'project' || route.name === 'project-settings') {
+    const id = Number(route.params.id)
+    return projectStore.currentProject?.id === id ? id : null
+  }
+  if (route.name === 'document') {
+    const doc = projectStore.currentDocument
+    return doc?.id === Number(route.params.id) ? doc.project_id : null
+  }
+  return projectStore.currentProject?.id ?? null
+})
+const agentProjectTitle = computed(() => projectStore.currentProject?.id === agentProjectId.value ? projectStore.currentProject.title : '')
+async function prepareAgent() {
+  if (route.name === 'document') {
+    if (!agentProjectId.value || !pageView.value?.prepareProjectAgent) return false
+    const path = route.fullPath
+    const prepared = await pageView.value.prepareProjectAgent()
+    return prepared && path === route.fullPath
+  }
+  return true
+}
+async function onAgentChanged(changedProjectId: number | null) {
+  if (!changedProjectId || changedProjectId !== agentProjectId.value) return
+  try {
+    if (pageView.value?.onAgentProjectChanged) {
+      await pageView.value.onAgentProjectChanged()
+    } else {
+      await projectStore.fetchProject(changedProjectId)
+    }
+  } catch {
+    ElMessage.warning('项目变更已保存，但页面刷新失败，请手动刷新确认。')
+  }
+}
 
 onMounted(() => {
   if (authStore.isLoggedIn) aiModeStore.load()

@@ -191,6 +191,9 @@ class DocumentCreate(DocumentBase):
 class DocumentUpdate(BaseModel):
     title: Optional[str] = Field(None, min_length=1, max_length=200)
     content: Optional[List[Block]] = None
+    expected_updated_at: Optional[datetime] = Field(
+        None, exclude=True, description="Snapshot version; stale saves return HTTP 409"
+    )
 
 class DocumentResponse(DocumentBase):
     id: int
@@ -486,3 +489,12 @@ class HotTopicsRequest(BaseModel):
     title: str = Field(..., min_length=1, description="文章标题")
     content: str = Field(..., min_length=1, description="文章内容")
     outline_data: Optional[Dict[str, Any]] = Field(default=None, description="大纲数据（用于记录）")
+
+
+# ========== Project Agent Schemas ==========
+class AgentRunCreate(BaseModel):
+    """创建智能体运行：instruction 为自然语言指令；conversation_id 续接同一会话。"""
+
+    instruction: str = Field(..., min_length=1, max_length=20000)
+    conversation_id: Optional[str] = Field(default=None, description="留空则开启新会话")
+    idempotency_key: Optional[str] = Field(default=None, max_length=64, description="幂等键，重复提交不二次建任务")

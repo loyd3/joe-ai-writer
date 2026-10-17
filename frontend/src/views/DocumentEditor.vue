@@ -1,5 +1,8 @@
 <template>
   <div class="document-editor">
+    <el-alert v-if="saveConflict" type="warning" :closable="false" title="服务器版本已变化，自动保存已暂停。本地稿仍在编辑器中，请先复制备份。">
+      <el-button size="small" @click="reloadAfterConflict">放弃本地稿并加载最新版本</el-button>
+    </el-alert>
     <div class="editor-header">
       <div class="header-left">
         <el-button link class="btn-icon" @click="goBack">
@@ -321,6 +324,7 @@ import { useProjectStore, type Block } from '@/stores/project'
 import { ElMessage } from 'element-plus'
 import BlockEditor from '@/components/BlockEditor.vue'
 import AIChatPanel from '@/components/AIChatPanel.vue'
+import { captureEditorSave, matchesEditorSave } from '@/utils/editorSaveSnapshot'
 import AIExtract from '@/components/AIExtract.vue'
 import AIGenerateFromMemory from '@/components/AIGenerateFromMemory.vue'
 import AIRewriteFromSettings from '@/components/AIRewriteFromSettings.vue'
@@ -344,6 +348,8 @@ const project = computed(() => store.currentProject)
 const documentTitle = ref('')
 const content = ref<Block[]>([])
 const saving = ref(false)
+const saveConflict = ref(false)
+const editorBaseUpdatedAt = ref('')
 const showChatPanel = ref(true)
 const showExtractDrawer = ref(false)
 const showGenerateDrawer = ref(false)
@@ -467,7 +473,10 @@ async function loadDocument() {
   await store.fetchDocument(Number(documentId.value))
   if (document.value) {
     documentTitle.value = document.value.title
-    content.value = document.value.content || []
+    content.value = JSON.parse(JSON.stringify(document.value.content || [])) as Block[]
+    editorBaseUpdatedAt.value = document.value.updated_at
+    hasChanges.value = false
+    saveConflict.value = false
     if (document.value.project_id) {
       await store.fetchProject(document.value.project_id)
     }
@@ -541,23 +550,77 @@ function onAskAi(payload: { text: string; index?: number; indices?: number[] }) 
   })
 }
 
-async function saveDocument() {
-  if (!hasChanges.value && !saving.value) return
-
+async function saveDocument(): Promise<boolean> {
+  if (saving.value || saveConflict.value) return false
   blockEditorRef.value?.flushPendingSync?.()
   await nextTick()
+  if (saving.value || saveConflict.value) return false
+  if (!hasChanges.value) return true
+  if (!editorBaseUpdatedAt.value) return false
 
+  const snapshot = captureEditorSave(
+    Number(documentId.value), documentTitle.value,
+    content.value.filter(block => !block.props?.[AI_PREVIEW_KEY]), editorBaseUpdatedAt.value,
+  )
   saving.value = true
   try {
-    await store.updateDocument(Number(documentId.value), {
-      title: documentTitle.value,
-      content: content.value
-    })
-    hasChanges.value = false
-    lastSaved.value = new Date()
+    const saved = await store.updateDocument(snapshot.documentId, snapshot.payload)
+    if (snapshot.documentId === Number(documentId.value)) {
+      editorBaseUpdatedAt.value = saved.updated_at
+      hasChanges.value = !matchesEditorSave(snapshot, Number(documentId.value), documentTitle.value,
+        content.value.filter(block => !block.props?.[AI_PREVIEW_KEY]))
+      lastSaved.value = new Date()
+    }
+    return true
+  } catch (error: unknown) {
+    const status = (error as { response?: { status?: number } }).response?.status
+    if (status === 409) {
+      saveConflict.value = true
+      ElMessage.error('文档已在其他位置更新，已停止自动保存；本地修改仍保留，请先复制备份再重新加载。')
+    } else {
+      ElMessage.error('保存失败，本地修改仍保留，请稍后重试')
+    }
+    return false
   } finally {
     saving.value = false
   }
+}
+
+async function prepareProjectAgent(): Promise<boolean> {
+  if (aiPreviewId.value) {
+    ElMessage.warning('请先接受或拒绝当前 AI 预览，再打开项目智能体')
+    return false
+  }
+  if (!(await saveDocument())) return false
+  if (hasChanges.value) {
+    ElMessage.warning('保存期间又有新修改，请再次保存后打开智能体')
+    return false
+  }
+  return true
+}
+
+defineExpose({ prepareProjectAgent, onAgentProjectChanged })
+
+async function reloadAfterConflict() {
+  try {
+    await ElMessageBox.confirm('将放弃当前编辑器里的未保存内容。请确认已复制需要保留的内容。', '加载最新版本', { type: 'warning' })
+    await loadDocument()
+  } catch {
+    // Cancellation keeps the local manuscript untouched.
+  }
+}
+
+async function onAgentProjectChanged() {
+  blockEditorRef.value?.flushPendingSync?.()
+  await nextTick()
+  if (hasChanges.value || saving.value) {
+    saveConflict.value = true
+    ElMessage.warning('项目已更新，当前未保存修改已保留；请先复制本地修改再重新加载，避免覆盖。')
+    const pid = document.value?.project_id
+    if (pid) await store.fetchProject(pid)
+    return
+  }
+  await loadDocument()
 }
 
 async function onProjectFromArticleCreated(projectId: number, documentId: number) {
@@ -651,7 +714,10 @@ async function handleDocCommand(command: string) {
         inputErrorMessage: '标题长度 1～100 个字符'
       })
       const value = (res as any)?.value as string
-      await store.updateDocument(Number(documentId.value), { title: value })
+      const saved = await store.updateDocument(Number(documentId.value), {
+        title: value, expected_updated_at: editorBaseUpdatedAt.value,
+      })
+      editorBaseUpdatedAt.value = saved.updated_at
       documentTitle.value = value
       ElMessage.success('已重命名')
     } catch {

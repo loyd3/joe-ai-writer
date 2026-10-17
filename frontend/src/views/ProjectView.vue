@@ -317,7 +317,6 @@ import LiteratureAnalyzer from '@/components/LiteratureAnalyzer.vue'
 import { ArrowLeft, ArrowDown, Collection, Plus, Document as DocumentIcon, MoreFilled, Edit, Delete, Calendar, Upload, Rank, InfoFilled, EditPen, Reading, Brush } from '@element-plus/icons-vue'
 import ExportMenu from '@/components/ExportMenu.vue'
 import TemplateLibrary from '@/components/TemplateLibrary.vue'
-
 const route = useRoute()
 const router = useRouter()
 const store = useProjectStore()

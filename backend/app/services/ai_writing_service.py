@@ -4,6 +4,7 @@ import json
 import re
 import asyncio
 import logging
+from datetime import datetime, timedelta, timezone
 from app.core.ai_client import ai_client
 from app.services.ai_memory_service import AIMemoryService
 from app.services.long_text_processor import LongTextProcessor, process_long_text_stream
@@ -604,6 +605,67 @@ class AIWritingService:
         return "\n\n".join(lines).strip()
 
     @staticmethod
+    def _split_rewrite_segments(text: str, max_size: int = 6000) -> List[str]:
+        """
+        把超长正文按段落边界切成若干段（每段不超过 max_size），保证完整覆盖。
+
+        优先在段落（空行）边界切分；段落本身过长时按句号/换行硬切，杜绝中间截断。
+        """
+        if len(text) <= max_size:
+            return [text]
+
+        paragraphs = re.split(r"\n\s*\n", text)
+        segments: List[str] = []
+        current: List[str] = []
+        current_len = 0
+
+        def flush():
+            nonlocal current, current_len
+            if current:
+                segments.append("\n\n".join(current))
+                current = []
+                current_len = 0
+
+        for paragraph in paragraphs:
+            paragraph = paragraph.strip()
+            if not paragraph:
+                continue
+            if len(paragraph) > max_size:
+                # 超长段落：先收尾当前累积段，再按句子/换行硬切该段落
+                flush()
+                sentences = re.split(r"(?<=[。！？；.!?;])\s*|\n", paragraph)
+                piece: List[str] = []
+                piece_len = 0
+                for sentence in sentences:
+                    sentence = sentence.strip()
+                    if not sentence:
+                        continue
+                    if len(sentence) > max_size:
+                        if piece:
+                            segments.append("\n".join(piece))
+                            piece = []
+                            piece_len = 0
+                        for start in range(0, len(sentence), max_size):
+                            segments.append(sentence[start : start + max_size])
+                        continue
+                    if piece_len + len(sentence) + 1 > max_size:
+                        segments.append("\n".join(piece))
+                        piece = [sentence]
+                        piece_len = len(sentence)
+                    else:
+                        piece.append(sentence)
+                        piece_len += len(sentence) + 1
+                if piece:
+                    segments.append("\n".join(piece))
+                continue
+            if current_len + len(paragraph) + 2 > max_size:
+                flush()
+            current.append(paragraph)
+            current_len += len(paragraph) + 2
+        flush()
+        return [s for s in segments if s.strip()]
+
+    @staticmethod
     async def rewrite_documents_from_memory(
         db: Session,
         project_id: int,
@@ -670,10 +732,14 @@ class AIWritingService:
                     })
                     continue
 
-                # 过长正文截断，避免撑爆上下文（保留头尾）
-                src = original
-                if len(src) > 12000:
-                    src = src[:6000] + "\n\n……（中间省略）……\n\n" + src[-6000:]
+                # 流式重写前的基线修订号：提交时若文档已被改动则拒绝覆盖
+                baseline_updated_at = doc.updated_at
+                if baseline_updated_at is not None and baseline_updated_at.tzinfo is not None:
+                    baseline_updated_at = baseline_updated_at.astimezone(timezone.utc).replace(tzinfo=None)
+
+                # 过长正文按段落边界完整分段，逐段重写后再拼接（不再截断中间内容）
+                segments = AIWritingService._split_rewrite_segments(original, max_size=6000)
+                total_segments = len(segments)
 
                 yield emit({
                     "type": "doc_start",
@@ -684,53 +750,91 @@ class AIWritingService:
                     "message": f"正在重写（{idx + 1}/{len(docs)}）：{doc.title}",
                 })
 
-                user_parts = [
+                user_prefix = "\n".join([
                     f"【最新项目设定】\n{memory_context}",
                     f"\n【本章标题】\n{doc.title}",
                     f"\n【改写模式】\n{mode_hint}",
-                    f"\n【原文】\n{src}",
-                    "\n【任务】\n请输出与最新设定一致的重写正文。",
-                ]
+                ])
                 if custom_instruction:
-                    user_parts.append(f"\n【额外要求】\n{custom_instruction}")
+                    user_prefix += f"\n【额外要求】\n{custom_instruction}"
 
-                messages = [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": "\n".join(user_parts)},
-                ]
+                segment_results: List[str] = []
+                failed = False
+                for seg_index, segment in enumerate(segments):
+                    if total_segments > 1:
+                        seg_note = (
+                            f"\n【分段说明】原文较长，已分为 {total_segments} 段，"
+                            f"本次只重写第 {seg_index + 1}/{total_segments} 段。"
+                            "请只输出该段的重写正文，保留原有小节结构与段落顺序，不要输出段号。"
+                        )
+                    else:
+                        seg_note = ""
+                    messages = [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": (
+                            f"{user_prefix}"
+                            f"\n【原文】\n{segment}"
+                            f"{seg_note}"
+                            "\n【任务】\n请输出与最新设定一致的重写正文。"
+                        )},
+                    ]
 
-                chunks: List[str] = []
-                try:
-                    async for chunk in ai_client.stream_completion(messages, max_tokens=12000):
-                        if chunk:
-                            chunks.append(chunk)
-                            yield emit({
-                                "type": "content",
-                                "document_id": doc.id,
-                                "index": idx,
-                                "chunk": chunk,
-                            })
-                except Exception as e:
-                    yield emit({
-                        "type": "error",
-                        "document_id": doc.id,
-                        "message": f"「{doc.title}」重写失败: {e}",
-                    })
+                    chunks: List[str] = []
+                    try:
+                        async for chunk in ai_client.stream_completion(messages, max_tokens=12000):
+                            if chunk:
+                                chunks.append(chunk)
+                                yield emit({
+                                    "type": "content",
+                                    "document_id": doc.id,
+                                    "index": idx,
+                                    "chunk": chunk,
+                                })
+                    except Exception as e:
+                        yield emit({
+                            "type": "error",
+                            "document_id": doc.id,
+                            "message": f"「{doc.title}」第 {seg_index + 1}/{total_segments} 段重写失败: {e}",
+                        })
+                        failed = True
+                        break
+
+                    segment_text = "".join(chunks).strip()
+                    if not segment_text or segment_text.startswith("[错误]") or segment_text.startswith("[配置错误]"):
+                        yield emit({
+                            "type": "error",
+                            "document_id": doc.id,
+                            "message": f"「{doc.title}」第 {seg_index + 1}/{total_segments} 段未得到有效重写结果",
+                        })
+                        failed = True
+                        break
+                    segment_results.append(segment_text)
+
+                if failed:
                     continue
 
-                full = "".join(chunks).strip()
-                if not full or full.startswith("[错误]") or full.startswith("[配置错误]"):
-                    yield emit({
-                        "type": "error",
-                        "document_id": doc.id,
-                        "message": f"「{doc.title}」未得到有效重写结果",
-                    })
-                    continue
+                full = "\n\n".join(segment_results).strip()
 
                 if apply_to_documents:
+                    # 版本守卫：流式重写期间文档可能已被智能体或他人修改，禁止覆盖
+                    row = db.query(Document.updated_at).filter(Document.id == doc.id).first()
+                    current_updated_at = row[0] if row else None
+                    if current_updated_at is not None and current_updated_at.tzinfo is not None:
+                        current_updated_at = current_updated_at.astimezone(timezone.utc).replace(tzinfo=None)
+                    if current_updated_at != baseline_updated_at:
+                        yield emit({
+                            "type": "error",
+                            "document_id": doc.id,
+                            "message": f"「{doc.title}」在重写期间已被修改，为防止覆盖已跳过写入，请刷新后重试",
+                        })
+                        continue
                     blocks = parse_formatted_text_to_blocks(full, f"rw{doc.id}")
                     if blocks:
+                        previous = baseline_updated_at
+                        now = datetime.utcnow()
                         doc.content = blocks
+                        # 与保存接口一致的微秒级补偿，保证修订号严格递增（旧标签页据此 409）
+                        doc.updated_at = max(now, previous + timedelta(microseconds=1)) if previous else now
                         db.commit()
 
                 rewritten += 1

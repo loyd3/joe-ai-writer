@@ -127,6 +127,7 @@ def init_database():
     try:
         # 导入所有模型以确保它们被注册
         import app.models.models
+        import app.models.project_agent  # noqa: F401
         
         # 创建所有表
         ModelsBase.metadata.create_all(bind=engine)

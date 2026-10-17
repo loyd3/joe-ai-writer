@@ -82,9 +82,24 @@ export const useProjectStore = defineStore('project', () => {
   }
 
   async function updateDocument(id: number, data: DocumentUpdate) {
-    const res = await documentApi.update(id, data)
+    const snapshot = currentDocument.value?.id === id
+      ? currentDocument.value
+      : currentProject.value?.documents?.find(document => document.id === id)
+    // Preserve an explicit guard (including null); never borrow another document's version.
+    const payload: DocumentUpdate = { ...data }
+    if (!Object.prototype.hasOwnProperty.call(data, 'expected_updated_at') && snapshot) {
+      payload.expected_updated_at = snapshot.updated_at
+    }
+    const res = await documentApi.update(id, payload)
     if (currentDocument.value?.id === id) {
       currentDocument.value = { ...currentDocument.value, ...res.data }
+    }
+    const projectDocumentIndex = currentProject.value?.documents?.findIndex(document => document.id === id)
+    if (currentProject.value?.documents && projectDocumentIndex !== undefined && projectDocumentIndex !== -1) {
+      currentProject.value.documents[projectDocumentIndex] = {
+        ...currentProject.value.documents[projectDocumentIndex],
+        ...res.data
+      }
     }
     return res.data
   }

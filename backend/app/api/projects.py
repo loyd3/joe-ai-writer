@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.orm import Session, joinedload
 from typing import List
+from datetime import datetime, timedelta, timezone
 from app.database import get_db
 from app.models.models import Project, Document, AIMemory, AIInteraction
 from app.schemas.schemas import (
@@ -235,10 +236,34 @@ def update_document(
     
     project = check_project_owner(db, document.project_id, current_user["id"])
     
-    for field, value in document_update.model_dump(exclude_unset=True).items():
-        setattr(document, field, value)
-    
-    db.commit()
+    # The guard is request metadata, never a persisted document attribute.
+    values = document_update.model_dump(exclude_unset=True, exclude={"expected_updated_at"})
+    expected = document_update.expected_updated_at
+    if expected is not None and expected.tzinfo is not None:
+        expected = expected.astimezone(timezone.utc).replace(tzinfo=None)
+
+    query = db.query(Document).filter(
+        Document.id == document_id,
+        Document.project_id == project.id,
+    )
+    if expected is not None:
+        query = query.filter(Document.updated_at == expected)
+
+    if values:
+        # Always advance the version, even for identical content or the same clock tick.
+        previous = document.updated_at
+        if previous is not None and previous.tzinfo is not None:
+            previous = previous.astimezone(timezone.utc).replace(tzinfo=None)
+        now = datetime.utcnow()
+        values["updated_at"] = max(now, previous + timedelta(microseconds=1)) if previous else now
+        # One SQL statement closes the race between checking the snapshot and writing.
+        count = query.update(values, synchronize_session=False)
+        if count != 1:
+            db.rollback()
+            raise HTTPException(status_code=409, detail="Document has changed; reload before saving")
+        db.commit()
+    elif expected is not None and query.first() is None:
+        raise HTTPException(status_code=409, detail="Document has changed; reload before saving")
     db.refresh(document)
     
     if document.content:

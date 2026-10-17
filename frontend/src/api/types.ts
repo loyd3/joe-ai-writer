@@ -86,6 +86,7 @@ export interface DocumentCreate {
 export interface DocumentUpdate {
   title?: string
   content?: Block[]
+  expected_updated_at?: string | null
 }
 
 // AI 记忆相关

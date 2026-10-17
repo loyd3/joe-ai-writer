@@ -58,6 +58,7 @@ from app.database import get_db
 from app.api.auth import get_current_user
 from app.api.projects import check_document_access
 from app.models.models import Document, Project, AIMemory
+from app.services.memory_normalize import normalize_memory_fields
 
 # 导出库（可选依赖：缺失时对应格式接口返回 503）
 try:
@@ -245,31 +246,7 @@ def generate_markdown(db: Session, document: Document, project: Project, include
             lines.append("## 📚 项目设定")
             lines.append("")
 
-            if memory.outline:
-                lines.append("### 大纲")
-                for item in memory.outline:
-                    lines.append(f"- {item.get('title', '')}")
-                lines.append("")
-
-            if memory.storyline:
-                lines.append("### 故事线")
-                lines.append(memory.storyline)
-                lines.append("")
-
-            if memory.characters:
-                lines.append("### 角色设定")
-                for char in memory.characters:
-                    lines.append(f"**{char.get('name', '')}**: {char.get('description', '')}")
-                    if char.get('personality'):
-                        lines.append(f"- 性格: {char['personality']}")
-                    if char.get('goals'):
-                        lines.append(f"- 目标: {char['goals']}")
-                    lines.append("")
-
-            if memory.writing_style:
-                lines.append("### 写作风格")
-                lines.append(memory.writing_style)
-                lines.append("")
+            lines.extend(generate_memory_markdown(memory))
 
             lines.append("---")
             lines.append("")
@@ -330,53 +307,14 @@ def generate_project_markdown(db: Session, project: Project, include_memory: boo
             lines.append("## 📚 项目设定")
             lines.append("")
 
-            if memory.outline:
-                lines.append("### 大纲")
-                for i, item in enumerate(memory.outline, 1):
-                    lines.append(f"{i}. {item.get('title', '')}")
-                lines.append("")
-
-            if memory.storyline:
-                lines.append("### 故事线")
-                lines.append(memory.storyline)
-                lines.append("")
-
-            if memory.characters:
-                lines.append("### 角色设定")
-                for char in memory.characters:
-                    lines.append(f"**{char.get('name', '')}**")
-                    lines.append(f"- 描述: {char.get('description', '')}")
-                    if char.get('personality'):
-                        lines.append(f"- 性格: {char['personality']}")
-                    if char.get('background'):
-                        lines.append(f"- 背景: {char['background']}")
-                    if char.get('goals'):
-                        lines.append(f"- 目标: {char['goals']}")
-                    lines.append("")
-
-            if memory.world_building:
-                lines.append("### 世界观")
-                for key, value in memory.world_building.items():
-                    lines.append(f"- **{key}**: {value}")
-                lines.append("")
-
-            if memory.writing_style:
-                lines.append("### 写作风格")
-                lines.append(memory.writing_style)
-                lines.append("")
-
-            if memory.key_points:
-                lines.append("### 关键情节点")
-                for point in memory.key_points:
-                    lines.append(f"- {point}")
-                lines.append("")
+            lines.extend(generate_memory_markdown(memory))
 
             lines.append("=" * 50)
             lines.append("")
 
     documents = db.query(Document).filter(
         Document.project_id == project.id
-    ).order_by(Document.order_index).all()
+    ).order_by(Document.order_index.asc(), Document.id.asc()).all()
 
     if documents:
         lines.append(f"## 📄 文档列表 ({len(documents)} 篇)")
@@ -407,16 +345,80 @@ def generate_project_markdown(db: Session, project: Project, include_memory: boo
     return "\n".join(lines)
 
 
-def has_memory_content(memory: AIMemory) -> bool:
-    """检查 AIMemory 是否有可导出的非空设定。"""
-    return bool(
-        memory.outline or
-        memory.storyline or
-        memory.characters or
-        memory.world_building or
-        memory.writing_style or
-        memory.key_points
+def build_memory_sections(memory: AIMemory) -> list:
+    """将新旧设定统一为可读文本，供 Markdown 和 Word 共用。"""
+    fields = normalize_memory_fields(
+        outline=memory.outline, storyline=memory.storyline,
+        characters=memory.characters, world_building=memory.world_building,
+        writing_style=memory.writing_style, key_points=memory.key_points,
+        notes=memory.notes,
     )
+    sections = []
+
+    def add_section(title, entries):
+        entries = [entry for entry in entries if entry.strip()]
+        if entries:
+            sections.append((title, entries))
+
+    def describe(item, detail_key):
+        if isinstance(item, str):
+            return item
+        if not isinstance(item, dict):
+            return ""
+        title = str(item.get("title") or "")
+        detail = str(item.get(detail_key) or "")
+        return f"{title}：{detail}" if title and detail and title != detail else title or detail
+
+    outline = fields["outline"]
+    if isinstance(outline, list):
+        add_section("大纲", [describe(item, "description") for item in outline])
+    elif isinstance(outline, str):
+        add_section("大纲", [outline])
+
+    storyline = fields["storyline"]
+    add_section("故事线", [storyline["summary"], *[
+        describe(stage, "summary") for stage in storyline["stages"]
+    ]])
+
+    characters = []
+    for char in fields["characters"]:
+        if not any(char[key].strip() for key in (
+            "name", "description", "personality", "background", "goals"
+        )):
+            continue
+        parts = [char["name"]]
+        for key, label in (("role", "角色"), ("description", "描述"),
+                           ("personality", "性格"), ("background", "背景"), ("goals", "目标")):
+            if char[key]:
+                parts.append(f"{label}：{char[key]}")
+        characters.append("\n".join(parts))
+    add_section("角色设定", characters)
+
+    world = []
+    for category in fields["world_building"]["categories"]:
+        items = [describe(item, "content") for item in category["items"]]
+        items = [item for item in items if item.strip()]
+        if items:
+            world.append("\n".join([category["name"], *items]))
+    add_section("世界观", world)
+    add_section("写作风格", [fields["writing_style"]])
+    add_section("关键情节点", [describe(point, "summary") for point in fields["key_points"]])
+    add_section("备注", [fields["notes"]])
+    return sections
+
+
+def generate_memory_markdown(memory: AIMemory) -> list:
+    lines = []
+    for title, entries in build_memory_sections(memory):
+        lines.extend([f"### {title}", ""])
+        for entry in entries:
+            lines.extend([entry, ""])
+    return lines
+
+
+def has_memory_content(memory: AIMemory) -> bool:
+    """忽略结构化设定中的空壳，同时支持仅填写备注的项目。"""
+    return bool(build_memory_sections(memory))
 
 
 # ---------- DOCX（需可选依赖 python-docx） ----------
@@ -451,21 +453,10 @@ async def export_docx(
         if memory and has_memory_content(memory):
             doc.add_heading("项目设定", level=1)
 
-            if memory.outline:
-                doc.add_heading("大纲", level=2)
-                for item in memory.outline:
-                    doc.add_paragraph(item.get("title", ""), style='List Bullet')
-
-            if memory.storyline:
-                doc.add_heading("故事线", level=2)
-                doc.add_paragraph(memory.storyline)
-
-            if memory.characters:
-                doc.add_heading("角色设定", level=2)
-                for char in memory.characters:
-                    p = doc.add_paragraph()
-                    p.add_run(char.get("name", "")).bold = True
-                    p.add_run(f": {char.get('description', '')}")
+            for section_title, entries in build_memory_sections(memory):
+                doc.add_heading(section_title, level=2)
+                for entry in entries:
+                    doc.add_paragraph(entry)
 
             doc.add_page_break()
 

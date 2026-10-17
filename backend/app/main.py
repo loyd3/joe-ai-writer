@@ -18,6 +18,7 @@ from app.api import projects, ai, auth, search, export, templates, versions, ext
 from app.api import hot_topics_compat, brainstorm_compat
 from app.api import copywriting_compat
 from app.api import style_agents
+from app.api import project_agent
 from sqlalchemy import text
 
 logger = logging.getLogger(__name__)
@@ -29,6 +30,8 @@ def _init_database(max_retries: int = 10, delay: float = 2.0) -> bool:
     for attempt in range(1, max_retries + 1):
         try:
             Base.metadata.create_all(bind=engine)
+            from app.services.agent_schema import ensure_agent_messages
+            ensure_agent_messages(engine)
             return True
         except Exception as e:
             last_err = e
@@ -56,6 +59,22 @@ def _ensure_avatar_column():
             pass  # 列已存在，忽略
         else:
             raise
+
+
+def _ensure_agent_runs_columns():
+    """agent_runs 缺列时自动补齐（幂等）：旧库只有 create_all 初版字段。"""
+    with engine.connect() as conn:
+        try:
+            cols = conn.execute(text("SHOW COLUMNS FROM agent_runs")).fetchall()
+        except Exception:
+            return  # 表不存在则交给 create_all
+        col_names = {row[0] for row in cols}
+        if "messages" not in col_names:
+            conn.execute(text(
+                "ALTER TABLE agent_runs "
+                "ADD COLUMN messages JSON NULL COMMENT '对话记录 [{role,content,step}]'"
+            ))
+            conn.commit()
 
 
 def _ensure_style_agents_user_scoped():
@@ -213,6 +232,28 @@ app = FastAPI(
 )
 
 
+_agent_worker_task = None
+
+
+def _start_agent_worker():
+    """启动 in-process 智能体工作器：认领并执行排队任务（大任务由独立 worker 承担，SSE 只传进度）。"""
+    global _agent_worker_task
+    import asyncio
+
+    from app.services.project_agent_service import agent_worker_loop
+
+    loop = asyncio.get_event_loop()
+    _agent_worker_task = loop.create_task(agent_worker_loop())
+
+
+@app.on_event("shutdown")
+def shutdown():
+    global _agent_worker_task
+    if _agent_worker_task is not None:
+        _agent_worker_task.cancel()
+        _agent_worker_task = None
+
+
 @app.on_event("startup")
 def startup():
     if not _init_database():
@@ -228,6 +269,14 @@ def startup():
         _ensure_style_agents_user_scoped()
     except Exception as e:
         logger.warning("文风表用户级迁移跳过/失败: %s", e)
+    try:
+        _ensure_agent_runs_columns()
+    except Exception as e:
+        logger.warning("agent_runs 列补齐跳过/失败: %s", e)
+    try:
+        _start_agent_worker()
+    except Exception as e:
+        logger.warning("智能体工作器启动失败: %s", e)
 
 # 允许的前端来源
 _frontend_origins = [
@@ -337,6 +386,7 @@ app.include_router(ai_story_generator.router)
 app.include_router(long_article.router)
 app.include_router(auto_write.router)
 app.include_router(style_agents.router)
+app.include_router(project_agent.router)
 
 app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
