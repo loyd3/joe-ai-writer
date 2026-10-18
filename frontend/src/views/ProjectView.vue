@@ -520,7 +520,9 @@ async function onDragEnd() {
 
 function goSettings() {
   showAutoWriteDrawer.value = false
-  router.push(`/project/${projectId.value}/settings`)
+  import('@/stores/projectSettingsDrawer').then(({ useProjectSettingsDrawerStore }) => {
+    useProjectSettingsDrawerStore().show(Number(projectId.value))
+  })
 }
 
 function goWritingStyle() {

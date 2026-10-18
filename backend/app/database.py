@@ -58,36 +58,41 @@ Base = declarative_base()
 
 def get_db(max_retries: int = 3, retry_delay: float = 1.0):
     """
-    获取数据库会话，带重试机制
-    
-    Args:
-        max_retries: 最大重试次数
-        retry_delay: 重试间隔（秒）
+    获取数据库会话，带重试机制。
+
+    路由抛出的 HTTPException 会从 yield 回灌到本生成器，不能当成数据库故障打日志。
     """
     last_exception = None
-    
+
     for attempt in range(max_retries):
         db = SessionLocal()
         try:
-            # 测试连接
             db.execute(text("SELECT 1"))
-            yield db
-            return
         except OperationalError as e:
             last_exception = e
             logger.warning(f"Database connection attempt {attempt + 1}/{max_retries} failed: {e}")
             db.close()
             if attempt < max_retries - 1:
                 time.sleep(retry_delay)
+                continue
+            break
         except Exception as e:
-            logger.error(f"Unexpected database error: {e}")
-            db.rollback()
+            logger.error(f"Unexpected database error during connect: {e}")
+            db.close()
+            raise
+
+        try:
+            yield db
+            return
+        except Exception:
+            try:
+                db.rollback()
+            except Exception:
+                pass
             raise
         finally:
-            if db:
-                db.close()
-    
-    # 所有重试都失败
+            db.close()
+
     logger.error(f"Failed to get database connection after {max_retries} attempts")
     raise last_exception or DatabaseError("Unable to connect to database")
 

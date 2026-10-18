@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory, type NavigationGuardNext, type RouteLocationNormalized } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useSettingsDrawerStore, type SettingsPanel } from '@/stores/settingsDrawer'
+import { useProjectSettingsDrawerStore } from '@/stores/projectSettingsDrawer'
 
 /** 旧设置页路由：打开右侧抽屉并停留在当前页 */
 function openSettingsDrawer(panel: SettingsPanel) {
@@ -8,6 +9,18 @@ function openSettingsDrawer(panel: SettingsPanel) {
     useSettingsDrawerStore().show(panel)
     if (from.matched.length) next(false)
     else next({ name: 'home', replace: true })
+  }
+}
+
+/** 项目设定：打开右侧侧边栏，不离开当前项目/文档页 */
+function openProjectSettingsDrawer() {
+  return (to: RouteLocationNormalized, from: RouteLocationNormalized, next: NavigationGuardNext) => {
+    const id = Number(to.params.id)
+    if (id && !Number.isNaN(id)) {
+      useProjectSettingsDrawerStore().show(id)
+    }
+    if (from.matched.length) next(false)
+    else next({ name: 'project', params: { id: to.params.id }, replace: true })
   }
 }
 
@@ -66,8 +79,9 @@ const router = createRouter({
         {
           path: 'project/:id/settings',
           name: 'project-settings',
-          component: () => import('@/views/ProjectSettingsView.vue'),
-          meta: { title: '项目设定' }
+          component: () => import('@/views/ProjectView.vue'),
+          meta: { title: '项目设定' },
+          beforeEnter: openProjectSettingsDrawer(),
         },
         {
           path: 'document/:id',

@@ -77,50 +77,20 @@
             class="toolbar-btn ai-btn"
             @mousedown.prevent
             @click="emitAskAiSelected"
-            title="送到 AI 助手，可自由提出修改要求"
+            title="送到小墨，用自然语言说明想怎么改"
           >
             <el-icon><ChatDotRound /></el-icon>
-            <span>送到助手</span>
+            <span>问小墨</span>
           </button>
           <button
             type="button"
             class="toolbar-btn ai-btn"
             @mousedown.prevent
             @click="emitPolishSelected"
-            title="AI 润色（选中多个块）"
+            title="让小墨润色选中段落"
           >
             <el-icon><Brush /></el-icon>
-            <span>AI 润色</span>
-          </button>
-          <button
-            type="button"
-            class="toolbar-btn ai-btn"
-            @mousedown.prevent
-            @click="emitFormatStyleSelected"
-            title="AI 一键调整样式：只优化结构排版，不改内容"
-          >
-            <el-icon><SetUp /></el-icon>
-            <span>调整样式</span>
-          </button>
-          <button
-            type="button"
-            class="toolbar-btn ai-btn"
-            @mousedown.prevent
-            @click="emitReviseSelected"
-            title="AI 修改（选中多个块）"
-          >
-            <el-icon><EditPen /></el-icon>
-            <span>AI 修改</span>
-          </button>
-          <button
-            type="button"
-            class="toolbar-btn ai-btn"
-            @mousedown.prevent
-            @click="emitExpandSelected"
-            title="AI 扩展（选中多个块）"
-          >
-            <el-icon><MagicStick /></el-icon>
-            <span>AI 扩展</span>
+            <span>润色一下</span>
           </button>
           <button
             type="button"
@@ -165,22 +135,14 @@
           :style="selectionAiBubbleStyle"
           @mousedown.prevent
         >
-          <button type="button" class="sel-ai-btn primary" @click="onSelectionAiAsk" title="送到 AI 助手自由提问">
+          <button type="button" class="sel-ai-btn primary" @click="onSelectionAiAsk" title="送到小墨，说说想怎么改">
             <el-icon><ChatDotRound /></el-icon>
-            <span>问 AI</span>
+            <span>问小墨</span>
           </button>
           <span class="sel-ai-divider" />
-          <button type="button" class="sel-ai-btn" @click="onSelectionAiPolish" title="润色选中文字">
+          <button type="button" class="sel-ai-btn" @click="onSelectionAiPolish" title="让小墨润色选中文字">
             <el-icon><Brush /></el-icon>
-            <span>润色</span>
-          </button>
-          <button type="button" class="sel-ai-btn" @click="onSelectionAiRevise" title="修改选中文字">
-            <el-icon><EditPen /></el-icon>
-            <span>修改</span>
-          </button>
-          <button type="button" class="sel-ai-btn" @click="onSelectionAiExpand" title="扩展选中文字">
-            <el-icon><MagicStick /></el-icon>
-            <span>扩展</span>
+            <span>润色一下</span>
           </button>
         </div>
       </Transition>
@@ -302,17 +264,13 @@
             <span>正文</span>
           </button>
           <span class="toolbar-divider" />
-          <button type="button" class="toolbar-btn ai-btn" @click.stop="emitAskAi(row.index)" title="送到 AI 助手，可自由提出修改要求">
+          <button type="button" class="toolbar-btn ai-btn" @click.stop="emitAskAi(row.index)" title="送到小墨，用自然语言说明想怎么改">
             <el-icon><ChatDotRound /></el-icon>
-            <span>送到助手</span>
+            <span>问小墨</span>
           </button>
-          <button type="button" class="toolbar-btn ai-btn" @click.stop="emitPolish(row.index)" title="AI 润色">
+          <button type="button" class="toolbar-btn ai-btn" @click.stop="emitPolish(row.index)" title="让小墨润色这段">
             <el-icon><Brush /></el-icon>
-            <span>AI 润色</span>
-          </button>
-          <button type="button" class="toolbar-btn ai-btn" @click.stop="emitFormatStyle(row.index)" title="AI 一键调整样式：只优化结构排版，不改内容">
-            <el-icon><SetUp /></el-icon>
-            <span>调整样式</span>
+            <span>润色一下</span>
           </button>
           <span class="toolbar-divider" />
           <button type="button" class="toolbar-btn format-btn" :disabled="previewMode" :class="{ active: isFormatActive(row.index, 'bold') }" @click.stop="applyFormat(row.index, 'bold')" title="加粗 (Ctrl+B)">
@@ -519,19 +477,11 @@
           <div class="context-menu-section">
             <button type="button" class="context-item ai-item" @click="handleContextAction('askAi')">
               <el-icon><ChatDotRound /></el-icon>
-              <span>送到 AI 助手</span>
+              <span>问小墨</span>
             </button>
             <button type="button" class="context-item ai-item" @click="handleContextAction('polish')">
               <el-icon><Brush /></el-icon>
-              <span>AI 润色</span>
-            </button>
-            <button type="button" class="context-item ai-item" @click="handleContextAction('revise')">
-              <el-icon><EditPen /></el-icon>
-              <span>AI 修改</span>
-            </button>
-            <button type="button" class="context-item ai-item" @click="handleContextAction('formatStyle')">
-              <el-icon><SetUp /></el-icon>
-              <span>AI 调整样式</span>
+              <span>润色一下</span>
             </button>
           </div>
           <div v-if="!previewMode" class="context-menu-divider" />
@@ -1742,14 +1692,8 @@ function handleContextAction(action: string) {
     case 'polish':
       emitPolish(idx)
       break
-    case 'revise':
-      emitRevise(idx)
-      break
     case 'askAi':
       emitAskAi(idx)
-      break
-    case 'formatStyle':
-      emitFormatStyle(idx)
       break
     case 'formatBold':
       applyFormat(idx, 'bold')
@@ -3260,7 +3204,59 @@ function focusBlock(index: number, opts?: {
   })
 }
 
-defineExpose({ flushPendingSync, focusBlock, getInsertAfterIndex })
+/** 供小墨读取：多选块 / 划词选区 / 当前焦点块 */
+function getEditFocus(): {
+  text: string
+  blockIndex?: number
+  blockIndices?: number[]
+} | null {
+  flushPendingSync()
+  if (selectedBlocks.value.size > 0) {
+    const indices = Array.from(selectedBlocks.value).sort((a, b) => a - b)
+    const text = collectSelectedPlainText(indices).trim()
+    if (!text) return null
+    return {
+      text,
+      blockIndex: indices[0],
+      blockIndices: indices,
+    }
+  }
+  const sel = window.getSelection()
+  const selectedText = (sel?.toString() || '').replace(/\u00a0/g, ' ').trim()
+  if (selectedText && sel && sel.rangeCount > 0) {
+    const range = sel.getRangeAt(0)
+    let startBlock = -1
+    let endBlock = -1
+    for (const [idx, el] of blockRefs.value) {
+      if (!el) continue
+      try {
+        if (range.intersectsNode(el)) {
+          if (startBlock === -1) startBlock = idx
+          endBlock = idx
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+    if (startBlock >= 0) {
+      if (startBlock === endBlock) {
+        return { text: selectedText, blockIndex: startBlock, blockIndices: [startBlock] }
+      }
+      const indices: number[] = []
+      for (let i = startBlock; i <= endBlock; i++) indices.push(i)
+      const text = collectSelectedPlainText(indices).trim() || selectedText
+      return { text, blockIndex: startBlock, blockIndices: indices }
+    }
+  }
+  const fi = focusedIndex.value
+  if (fi >= 0 && fi < props.modelValue.length) {
+    const text = getBlockPlainText(fi).trim()
+    if (text) return { text, blockIndex: fi, blockIndices: [fi] }
+  }
+  return null
+}
+
+defineExpose({ flushPendingSync, focusBlock, getInsertAfterIndex, getEditFocus })
 </script>
 
 <style scoped lang="scss">

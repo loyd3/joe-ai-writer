@@ -33,6 +33,7 @@ def create_agent_run(
 ):
     """提交一条智能体指令，返回 queued 状态的 run（由 worker 异步执行）。"""
     _check_project_owner(db, project_id, current_user["id"])
+    focus = payload.focus.model_dump(exclude_none=True) if payload.focus else None
     run = project_agent_service.create_run(
         db,
         current_user["id"],
@@ -40,6 +41,7 @@ def create_agent_run(
         payload.instruction,
         payload.conversation_id,
         idempotency_key=payload.idempotency_key,
+        focus=focus,
     )
     return project_agent_service.run_to_dict(run)
 
@@ -86,4 +88,58 @@ def transition_agent_run(
     """verb ∈ apply | revert | resume | cancel。apply/revert 带版本冲突校验。"""
     _check_project_owner(db, project_id, current_user["id"])
     run = project_agent_service.transition(db, current_user["id"], project_id, run_id, verb)
+    return project_agent_service.run_to_dict(run)
+
+
+# ---------------------------------------------------------------------------
+# 系统级会话（无项目）：可先对话 / 专项写作，再 create_project 落盘
+# ---------------------------------------------------------------------------
+
+@router.post("/agent/runs")
+def create_system_agent_run(
+    payload: AgentRunCreate,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    """无项目智能体：提交指令，由 worker 执行；需要落库时工具内 create_project。"""
+    run = project_agent_service.create_system_run(
+        db,
+        current_user["id"],
+        payload.instruction,
+        payload.conversation_id,
+        idempotency_key=payload.idempotency_key,
+    )
+    return project_agent_service.run_to_dict(run)
+
+
+@router.get("/agent/runs")
+def list_system_agent_runs(
+    conversation_id: str = None,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    runs = project_agent_service.list_system_runs(
+        db, current_user["id"], conversation_id=conversation_id
+    )
+    return [project_agent_service.run_to_dict(run) for run in runs]
+
+
+@router.get("/agent/runs/{run_id}")
+def get_system_agent_run(
+    run_id: str,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    run = project_agent_service.get_system_run(db, current_user["id"], run_id)
+    return project_agent_service.run_to_dict(run)
+
+
+@router.post("/agent/runs/{run_id}/{verb}")
+def transition_system_agent_run(
+    run_id: str,
+    verb: str,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    run = project_agent_service.transition_system(db, current_user["id"], run_id, verb)
     return project_agent_service.run_to_dict(run)

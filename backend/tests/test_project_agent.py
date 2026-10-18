@@ -68,11 +68,9 @@ def test_arbitrary_multistep_staged_patch_memory_apply_revert(store):
         action('finish', answer='Reviewed and prepared coordinated edits')])
     with store() as db:
         run = get_run(db, 1, 1, run_id)
-        assert run.status == 'proposed'
+        assert run.status == 'applied'  # finish 后自动写入
         assert len(run.changes) == 2
-        assert db.get(Document, 1).content[0]['content'] == 'old hero'
         assert 'brave hero' in json.dumps(calls[-1])
-        transition(db, 1, 1, run_id, 'apply')
         assert db.get(Document, 1).content[0] == {
             'id': 'b1', 'type': 'paragraph', 'content': 'brave hero', 'props': {'align': 'left'}}
         transition(db, 1, 1, run_id, 'apply')  # idempotent
@@ -82,13 +80,168 @@ def test_arbitrary_multistep_staged_patch_memory_apply_revert(store):
         transition(db, 1, 1, run_id, 'revert')
 
 
+def test_block_rewrite_stages_full_content_without_old_text(store):
+    from app.services.project_agent_service import get_run, transition
+    run_id, _ = execute(store, [
+        action('read_document', document_id=1),
+        action('propose_block_rewrite', document_id=1, block_id='b1',
+               new_content='rewritten hero arc', reason='Polish the paragraph'),
+        action('finish', answer='Rewrote the opening')])
+    with store() as db:
+        run = get_run(db, 1, 1, run_id)
+        assert run.status == 'applied'
+        assert run.changes[0]['before'] == 'old hero'
+        assert run.changes[0]['after'] == 'rewritten hero arc'
+        assert db.get(Document, 1).content[0]['content'] == 'rewritten hero arc'
+        transition(db, 1, 1, run_id, 'apply')  # idempotent
+        assert db.get(Document, 1).content[0]['content'] == 'rewritten hero arc'
+
+
+def test_selection_focus_preloads_only_target_blocks(store):
+    from app.services.project_agent_service import create_run, claim_run, execute_run, get_run
+    with store() as db:
+        run = create_run(
+            db, 1, 1, "请只润色选中段落", None,
+            focus={"document_id": 1, "selection": "old hero", "block_ids": ["b1"]},
+        )
+        run_id = run.id
+    calls = []
+
+    async def model(messages, **kwargs):
+        calls.append(messages)
+        return json.dumps({
+            "tool": "propose_block_rewrite",
+            "args": {
+                "document_id": 1,
+                "block_id": "b1",
+                "new_content": "brave hero",
+                "reason": "polish",
+            },
+        }) if len(calls) == 1 else json.dumps({"tool": "finish", "args": {"answer": "已润色选中段"}})
+
+    claim = claim_run(store)
+    asyncio.run(execute_run(store, claim, model))
+    blob = json.dumps(calls[0], ensure_ascii=False)
+    assert "禁止再调用 read_document" in blob or "禁止 read_document" in blob
+    assert "block_id=b1" in blob
+    assert "目标已锁定" in blob
+    assert "禁止追问" in blob
+    with store() as db:
+        run = get_run(db, 1, 1, run_id)
+        assert run.status == "applied"
+        assert run.changes[0]["after"] == "brave hero"
+        assert db.get(Document, 1).content[0]["content"] == "brave hero"
+
+
+def test_selection_focus_rejects_ask_which_blocks(store):
+    """选区已锁定时，模型追问「哪几段」会被纠正并要求直接改写。"""
+    from app.services.project_agent_service import create_run, claim_run, execute_run, get_run
+    with store() as db:
+        doc = db.get(Document, 1)
+        doc.content = [
+            {"id": "b1", "type": "paragraph", "content": "失恋姑娘与橘猫", "props": {}},
+            {"id": "b2", "type": "paragraph", "content": "高管裸奔", "props": {}},
+            {"id": "b3", "type": "paragraph", "content": "张阿姨黑猫", "props": {}},
+        ]
+        db.commit()
+        run = create_run(
+            db, 1, 1, "请扩写选中的三段", None,
+            focus={
+                "document_id": 1,
+                "selection": "失恋姑娘与橘猫\n高管裸奔\n张阿姨黑猫",
+                "block_ids": ["b1", "b2", "b3"],
+            },
+        )
+        run_id = run.id
+    calls = []
+
+    async def model(messages, **kwargs):
+        calls.append(messages)
+        if len(calls) == 1:
+            return (
+                "我这边没有收到具体是哪三段的标识。能告诉我你选中的是哪三个段落吗？\n"
+                "```json\n"
+                '{"tool":"finish","args":{"answer":"请告诉我是哪三段"}}\n'
+                "```"
+            )
+        if len(calls) == 2:
+            blob = json.dumps(messages, ensure_ascii=False)
+            assert "目标段落已锁定" in blob or "禁止追问" in blob
+            assert "block_id=b1" in blob
+            return json.dumps({
+                "tool": "propose_block_rewrite",
+                "args": {
+                    "document_id": 1,
+                    "block_id": "b1",
+                    "new_content": "失恋姑娘与橘猫（扩写）",
+                    "reason": "expand",
+                },
+            }, ensure_ascii=False)
+        return json.dumps({"tool": "finish", "args": {"answer": "已扩写第一段，其余可继续"}}, ensure_ascii=False)
+
+    claim = claim_run(store)
+    asyncio.run(execute_run(store, claim, model))
+    with store() as db:
+        run = get_run(db, 1, 1, run_id)
+        assert run.status == "applied"
+        assert run.changes[0]["after"] == "失恋姑娘与橘猫（扩写）"
+        assert db.get(Document, 1).content[0]["content"] == "失恋姑娘与橘猫（扩写）"
+    assert len(calls) >= 2
+
+
+def test_read_document_observation_is_clipped(store):
+    from app.services.project_agent_tools import ProjectAgentContext, execute_tool
+    long = "字" * 2000
+    with store() as db:
+        doc = db.get(Document, 1)
+        doc.content = [{"id": "b1", "type": "paragraph", "content": long, "props": {}}]
+        db.commit()
+        ctx = ProjectAgentContext(1, 1)
+        data = execute_tool(ctx, db, "read_document", {"document_id": 1, "offset": 0, "limit": 50})
+    assert data["limit"] <= 20
+    assert len(data["blocks"][0]["content"]) < 900
+    assert data["blocks"][0]["content"].endswith("…")
+    # 完整正文仍在暂存，可 rewrite
+    assert len(ctx.read_documents[1][0]["content"]) == 2000
+
+
+def test_focus_preloads_current_article_for_this_piece(store):
+    from app.services.project_agent_service import create_run, claim_run, execute_run, get_run
+    with store() as db:
+        run = create_run(db, 1, 1, "润色当前文档焦点段落", None, focus={"document_id": 1})
+        run_id = run.id
+    calls = []
+
+    async def model(messages, **kwargs):
+        calls.append(messages)
+        # 即使误调 list_project，也应看到焦点提示；此处直接空参 finish 也应成功
+        if len(calls) == 1:
+            return json.dumps({"tool": "list_project", "args": {}})
+        return json.dumps({"tool": "finish", "args": {}})
+
+    claim = claim_run(store)
+    asyncio.run(execute_run(store, claim, model))
+    blob = json.dumps(calls, ensure_ascii=False)
+    assert "document_id=1" in blob
+    assert "old hero" in blob
+    assert "禁止" in blob or "不要" in blob
+    # list_project 的 observation 应点明焦点文档
+    assert "focus_document_id" in blob or "已预读" in blob
+    with store() as db:
+        run = get_run(db, 1, 1, run_id)
+        assert run.status == "completed"
+        # finish 无 answer 时用默认兜底，不应失败
+        assert run.answer
+
+
 def test_create_and_revert_rejects_edited_created_document(store):
     from app.services.project_agent_service import transition, get_run
     run_id, _ = execute(store, [action('propose_create_document', title='Plan', text='A new plan', reason='Planning'),
                                 action('finish', answer='Plan drafted')])
     with store() as db:
-        transition(db, 1, 1, run_id, 'apply')
-        change = get_run(db, 1, 1, run_id).changes[0]
+        run = get_run(db, 1, 1, run_id)
+        assert run.status == 'applied'  # 新建文档也自动写入
+        change = run.changes[0]
         doc = db.get(Document, change['target_id'])
         doc.title = 'Human edited'
         db.commit()
@@ -99,14 +252,33 @@ def test_create_and_revert_rejects_edited_created_document(store):
 
 
 def test_apply_conflict_is_atomic_including_read_dependencies(store):
+    """残留 proposed 时若设定已被人改，apply 仍 409 且正文不落库。"""
+    from app.models.project_agent import AgentRun
     from app.services.project_agent_service import transition
-    run_id, _ = execute(store, [action('read_document', document_id=1), patch(),
-        action('read_memory'), action('propose_memory_patch', field='notes', before='old notes', after='new', reason='Improve'),
-        action('finish', answer='Ready')])
     with store() as db:
+        run = AgentRun(
+            user_id=1,
+            project_id=1,
+            conversation_id='conflict',
+            instruction='Ready',
+            status='proposed',
+            changes=[
+                {
+                    'id': 'c1', 'kind': 'document_patch', 'document_id': 1, 'block_id': 'b1',
+                    'title': 'One', 'before': 'old hero', 'after': 'new hero', 'reason': 'x',
+                    'target_id': 1,
+                },
+                {
+                    'id': 'c2', 'kind': 'memory_patch', 'field': 'notes',
+                    'before': 'old notes', 'after': 'new', 'reason': 'Improve',
+                },
+            ],
+        )
+        db.add(run)
         memory = db.query(AIMemory).filter_by(project_id=1).one()
         memory.notes = 'human'
         db.commit()
+        run_id = run.id
         with pytest.raises(HTTPException) as error:
             transition(db, 1, 1, run_id, 'apply')
         assert error.value.status_code == 409
@@ -136,9 +308,11 @@ def test_paginated_reads_and_literal_search_report_coverage(store):
     with store() as db:
         assert get_run(db, 1, 1, run_id).status == 'completed'
     observations = [json.loads(m['content']) for m in calls[-1] if m['role'] == 'user' and 'UNTRUSTED_OBSERVATION' in m['content']]
-    assert observations[0]['data']['complete'] is False
-    assert observations[1]['data']['coverage'] == 'all_project_documents_and_memory_literal'
-    assert observations[1]['data']['complete'] is True
+    by_tool = {o.get('tool'): o for o in observations if isinstance(o, dict)}
+    # 后台预读会先插入 list_project / read_memory，按工具名断言
+    assert by_tool['read_document']['data']['complete'] is False
+    assert by_tool['search_project']['data']['coverage'] == 'all_project_documents_and_memory_literal'
+    assert by_tool['search_project']['data']['complete'] is True
 
 
 def test_cancel_fences_old_worker_resume_and_expired_claim(store):
@@ -197,11 +371,12 @@ def test_explicit_clarification_ends_turn_and_preserves_proposals(store, with_ch
     asyncio.run(execute_run(store, claim_run(store), model))
     with store() as db:
         run = get_run(db, 1, 1, run_id)
-        assert run.status == ('proposed' if with_changes else 'completed')
+        assert run.status == ('applied' if with_changes else 'completed')
         assert run.answer == 'Which character should we focus on?'
         assert run.lease_owner is None
         assert len(calls) == len(replies)
-        assert db.query(Document).filter_by(project_id=1).count() == 1
+        # 有提案时 create_document 会自动写入，文档数 +1
+        assert db.query(Document).filter_by(project_id=1).count() == (2 if with_changes else 1)
 
 
 def test_public_answer_sanitizes_action_json_but_keeps_bracket_prose(store):
@@ -491,4 +666,420 @@ def test_api_contract_and_authorization_all_endpoints(store):
                 ('POST', base + '/' + run['id'] + '/' + verb) for verb in ['apply', 'revert', 'resume', 'cancel']]:
                 result = await client.request(method, path, json={'instruction': 'Unauthorized'})
                 assert result.status_code in (403, 404)
+    asyncio.run(requests())
+
+
+def test_writing_tools_whitelist_and_arg_validation(store):
+    from app.services.project_agent_tools import ProjectAgentContext, execute_tool, ToolViolation, TOOLS
+    for name in (
+        "create_project",
+        "list_hot_topics",
+        "hot_topic_write",
+        "copywriting_write",
+        "list_brainstorm_ideas",
+        "brainstorm_write",
+        "story_generate",
+        "propose_writing_draft",
+        "propose_story_settings",
+    ):
+        assert name in TOOLS
+    with store() as db:
+        ctx = ProjectAgentContext(1, 1)
+        with pytest.raises(ToolViolation):
+            execute_tool(ctx, db, "hot_topic_write", {})
+        with pytest.raises(ToolViolation):
+            execute_tool(ctx, db, "copywriting_write", {"word_count": "nine"})
+        with pytest.raises(ToolViolation):
+            execute_tool(ctx, db, "propose_writing_draft", {"draft_id": "missing", "reason": "x"})
+
+
+def test_propose_memory_patch_reason_optional(store):
+    """模型常漏填 reason / 传 null，不应整轮 ToolViolation。"""
+    from app.services.project_agent_tools import ProjectAgentContext, execute_tool, _validate_args
+
+    resolved = _validate_args(
+        "propose_memory_patch",
+        {"field": "storyline", "before": "old", "after": "new with conflict"},
+    )
+    assert resolved["reason"] == "更新项目设定"
+
+    resolved_null = _validate_args(
+        "propose_memory_patch",
+        {"field": "storyline", "before": "old", "after": "new", "reason": None},
+    )
+    assert resolved_null["reason"] == "更新项目设定"
+
+    with store() as db:
+        ctx = ProjectAgentContext(1, 1)
+        execute_tool(ctx, db, "read_memory", {})
+        before = ctx.staged_memory.get("storyline")
+        data = execute_tool(
+            ctx,
+            db,
+            "propose_memory_patch",
+            {"field": "storyline", "before": before, "after": "加入冲突与感情转折"},
+        )
+        assert data["complete"] is True
+        assert ctx.changes
+        assert ctx.changes[-1]["reason"] == "更新项目设定"
+
+
+def test_propose_memory_patch_infers_missing_field(store):
+    """模型漏传 field 时：按 after 形态或中文别名自动补全。"""
+    from app.services.project_agent_tools import ProjectAgentContext, execute_tool
+
+    points = [
+        {"title": "雨天相遇", "summary": "两人因伞初识"},
+        {"title": "文化祭告白", "summary": "舞台后双向告白"},
+    ]
+    with store() as db:
+        ctx = ProjectAgentContext(1, 1)
+        execute_tool(ctx, db, "read_memory", {})
+        before = ctx.staged_memory.get("key_points")
+        data = execute_tool(
+            ctx,
+            db,
+            "propose_memory_patch",
+            {"before": before, "after": points},  # 故意不传 field
+        )
+        assert data["field"] == "key_points"
+        assert ctx.changes[-1]["field"] == "key_points"
+
+        # 中文别名
+        before2 = ctx.staged_memory.get("key_points")
+        data2 = execute_tool(
+            ctx,
+            db,
+            "propose_memory_patch",
+            {
+                "field": "关键情节点",
+                "before": before2,
+                "after": points + [{"title": "尾声", "summary": "留白"}],
+            },
+        )
+        assert data2["field"] == "key_points"
+
+
+def test_read_memory_overview_and_single_field(store):
+    from app.services.project_agent_tools import ProjectAgentContext, execute_tool
+
+    with store() as db:
+        ctx = ProjectAgentContext(1, 1)
+        overview = execute_tool(ctx, db, "read_memory", {})
+        assert overview["coverage"] == "overview"
+        assert "characters" in overview["fields"]
+        assert overview["fields"]["characters"]["empty"] is True or "count" in overview["fields"]["characters"]
+
+        single = execute_tool(ctx, db, "read_memory", {"field": "key_points"})
+        assert single["coverage"] == "single_field"
+        assert single["field"] == "key_points"
+        assert "value" in single
+
+
+def test_propose_memory_patch_merge_without_before(store):
+    """merge 模式可不传 before；只传增量角色即可 upsert。"""
+    from app.models.models import AIMemory
+    from app.services.project_agent_tools import ProjectAgentContext, execute_tool
+    from app.services.project_agent_service import get_run, transition
+
+    with store() as db:
+        mem = db.query(AIMemory).filter_by(project_id=1).one()
+        mem.characters = [
+            {"name": "Irene", "description": "会长", "role": "主角", "personality": "", "background": "", "goals": "", "avatar": "", "color": ""},
+        ]
+        db.commit()
+
+        ctx = ProjectAgentContext(1, 1)
+        data = execute_tool(
+            ctx,
+            db,
+            "propose_memory_patch",
+            {
+                "field": "characters",
+                "mode": "merge",
+                "after": [
+                    {"name": "Irene", "description": "会长，反差萌"},
+                    {"name": "Wendy", "description": "转学生", "role": "主角"},
+                ],
+            },
+        )
+        assert data["mode"] == "merge"
+        names = [c["name"] for c in data["staged_value"]]
+        assert names == ["Irene", "Wendy"]
+        assert "反差萌" in data["staged_value"][0]["description"]
+
+
+def test_propose_memory_merge_applies(store):
+    from app.services.project_agent_service import get_run
+    from app.models.models import AIMemory
+
+    run_id, _ = execute(store, [
+        action("propose_memory_patch", field="key_points", mode="merge",
+               after=[{"title": "开端", "summary": "相遇"}, {"title": "高潮", "summary": "告白"}]),
+        action("finish", answer="已补情节点"),
+    ])
+    with store() as db:
+        run = get_run(db, 1, 1, run_id)
+        assert run.status == "applied"
+        points = db.query(AIMemory).filter_by(project_id=1).one().key_points
+        titles = [p.get("title") for p in (points or [])]
+        assert "开端" in titles and "高潮" in titles
+
+
+def test_copywriting_write_then_propose_draft_auto_apply(store, monkeypatch):
+    """生成 → propose_writing_draft → finish：正文经提案写入，不在 adapter 落库。"""
+    from unittest.mock import AsyncMock
+    from app.services.project_agent_service import get_run
+    from app.services import writing_adapters
+
+    async def _fake(**kwargs):
+        return {
+            "kind": "copywriting",
+            "title": "测试文案",
+            "content": "完整营销文案正文，请写入文档。",
+            "meta": {},
+        }
+
+    monkeypatch.setattr(
+        writing_adapters,
+        "copywriting_generate",
+        AsyncMock(side_effect=_fake),
+    )
+
+    draft_holder = {"id": None}
+
+    def scripted():
+        # 假模型：写文案 → 用 observation 里的 draft_id 提案 → finish
+        steps = []
+
+        async def model(messages, **kwargs):
+            steps.append(messages)
+            n = len(steps)
+            if n == 1:
+                return json.dumps(
+                    action(
+                        "copywriting_write",
+                        product="墨心",
+                        target_audience="作者",
+                        selling_points="智能写作",
+                    ),
+                    ensure_ascii=False,
+                )
+            if n == 2:
+                blob = json.dumps(messages, ensure_ascii=False)
+                assert "draft_id" in blob
+                assert "完整营销文案正文" not in blob or "preview" in blob
+                # 从最后一条 observation 取 draft_id
+                last = messages[-1]["content"]
+                data = json.loads(last) if last.strip().startswith("{") else None
+                if data is None:
+                    import re
+                    m = re.search(r'"draft_id"\s*:\s*"([^"]+)"', last)
+                    draft_holder["id"] = m.group(1) if m else None
+                else:
+                    draft_holder["id"] = data.get("draft_id") or (data.get("data") or {}).get("draft_id")
+                if not draft_holder["id"]:
+                    import re
+                    m = re.search(r'draft_[a-f0-9]+', last)
+                    draft_holder["id"] = m.group(0) if m else None
+                assert draft_holder["id"]
+                return json.dumps(
+                    action(
+                        "propose_writing_draft",
+                        draft_id=draft_holder["id"],
+                        reason="写入项目",
+                    ),
+                    ensure_ascii=False,
+                )
+            return json.dumps(action("finish", answer="文案已写入"), ensure_ascii=False)
+
+        return model
+
+    from app.services.project_agent_service import create_run, claim_run, execute_run
+
+    with store() as db:
+        run = create_run(db, 1, 1, "写一篇营销文案", None)
+        run_id = run.id
+    claim = claim_run(store)
+    asyncio.run(execute_run(store, claim, scripted()))
+    with store() as db:
+        run = get_run(db, 1, 1, run_id)
+        assert run.status == "applied"
+        assert any(c["kind"] == "create_document" for c in run.changes)
+        created = [d for d in db.query(Document).filter_by(project_id=1).all() if d.title == "测试文案"]
+        assert created
+        texts = json.dumps(created[0].content, ensure_ascii=False)
+        assert "完整营销文案正文" in texts
+
+
+def test_list_brainstorm_ideas_tool(store):
+    from app.services.project_agent_tools import ProjectAgentContext, execute_tool
+    with store() as db:
+        ctx = ProjectAgentContext(1, 1)
+        data = execute_tool(ctx, db, "list_brainstorm_ideas", {"limit": 5})
+    assert data["kind"] == "brainstorm_ideas"
+    assert data["ideas"]
+    assert data.get("page_hint") == "/brainstorm-writing"
+
+
+def test_story_generate_then_propose_settings(store, monkeypatch):
+    from unittest.mock import AsyncMock
+    from app.services.project_agent_tools import ProjectAgentContext, execute_tool
+    from app.services import writing_adapters
+
+    fake_story = {
+        "title_options": ["新故事"],
+        "characters": [{"name": "小墨", "role": "主角"}],
+        "outline": [{"title": "第一幕", "description": "开场"}],
+        "plot_points": ["冲突"],
+        "world_building": {"city": "云城"},
+        "core_theme": "友情",
+        "input_theme": "猫咪与作家",
+        "genre": "日常",
+        "writing_style": {"tone": "温暖"},
+    }
+
+    monkeypatch.setattr(
+        writing_adapters,
+        "story_generate",
+        AsyncMock(
+            return_value={
+                "kind": "story_settings",
+                "title": "新故事",
+                "story_data": fake_story,
+                "meta": {},
+            }
+        ),
+    )
+
+    with store() as db:
+        ctx = ProjectAgentContext(1, 1)
+        obs = execute_tool(ctx, db, "story_generate", {"theme": "猫咪与作家"})
+        assert obs["draft_id"]
+        assert obs.get("has_story_data")
+        assert "preview" in obs or obs.get("content_chars") == 0
+        result = execute_tool(
+            ctx,
+            db,
+            "propose_story_settings",
+            {"draft_id": obs["draft_id"], "reason": "应用设定"},
+        )
+        assert "characters" in result["patched_fields"]
+        assert any(c["kind"] == "memory_patch" for c in ctx.changes)
+
+
+def test_create_project_tool_binds_context(store):
+    from app.services.project_agent_tools import ProjectAgentContext, execute_tool, ToolViolation
+    with store() as db:
+        ctx = ProjectAgentContext(None, 1)
+        with pytest.raises(ToolViolation):
+            execute_tool(ctx, db, "list_project", {})
+        data = execute_tool(
+            ctx, db, "create_project", {"title": "脑洞新作", "description": "测试", "reason": "建项"}
+        )
+        assert data["project_id"]
+        assert ctx.project_id == data["project_id"]
+        assert any(c["kind"] == "created_project" for c in ctx.changes)
+        listed = execute_tool(ctx, db, "list_project", {})
+        assert listed["project_id"] == data["project_id"]
+        with pytest.raises(ToolViolation):
+            execute_tool(ctx, db, "create_project", {"title": "第二个"})
+        assert db.get(Project, data["project_id"]).title == "脑洞新作"
+
+
+def test_system_run_create_project_then_document(store, monkeypatch):
+    """无项目会话：create_project → copywriting → propose_writing_draft → finish。"""
+    from unittest.mock import AsyncMock
+    from app.services.project_agent_service import (
+        create_system_run, claim_run, execute_run, get_system_run,
+    )
+    from app.services import writing_adapters
+
+    monkeypatch.setattr(
+        writing_adapters,
+        "copywriting_generate",
+        AsyncMock(
+            return_value={
+                "kind": "copywriting",
+                "title": "开篇文案",
+                "content": "这是写入新项目的文案正文。",
+                "meta": {},
+            }
+        ),
+    )
+
+    draft_holder = {"id": None}
+
+    async def model(messages, **kwargs):
+        n = getattr(model, "n", 0) + 1
+        model.n = n
+        blob = json.dumps(messages, ensure_ascii=False)
+        if n == 1:
+            return json.dumps(action("create_project", title="营销项目", reason="用户要写文案"))
+        if n == 2:
+            assert "project_id" in blob or "营销项目" in blob
+            return json.dumps(action("copywriting_write", product="墨心", selling_points="AI"))
+        if n == 3:
+            import re
+            m = re.search(r'draft_[a-f0-9]+', blob)
+            draft_holder["id"] = m.group(0) if m else None
+            assert draft_holder["id"]
+            return json.dumps(
+                action("propose_writing_draft", draft_id=draft_holder["id"], reason="写入")
+            )
+        return json.dumps(action("finish", answer="项目与文案已就绪"))
+
+    with store() as db:
+        run = create_system_run(db, 1, "帮我建项目写篇文案", None)
+        run_id = run.id
+        assert run.scope == "system"
+        assert run.project_id is None
+
+    claim = claim_run(store)
+    asyncio.run(execute_run(store, claim, model))
+
+    with store() as db:
+        run = get_system_run(db, 1, run_id)
+        assert run.status == "applied"
+        assert run.project_id is not None
+        assert db.get(Project, run.project_id).title == "营销项目"
+        docs = db.query(Document).filter_by(project_id=run.project_id).all()
+        assert any("文案正文" in json.dumps(d.content, ensure_ascii=False) for d in docs)
+
+
+def test_system_agent_api_contract(store):
+    from app.api import project_agent
+    from app.api.auth import get_current_user
+    app = FastAPI()
+    app.include_router(project_agent.router)
+
+    def session():
+        with store() as db:
+            yield db
+
+    app.dependency_overrides[get_db] = session
+    app.dependency_overrides[get_current_user] = lambda: {"id": 1}
+
+    async def requests():
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            base = "/api/agent/runs"
+            response = await client.post(base, json={"instruction": "聊聊脑洞选题"})
+            assert response.status_code == 200
+            run = response.json()
+            assert run["status"] == "queued"
+            assert run.get("scope") == "system"
+            assert run.get("project_id") in (None, 0) or run["project_id"] is None
+            listed = (await client.get(base)).json()
+            assert listed[0]["id"] == run["id"]
+            got = (await client.get(f"{base}/{run['id']}")).json()
+            assert got["id"] == run["id"]
+            app.dependency_overrides[get_current_user] = lambda: {"id": 2}
+            assert (await client.get(base)).status_code in (200,)
+            # user 2 看不到 user 1 的 system runs
+            assert (await client.get(base)).json() == []
+            deny = await client.get(f"{base}/{run['id']}")
+            assert deny.status_code == 404
+
     asyncio.run(requests())

@@ -492,9 +492,18 @@ class HotTopicsRequest(BaseModel):
 
 
 # ========== Project Agent Schemas ==========
+class AgentRunFocus(BaseModel):
+    """文档编辑焦点：让智能体优先处理当前打开的文档/选区。"""
+
+    document_id: int = Field(..., description="当前文档 ID")
+    selection: Optional[str] = Field(default=None, max_length=20000, description="用户选中或引用的原文")
+    block_ids: Optional[List[str]] = Field(default=None, description="相关块 ID 列表")
+
+
 class AgentRunCreate(BaseModel):
     """创建智能体运行：instruction 为自然语言指令；conversation_id 续接同一会话。"""
 
     instruction: str = Field(..., min_length=1, max_length=20000)
     conversation_id: Optional[str] = Field(default=None, description="留空则开启新会话")
     idempotency_key: Optional[str] = Field(default=None, max_length=64, description="幂等键，重复提交不二次建任务")
+    focus: Optional[AgentRunFocus] = Field(default=None, description="可选：当前文档编辑焦点")

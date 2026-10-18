@@ -56,6 +56,15 @@
     opacity: 0.42;
     background: transparent !important;
   }
+
+  &.is-active-width {
+    background: rgba(var(--coffee-primary-rgb), 0.1) !important;
+
+    .dd-title {
+      color: var(--coffee-primary);
+      font-weight: 600;
+    }
+  }
 }
 
 .coffee-dropdown .el-dropdown-menu__item--divided,

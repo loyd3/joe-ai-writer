@@ -454,15 +454,50 @@ class AIClient:
         return _THINK_BLOCK_RE.sub("", text).strip()
 
     @staticmethod
+    def _coerce_text_payload(content: Any) -> str:
+        """兼容 str / 多段 text parts / 其它可转字符串内容。"""
+        if content is None:
+            return ""
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            parts: List[str] = []
+            for item in content:
+                if isinstance(item, str):
+                    parts.append(item)
+                    continue
+                if isinstance(item, dict):
+                    if item.get("type") == "text" or "text" in item:
+                        parts.append(str(item.get("text") or ""))
+                    elif "content" in item:
+                        parts.append(str(item.get("content") or ""))
+                    continue
+                text = getattr(item, "text", None)
+                if isinstance(text, str):
+                    parts.append(text)
+            return "".join(parts)
+        return str(content) if content else ""
+
+    @staticmethod
     def _message_content(message: Any) -> str:
-        """只取最终正文 content（忽略 reasoning_content）。"""
+        """优先取最终正文 content；为空时回退 reasoning_content（部分网关只填思维链）。"""
         if message is None:
             return ""
         content = getattr(message, "content", None)
         if content is None and isinstance(message, dict):
             content = message.get("content")
-        text = content if isinstance(content, str) else (str(content) if content else "")
-        return AIClient._strip_think_tags(text)
+        text = AIClient._strip_think_tags(AIClient._coerce_text_payload(content))
+        if text:
+            return text
+        reasoning = getattr(message, "reasoning_content", None)
+        if reasoning is None and isinstance(message, dict):
+            reasoning = message.get("reasoning_content")
+        fallback = AIClient._strip_think_tags(AIClient._coerce_text_payload(reasoning))
+        if fallback:
+            print(
+                f"[AIClient] content 为空，回退 reasoning_content（{len(fallback)} 字）"
+            )
+        return fallback
 
     def _completion_params(
         self,
@@ -666,7 +701,7 @@ class AIClient:
                     )
                 if not text:
                     raise RuntimeError(
-                        "模型未返回正文（content 为空）。"
+                        "模型未返回正文（content/reasoning 均为空）。"
                         "若使用 deepseek-reasoner / R1，请确认网关支持并适当增大 max_tokens。"
                     )
                 print(f"[AIClient] AI API 调用成功，正文长度={len(text)}")
@@ -687,7 +722,12 @@ class AIClient:
                 if attempt < max_retries:
                     await asyncio.sleep(5)
             except RuntimeError as e:
-                # 正文为空等业务错误：不重试
+                # 空正文偶发：再试一两次（已含 reasoning 回退）
+                last_error = e
+                print(f"[AIClient] 空正文 (尝试 {attempt}/{max_retries}): {e}")
+                if attempt < max_retries:
+                    await asyncio.sleep(2 * attempt)
+                    continue
                 raise Exception(str(e)) from e
             except Exception as e:
                 last_error = e
@@ -715,6 +755,7 @@ class AIClient:
         for attempt in range(1, max_attempts + 1):
             think_filter = _ThinkTagStreamFilter()
             got_content = False
+            reasoning_parts: List[str] = []
             try:
                 params = self._completion_params(
                     messages,
@@ -737,8 +778,10 @@ class AIClient:
                     if not getattr(chunk, "choices", None):
                         continue
                     delta = chunk.choices[0].delta
-                    # 推理增量：不写入正文（写作场景）
-                    _ = getattr(delta, "reasoning_content", None)
+                    # 推理增量：默认不推给写作；若最终无 content 再整段回退
+                    reasoning_piece = getattr(delta, "reasoning_content", None)
+                    if reasoning_piece:
+                        reasoning_parts.append(reasoning_piece)
                     piece = getattr(delta, "content", None)
                     if not piece:
                         continue
@@ -750,10 +793,20 @@ class AIClient:
                 if tail:
                     got_content = True
                     yield tail
-                if not got_content and self.is_reasoning_model():
-                    raise Exception(
-                        "推理模型流式响应未产生正文。可能仍在思考阶段被中断，或网关只返回了 reasoning_content。"
-                    )
+                if not got_content:
+                    fallback = self._strip_think_tags("".join(reasoning_parts))
+                    if fallback:
+                        print(
+                            f"[AIClient] 流式仅有 reasoning_content，回退为正文（{len(fallback)} 字）"
+                        )
+                        yield fallback
+                        return
+                    if self.is_reasoning_model():
+                        raise Exception(
+                            "推理模型流式响应未产生正文。可能仍在思考阶段被中断，"
+                            "或网关只返回了空的 reasoning_content。"
+                        )
+                    raise Exception("模型流式响应未返回正文（content 为空）。")
                 return
             except asyncio.TimeoutError as e:
                 last_error = e
@@ -762,7 +815,12 @@ class AIClient:
             except (openai.APIConnectionError, openai.APIError) as e:
                 last_error = e
             except Exception as e:
-                if "推理模型" in str(e) or "未产生正文" in str(e) or "未返回正文" in str(e):
+                if (
+                    "推理模型" in str(e)
+                    or "未产生正文" in str(e)
+                    or "未返回正文" in str(e)
+                    or "流式响应未返回正文" in str(e)
+                ):
                     raise
                 last_error = e
 

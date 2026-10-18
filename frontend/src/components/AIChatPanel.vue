@@ -38,27 +38,6 @@
       </div>
     </div>
 
-    <div class="quick-actions">
-      <div class="actions-title">快捷操作</div>
-      <div class="action-buttons">
-        <el-button size="small" @click="quickAction('guide')" style="margin-left: 10px;">
-          <el-icon><Compass /></el-icon> 指导
-        </el-button>
-        <el-button size="small" @click="quickAction('revise')">
-          <el-icon><Edit /></el-icon> 修改
-        </el-button>
-        <el-button size="small" @click="quickAction('polish')">
-          <el-icon><Brush /></el-icon> 润色
-        </el-button>
-        <el-button size="small" @click="quickAction('format_style')">
-          <el-icon><SetUp /></el-icon> 调整样式
-        </el-button>
-        <el-button size="small" @click="quickAction('continue')">
-          <el-icon><Right /></el-icon> 续写
-        </el-button>
-      </div>
-    </div>
-
     <div class="chat-messages" ref="messagesContainer">
       <div
         v-for="(msg, index) in messages"
@@ -235,10 +214,15 @@ function flushSse(acc: { buf: string }, onPayload: (data: string) => void) {
   if (dataLines.length) onPayload(dataLines.join('\n'))
 }
 
-const props = defineProps<{
-  documentId: number
-  projectId?: number
-}>()
+const props = withDefaults(
+  defineProps<{
+    documentId: number
+    projectId?: number
+    /** 开启后，发送前按意图分流；项目级指令 escalate 给父级 */
+    enableIntentRouting?: boolean
+  }>(),
+  { enableIntentRouting: false },
+)
 
 const emit = defineEmits<{
   (e: 'insert', text: string, position?: InsertPos): void
@@ -246,6 +230,7 @@ const emit = defineEmits<{
   (e: 'replace', oldText: string, newText: string, blockIndex?: number, blocks?: Block[], blockIndices?: number[]): void
   (e: 'preview', payload: { blockIndex?: number; blockIndices?: number[]; text: string; blocks?: Block[] }): void
   (e: 'previewCancel'): void
+  (e: 'escalate-to-agent', instruction: string): void
 }>()
 
 const styleAgents = ref<StyleAgent[]>([])
@@ -407,6 +392,21 @@ async function sendMessage() {
 
   const instruction = inputMessage.value.trim()
   const ctx = attachedContext.value
+
+  if (props.enableIntentRouting && props.projectId) {
+    const { resolveXiaoMoIntent } = await import('@/utils/xiaoMoIntent')
+    const intent = resolveXiaoMoIntent(instruction, {
+      hasAttachment: !!ctx?.text?.trim(),
+      hasSelection: !!window.getSelection()?.toString()?.trim(),
+      inDocument: true,
+    })
+    if (intent === 'agent') {
+      inputMessage.value = ''
+      emit('escalate-to-agent', instruction)
+      return
+    }
+  }
+
   let userMsg = instruction
   if (ctx?.text.trim()) {
     userMsg =
@@ -628,6 +628,13 @@ async function runAssistAction(action: string, selectedText?: string, blockIndex
   }
 }
 
+function focusInput() {
+  nextTick(() => {
+    const el = inputRef.value?.textarea || (inputRef.value as any)?.$el?.querySelector?.('textarea')
+    el?.focus?.()
+  })
+}
+
 defineExpose({
   polishWithText: (text: string, blockIndex?: number) => polishWithText(text, blockIndex),
   polishWithSelectedText: (text: string, blockIndices: number[]) => polishWithSelectedText(text, blockIndices),
@@ -636,6 +643,7 @@ defineExpose({
   reviseWithSelectedText: (text: string, blockIndices: number[]) => reviseWithSelectedText(text, blockIndices),
   expandWithSelectedText: (text: string, blockIndices: number[]) => expandWithSelectedText(text, blockIndices),
   attachContext,
+  focusInput,
 })
 
 function insertToDoc(msg: AssistChatMessage, position: InsertPos = 'cursor') {

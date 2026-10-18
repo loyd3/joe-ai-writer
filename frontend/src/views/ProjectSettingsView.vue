@@ -22,6 +22,7 @@
     <div class="page-body">
       <ProjectSettingsManager
         v-if="projectIdNum"
+        ref="settings"
         :project-id="projectIdNum"
       />
       <el-empty v-else description="无效的项目" />
@@ -42,6 +43,18 @@ const store = useProjectStore()
 
 const projectIdNum = computed(() => Number(route.params.id))
 const projectTitle = ref('项目')
+const settings = ref<{ prepareProjectAgent?: () => Promise<boolean>; onAgentProjectChanged?: () => Promise<void> }>()
+
+async function prepareProjectAgent() {
+  if (!settings.value?.prepareProjectAgent) return false
+  return settings.value.prepareProjectAgent()
+}
+
+async function onAgentProjectChanged() {
+  await settings.value?.onAgentProjectChanged?.()
+}
+
+defineExpose({ prepareProjectAgent, onAgentProjectChanged })
 
 onMounted(async () => {
   const id = projectIdNum.value

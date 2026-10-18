@@ -8,6 +8,7 @@ from app.services.memory_normalize import (
     normalize_key_points,
     normalize_characters,
     normalize_world_building,
+    normalize_outline,
     normalize_memory_fields,
     memory_orm_to_dict,
 )
@@ -127,6 +128,8 @@ class AIMemoryService:
             update_data["characters"] = normalize_characters(update_data["characters"])
         if "world_building" in update_data:
             update_data["world_building"] = normalize_world_building(update_data["world_building"])
+        if "outline" in update_data:
+            update_data["outline"] = normalize_outline(update_data["outline"])
 
         for field, value in update_data.items():
             setattr(memory, field, value)

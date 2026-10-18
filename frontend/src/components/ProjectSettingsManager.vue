@@ -1,5 +1,5 @@
 <template>
-  <div class="project-settings-manager">
+  <div class="project-settings-manager" :class="{ 'is-drawer': layout === 'drawer' }">
     <aside class="settings-nav">
       <button
         v-for="tab in tabs"
@@ -640,9 +640,16 @@ import {
   type WorldBuildingData
 } from '@/utils/memoryNormalize'
 
-const props = defineProps<{
-  projectId: number
-}>()
+const props = withDefaults(
+  defineProps<{
+    projectId: number
+    /** page：独立页；drawer：右侧侧边栏抽屉 */
+    layout?: 'page' | 'drawer'
+  }>(),
+  { layout: 'page' },
+)
+
+const layout = computed(() => props.layout)
 
 const router = useRouter()
 const store = useProjectStore()
@@ -1139,17 +1146,50 @@ async function saveSettings(showToast = true) {
     if (genAtStart !== editGen) {
       dirty.value = true
       if (!saveTimer) saveTimer = setTimeout(() => saveSettings(false), 300)
-      return
+      return false
     }
     dirty.value = false
     lastSaved.value = true
     if (showToast) ElMessage.success('设定已保存')
+    return true
   } catch (e: any) {
     ElMessage.error(e?.message || '保存失败')
+    return false
   } finally {
     saving.value = false
   }
 }
+
+async function prepareProjectAgent() {
+  if (saveTimer) {
+    clearTimeout(saveTimer)
+    saveTimer = null
+  }
+  if (!dirty.value) return true
+  return await saveSettings(false) && !dirty.value
+}
+
+async function onAgentProjectChanged() {
+  if (dirty.value || saving.value) {
+    ElMessage.warning('项目设定已在其他位置更新，当前未保存修改已保留。')
+    return
+  }
+  const gen = editGen
+  const projectId = props.projectId
+  try {
+    const latest = await store.fetchMemory(projectId)
+    if (projectId !== props.projectId || gen !== editGen || dirty.value || saving.value) {
+      ElMessage.warning('刷新设定时检测到新的本地修改，已保留。')
+      return
+    }
+    if (latest) applyMemory(latest)
+    dirty.value = false
+  } catch (e: any) {
+    ElMessage.error(e?.message || '刷新设定失败')
+  }
+}
+
+defineExpose({ prepareProjectAgent, onAgentProjectChanged })
 </script>
 
 <style scoped lang="scss">
@@ -1639,11 +1679,53 @@ async function saveSettings(showToast = true) {
   max-width: 520px;
 }
 
+.project-settings-manager.is-drawer {
+  .settings-nav {
+    width: 148px;
+    padding: 12px 8px;
+  }
+
+  .nav-item {
+    padding: 8px 10px;
+    .nav-hint { display: none; }
+  }
+
+  .main-toolbar {
+    padding: 10px 16px;
+    flex-wrap: wrap;
+  }
+
+  .main-scroll {
+    padding: 16px 18px 28px;
+  }
+}
+
 @media (max-width: 720px) {
   .settings-nav { width: 120px; }
   .char-fields { grid-template-columns: 1fr; }
   .char-detail-row { flex-wrap: wrap; }
   .main-scroll { padding: 16px; }
   .main-toolbar { padding: 10px 16px; }
+
+  .project-settings-manager.is-drawer {
+    flex-direction: column;
+
+    .settings-nav {
+      width: 100%;
+      flex-direction: row;
+      flex-wrap: nowrap;
+      overflow-x: auto;
+      border-right: none;
+      border-bottom: 1px solid var(--coffee-border);
+      padding: 8px;
+      gap: 4px;
+    }
+
+    .nav-item {
+      flex: 0 0 auto;
+      white-space: nowrap;
+      &.active { box-shadow: inset 0 -3px 0 var(--coffee-primary); }
+    }
+  }
 }
 </style>

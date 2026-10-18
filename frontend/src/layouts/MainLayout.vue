@@ -1,7 +1,7 @@
 <template>
   <div class="main-layout">
     <el-container class="layout-container">
-      <el-aside width="280px" class="sidebar">
+      <el-aside :width="`${sidebarWidth}px`" class="sidebar" :class="{ resizing: sidebarResizing }">
         <div class="logo" @click="goToHome" @keydown.enter="goToHome" role="button" tabindex="0" title="回到我的创作空间">
           <el-icon class="logo-icon"><EditPen /></el-icon>
           <div class="logo-text-wrap">
@@ -144,6 +144,12 @@
             </template>
           </el-dropdown>
         </div>
+        <div
+          class="sidebar-resize-handle"
+          title="拖动调整侧栏宽度"
+          aria-label="调整侧栏宽度"
+          @pointerdown="onSidebarResizeStart"
+        />
       </el-aside>
 
       <el-container>
@@ -155,22 +161,32 @@
       </el-container>
     </el-container>
 
-    <FloatingProjectAgent :project-id="agentProjectId" :project-title="agentProjectTitle" :before-open="prepareAgent" @changed="onAgentChanged" />
+    <FloatingProjectAgent
+      :project-id="agentProjectId"
+      :project-title="agentProjectTitle"
+      :document-id="agentDocumentId"
+      :scope="agentScope"
+      :before-open="prepareAgent"
+      @changed="onAgentChanged"
+    />
     <SettingsDrawer />
+    <ProjectSettingsDrawer />
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useProjectStore } from '@/stores/project'
 import FloatingProjectAgent from '@/components/FloatingProjectAgent.vue'
 import { useAuthStore } from '@/stores/auth'
 import { useAiModeStore, type AiPreferredMode } from '@/stores/aiMode'
 import { useSettingsDrawerStore } from '@/stores/settingsDrawer'
+import { useProjectSettingsDrawerStore } from '@/stores/projectSettingsDrawer'
 import ProjectSidebar from '@/components/ProjectSidebar.vue'
 import GlobalSearch from '@/components/GlobalSearch.vue'
 import SettingsDrawer from '@/components/SettingsDrawer.vue'
+import ProjectSettingsDrawer from '@/components/ProjectSettingsDrawer.vue'
 import { API_BASE_URL } from '@/api'
 import {
   EditPen, UserFilled, ArrowDown, User, Setting, SwitchButton, Cpu,
@@ -178,26 +194,105 @@ import {
 } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
+const SIDEBAR_WIDTH_KEY = 'joe-sidebar-width'
+const SIDEBAR_MIN = 200
+const SIDEBAR_MAX = 480
+const SIDEBAR_DEFAULT = 280
+
+function loadSidebarWidth(): number {
+  try {
+    const n = Number(localStorage.getItem(SIDEBAR_WIDTH_KEY))
+    if (Number.isFinite(n) && n >= SIDEBAR_MIN && n <= SIDEBAR_MAX) return Math.round(n)
+  } catch { /* ignore */ }
+  return SIDEBAR_DEFAULT
+}
+
 const router = useRouter()
 const authStore = useAuthStore()
 const aiModeStore = useAiModeStore()
 const settingsDrawer = useSettingsDrawerStore()
+const projectSettingsDrawer = useProjectSettingsDrawerStore()
 const route = useRoute()
 const projectStore = useProjectStore()
 const pageView = ref<{ prepareProjectAgent?: () => Promise<boolean>; onAgentProjectChanged?: () => Promise<void> }>()
+const sidebarWidth = ref(loadSidebarWidth())
+const sidebarResizing = ref(false)
+let sidebarResizeStartX = 0
+let sidebarResizeStartW = 0
+
+function clampSidebarWidth(w: number) {
+  const maxByViewport = typeof window !== 'undefined'
+    ? Math.min(SIDEBAR_MAX, Math.floor(window.innerWidth * 0.45))
+    : SIDEBAR_MAX
+  return Math.max(SIDEBAR_MIN, Math.min(maxByViewport, Math.round(w)))
+}
+
+function persistSidebarWidth() {
+  try {
+    localStorage.setItem(SIDEBAR_WIDTH_KEY, String(sidebarWidth.value))
+  } catch { /* ignore */ }
+}
+
+function onSidebarResizeMove(e: PointerEvent) {
+  if (!sidebarResizing.value) return
+  sidebarWidth.value = clampSidebarWidth(sidebarResizeStartW + (e.clientX - sidebarResizeStartX))
+}
+
+function onSidebarResizeEnd() {
+  if (!sidebarResizing.value) return
+  sidebarResizing.value = false
+  document.body.style.cursor = ''
+  document.body.style.userSelect = ''
+  window.removeEventListener('pointermove', onSidebarResizeMove)
+  window.removeEventListener('pointerup', onSidebarResizeEnd)
+  window.removeEventListener('pointercancel', onSidebarResizeEnd)
+  persistSidebarWidth()
+}
+
+function onSidebarResizeStart(e: PointerEvent) {
+  if (e.button !== 0) return
+  e.preventDefault()
+  sidebarResizing.value = true
+  sidebarResizeStartX = e.clientX
+  sidebarResizeStartW = sidebarWidth.value
+  document.body.style.cursor = 'col-resize'
+  document.body.style.userSelect = 'none'
+  window.addEventListener('pointermove', onSidebarResizeMove)
+  window.addEventListener('pointerup', onSidebarResizeEnd)
+  window.addEventListener('pointercancel', onSidebarResizeEnd)
+}
+/** 仅在项目/文档路由绑定 projectId；首页与写作工具页为系统级（无项目） */
 const agentProjectId = computed(() => {
   if (route.name === 'project' || route.name === 'project-settings') {
     const id = Number(route.params.id)
+    if (!Number.isInteger(id) || id <= 0) return null
     return projectStore.currentProject?.id === id ? id : null
   }
   if (route.name === 'document') {
     const doc = projectStore.currentDocument
     return doc?.id === Number(route.params.id) ? doc.project_id : null
   }
-  return projectStore.currentProject?.id ?? null
+  return null
 })
-const agentProjectTitle = computed(() => projectStore.currentProject?.id === agentProjectId.value ? projectStore.currentProject.title : '')
+const agentDocumentId = computed(() => {
+  if (route.name !== 'document') return null
+  const id = Number(route.params.id)
+  return Number.isInteger(id) && id > 0 ? id : null
+})
+/** 页面作用域：系统（无项目）/ 项目 / 文档编辑 */
+const agentScope = computed<'system' | 'project' | 'document'>(() => {
+  if (agentDocumentId.value && agentProjectId.value) return 'document'
+  if (agentProjectId.value) return 'project'
+  return 'system'
+})
+const agentProjectTitle = computed(() =>
+  projectStore.currentProject?.id === agentProjectId.value
+    ? (projectStore.currentProject.title || '')
+    : '',
+)
 async function prepareAgent() {
+  const settingsOk = await projectSettingsDrawer.prepareProjectAgent()
+  if (!settingsOk) return false
   if (route.name === 'document') {
     if (!agentProjectId.value || !pageView.value?.prepareProjectAgent) return false
     const path = route.fullPath
@@ -207,8 +302,20 @@ async function prepareAgent() {
   return true
 }
 async function onAgentChanged(changedProjectId: number | null) {
-  if (!changedProjectId || changedProjectId !== agentProjectId.value) return
+  if (!changedProjectId) return
+  // 系统会话智能建项：刷新列表并进入新项目
+  if (changedProjectId !== agentProjectId.value) {
+    try {
+      await projectStore.fetchProjects()
+      await projectStore.fetchProject(changedProjectId)
+      if (route.name !== 'project' && route.name !== 'document' && route.name !== 'project-settings') {
+        await router.push(`/project/${changedProjectId}`)
+      }
+    } catch { /* 导航失败不阻断 */ }
+    return
+  }
   try {
+    await projectSettingsDrawer.onAgentProjectChanged()
     if (pageView.value?.onAgentProjectChanged) {
       await pageView.value.onAgentProjectChanged()
     } else {
@@ -219,8 +326,19 @@ async function onAgentChanged(changedProjectId: number | null) {
   }
 }
 
+function onViewportResizeSidebar() {
+  sidebarWidth.value = clampSidebarWidth(sidebarWidth.value)
+}
+
 onMounted(() => {
   if (authStore.isLoggedIn) aiModeStore.load()
+  sidebarWidth.value = clampSidebarWidth(sidebarWidth.value)
+  window.addEventListener('resize', onViewportResizeSidebar)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('resize', onViewportResizeSidebar)
+  onSidebarResizeEnd()
 })
 
 watch(
@@ -289,11 +407,47 @@ async function handleUserCommand(command: string) {
 }
 
 .sidebar {
+  position: relative;
   background: linear-gradient(180deg, var(--coffee-bg) 0%, var(--coffee-bg-warm) 100%);
   border-right: 1px solid var(--coffee-border);
   display: flex;
   flex-direction: column;
   box-shadow: 4px 0 20px var(--coffee-sidebar-shadow);
+  transition: none;
+
+  &.resizing {
+    user-select: none;
+  }
+}
+
+.sidebar-resize-handle {
+  position: absolute;
+  top: 0;
+  right: -3px;
+  width: 6px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 20;
+  touch-action: none;
+
+  &::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 2px;
+    height: 48px;
+    border-radius: 2px;
+    background: transparent;
+    transition: background 0.15s ease;
+  }
+
+  &:hover::after,
+  .sidebar.resizing &::after {
+    background: var(--coffee-primary);
+    opacity: 0.55;
+  }
 }
 
 .logo {

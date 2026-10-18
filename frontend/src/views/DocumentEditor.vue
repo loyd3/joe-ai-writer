@@ -45,70 +45,34 @@
           <el-icon><Brush /></el-icon>
           <span>文风设置</span>
         </el-button>
-        <el-button
-          class="btn"
-          :type="showChatPanel ? 'primary' : 'default'"
-          @click="showChatPanel = !showChatPanel"
-        >
-          <el-icon><ChatDotRound /></el-icon>
-          <span>小墨</span>
-        </el-button>
-        <el-dropdown trigger="click" placement="bottom-end" popper-class="coffee-dropdown" @command="handleMoreCommand" class="header-dropdown">
-          <el-button class="btn">
-            <el-icon><MagicStick /></el-icon>
-            <span>AI 工具</span>
+        <el-dropdown trigger="click" placement="bottom-end" popper-class="coffee-dropdown" @command="setEditorWidth" class="header-dropdown">
+          <el-button class="btn" :title="`版面宽度 ${editorWidthLabel}`">
+            <el-icon><FullScreen /></el-icon>
+            <span>版面</span>
             <el-icon class="arrow-icon"><ArrowDown /></el-icon>
           </el-button>
           <template #dropdown>
             <el-dropdown-menu class="coffee-dropdown-menu">
-              <el-dropdown-item command="format-style" :disabled="!content.length">
+              <el-dropdown-item
+                v-for="opt in EDITOR_WIDTH_OPTIONS"
+                :key="opt.value"
+                :command="opt.value"
+                :class="{ 'is-active-width': editorMaxWidth === opt.value }"
+              >
                 <div class="dd-item">
-                  <span class="dd-icon"><el-icon><SetUp /></el-icon></span>
                   <div class="dd-meta">
-                    <span class="dd-title">AI 调整样式</span>
-                    <span class="dd-desc">优化结构与排版，不改内容</span>
-                  </div>
-                </div>
-              </el-dropdown-item>
-              <el-dropdown-item command="split-sections" :disabled="!content.length">
-                <div class="dd-item">
-                  <span class="dd-icon"><el-icon><Files /></el-icon></span>
-                  <div class="dd-meta">
-                    <span class="dd-title">按章节拆分为多篇</span>
-                    <span class="dd-desc">拆成多篇文档，按序加入项目</span>
-                  </div>
-                </div>
-              </el-dropdown-item>
-              <el-dropdown-item command="extract">
-                <div class="dd-item">
-                  <span class="dd-icon"><el-icon><Aim /></el-icon></span>
-                  <div class="dd-meta">
-                    <span class="dd-title">AI 智能扩展</span>
-                    <span class="dd-desc">扩展为长篇项目</span>
-                  </div>
-                </div>
-              </el-dropdown-item>
-              <el-dropdown-item command="generate">
-                <div class="dd-item">
-                  <span class="dd-icon"><el-icon><MagicStick /></el-icon></span>
-                  <div class="dd-meta">
-                    <span class="dd-title">根据设定生成</span>
-                    <span class="dd-desc">用项目设定续写或生成</span>
-                  </div>
-                </div>
-              </el-dropdown-item>
-              <el-dropdown-item command="rewrite-settings">
-                <div class="dd-item">
-                  <span class="dd-icon"><el-icon><RefreshRight /></el-icon></span>
-                  <div class="dd-meta">
-                    <span class="dd-title">根据设定重写</span>
-                    <span class="dd-desc">设定改了，对齐已有正文</span>
+                    <span class="dd-title">{{ opt.label }}</span>
+                    <span class="dd-desc">{{ opt.desc }}</span>
                   </div>
                 </div>
               </el-dropdown-item>
             </el-dropdown-menu>
           </template>
         </el-dropdown>
+        <el-button class="btn" @click="xiaoMo.openFloating()">
+          <el-icon><ChatDotRound /></el-icon>
+          <span>小墨</span>
+        </el-button>
         <ExportMenu
           mode="document"
           :document-id="Number(documentId)"
@@ -131,24 +95,6 @@
                   </div>
                 </div>
               </el-dropdown-item>
-              <el-dropdown-item command="video-script">
-                <div class="dd-item">
-                  <span class="dd-icon"><el-icon><VideoCamera /></el-icon></span>
-                  <div class="dd-meta">
-                    <span class="dd-title">转视频文案</span>
-                    <span class="dd-desc">生成口播 / 短视频稿</span>
-                  </div>
-                </div>
-              </el-dropdown-item>
-              <el-dropdown-item command="film-script">
-                <div class="dd-item">
-                  <span class="dd-icon"><el-icon><Film /></el-icon></span>
-                  <div class="dd-meta">
-                    <span class="dd-title">转影视脚本</span>
-                    <span class="dd-desc">转为分镜剧本格式</span>
-                  </div>
-                </div>
-              </el-dropdown-item>
             </el-dropdown-menu>
           </template>
         </el-dropdown>
@@ -160,7 +106,16 @@
           </el-button>
           <template #dropdown>
             <el-dropdown-menu class="coffee-dropdown-menu">
-              <el-dropdown-item command="rename">
+              <el-dropdown-item command="split-sections" :disabled="!content.length">
+                <div class="dd-item">
+                  <span class="dd-icon"><el-icon><Files /></el-icon></span>
+                  <div class="dd-meta">
+                    <span class="dd-title">按章节拆分为多篇</span>
+                    <span class="dd-desc">拆成多篇文档，按序加入项目</span>
+                  </div>
+                </div>
+              </el-dropdown-item>
+              <el-dropdown-item divided command="rename">
                 <div class="dd-item">
                   <span class="dd-icon"><el-icon><Edit /></el-icon></span>
                   <div class="dd-meta">
@@ -185,7 +140,7 @@
     </div>
 
     <div class="editor-container">
-      <div class="editor-main" :class="{ 'with-chat': showChatPanel }">
+      <div class="editor-main">
         <aside
           v-if="tocItems.length > 0"
           class="doc-outline"
@@ -213,7 +168,7 @@
             </button>
           </div>
         </aside>
-        <div class="editor-content">
+        <div class="editor-content" :style="editorContentStyle">
           <BlockEditor 
             ref="blockEditorRef"
             v-model="content"
@@ -230,79 +185,11 @@
         </div>
       </div>
       
-      <AIChatPanel
-        v-if="showChatPanel"
-        ref="aiChatRef"
-        :document-id="Number(documentId)"
-        :project-id="document?.project_id || project?.id"
-        @insert="insertText"
-        @insert-blocks="insertBlocksFromAi"
-        @preview="onAiPreview"
-        @preview-cancel="onAiPreviewCancel"
-        @replace="(oldText, newText, blockIndex, blocks, blockIndices) => replaceText(oldText, newText, blockIndex, blocks, blockIndices)"
-      />
     </div>
-
-    <el-drawer
-      v-model="showExtractDrawer"
-      title="AI 扩展为长篇项目"
-      size="520px"
-      direction="rtl"
-      class="extract-drawer"
-      destroy-on-close
-    >
-      <AIExtract
-        v-if="document?.project_id"
-        :document-id="Number(documentId)"
-        :project-id="document.project_id"
-        :document-title="documentTitle"
-        :content="content"
-        @project-created="onProjectFromArticleCreated"
-      />
-    </el-drawer>
-
-    <el-drawer
-      v-model="showGenerateDrawer"
-      title="根据项目设定生成"
-      size="520px"
-      direction="rtl"
-      class="generate-drawer"
-      destroy-on-close
-    >
-      <AIGenerateFromMemory
-        v-if="document?.project_id"
-        :project-id="document.project_id"
-        :document-id="Number(documentId)"
-        :current-content="content"
-        @insert="insertText"
-      />
-    </el-drawer>
-
-    <el-drawer
-      v-model="showRewriteDrawer"
-      title="根据设定重写"
-      size="520px"
-      direction="rtl"
-      class="generate-drawer"
-      destroy-on-close
-    >
-      <AIRewriteFromSettings
-        v-if="document?.project_id"
-        :project-id="document.project_id"
-        :document-id="Number(documentId)"
-        @done="onRewriteDone"
-      />
-    </el-drawer>
 
     <PublishDialog
       v-model="showPublishDialog"
       :document-id="Number(documentId)"
-    />
-
-    <VideoScriptDialog
-      v-model="showVideoScriptDialog"
-      :document-id="Number(documentId)"
-      :raw-blocks="blocksSnapshot()"
     />
 
     <SplitDocumentDialog
@@ -323,23 +210,54 @@ import { useRoute, useRouter } from 'vue-router'
 import { useProjectStore, type Block } from '@/stores/project'
 import { ElMessage } from 'element-plus'
 import BlockEditor from '@/components/BlockEditor.vue'
-import AIChatPanel from '@/components/AIChatPanel.vue'
+import { useXiaoMoStore } from '@/stores/xiaoMo'
 import { captureEditorSave, matchesEditorSave } from '@/utils/editorSaveSnapshot'
-import AIExtract from '@/components/AIExtract.vue'
-import AIGenerateFromMemory from '@/components/AIGenerateFromMemory.vue'
-import AIRewriteFromSettings from '@/components/AIRewriteFromSettings.vue'
 import ExportMenu from '@/components/ExportMenu.vue'
 import PublishDialog from '@/components/PublishDialog.vue'
-import VideoScriptDialog from '@/components/VideoScriptDialog.vue'
 import SplitDocumentDialog from '@/components/SplitDocumentDialog.vue'
 import { parseFormattedTextToBlocks } from '@/utils/formatToBlocks'
 import { ElMessageBox } from 'element-plus'
-import { aiApi } from '@/api'
-import { ArrowLeft, ArrowRight, ArrowDown, ChatDotRound, Check, Loading, CircleCheck, MoreFilled, Edit, Delete, Aim, MagicStick, Files, Promotion, VideoCamera, Film, SetUp, Collection, RefreshRight, Brush } from '@element-plus/icons-vue'
+import { ArrowLeft, ArrowRight, ArrowDown, ChatDotRound, Check, Loading, CircleCheck, MoreFilled, Edit, Delete, Files, Promotion, Collection, Brush, FullScreen } from '@element-plus/icons-vue'
+
+const EDITOR_WIDTH_KEY = 'joe-editor-content-width'
+const EDITOR_WIDTH_OPTIONS = [
+  { value: 640, label: '窄栏', desc: '专注阅读，约 640px' },
+  { value: 800, label: '标准', desc: '默认版面，约 800px' },
+  { value: 960, label: '加宽', desc: '更宽正文，约 960px' },
+  { value: 1200, label: '很宽', desc: '大屏写作，约 1200px' },
+  { value: 0, label: '铺满', desc: '随编辑区拉满宽度' },
+] as const
+
+function loadEditorWidth(): number {
+  try {
+    const raw = localStorage.getItem(EDITOR_WIDTH_KEY)
+    if (raw == null) return 800
+    const n = Number(raw)
+    if (n === 0) return 0
+    if ([640, 800, 960, 1200].includes(n)) return n
+  } catch { /* ignore */ }
+  return 800
+}
 
 const route = useRoute()
 const router = useRouter()
 const store = useProjectStore()
+const xiaoMo = useXiaoMoStore()
+const editorMaxWidth = ref(loadEditorWidth())
+const editorWidthLabel = computed(
+  () => EDITOR_WIDTH_OPTIONS.find(o => o.value === editorMaxWidth.value)?.label || '标准',
+)
+const editorContentStyle = computed(() => ({
+  maxWidth: editorMaxWidth.value === 0 ? '100%' : `${editorMaxWidth.value}px`,
+}))
+
+function setEditorWidth(value: number | string) {
+  const n = Number(value)
+  editorMaxWidth.value = Number.isFinite(n) ? n : 800
+  try {
+    localStorage.setItem(EDITOR_WIDTH_KEY, String(editorMaxWidth.value))
+  } catch { /* ignore */ }
+}
 
 const documentId = computed(() => route.params.id as string)
 const document = computed(() => store.currentDocument)
@@ -350,31 +268,19 @@ const content = ref<Block[]>([])
 const saving = ref(false)
 const saveConflict = ref(false)
 const editorBaseUpdatedAt = ref('')
-const showChatPanel = ref(true)
-const showExtractDrawer = ref(false)
-const showGenerateDrawer = ref(false)
-const showRewriteDrawer = ref(false)
 const hasChanges = ref(false)
+let editorEpoch = 0
 /** AI 预览块：插入到文档末尾，仅用于阅读与 diff 接受/拒绝；未接受前不应自动保存 */
 const aiPreviewId = ref<string | null>(null)
 const AI_PREVIEW_KEY = '__ai_preview_id'
 const lastSaved = ref<Date | null>(null)
-const aiChatRef = ref<{
-  polishWithText: (text: string, blockIndex?: number) => Promise<void>
-  polishWithSelectedText: (text: string, blockIndices: number[]) => Promise<void>
-  formatStyleWithText: (text: string, blockIndex?: number) => Promise<void>
-  formatStyleWithSelectedText: (text: string, blockIndices: number[]) => Promise<void>
-  reviseWithSelectedText: (text: string, blockIndices: number[]) => Promise<void>
-  expandWithSelectedText: (text: string, blockIndices: number[]) => Promise<void>
-  attachContext: (payload: { text: string; blockIndex?: number; blockIndices?: number[] }) => void
-} | null>(null)
 const blockEditorRef = ref<{
   flushPendingSync: () => void
   focusBlock: (index: number, opts?: { cursor?: 'start' | 'end' | number; align?: 'start' | 'nearest'; behavior?: ScrollBehavior; focus?: boolean; preventScroll?: boolean; force?: boolean }) => void
   getInsertAfterIndex: () => number
+  getEditFocus?: () => { text: string; blockIndex?: number; blockIndices?: number[] } | null
 } | null>(null)
 const showPublishDialog = ref(false)
-const showVideoScriptDialog = ref(false)
 const showSplitDialog = ref(false)
 
 let autoSaveInterval: number | null = null
@@ -449,104 +355,124 @@ function toggleToc() {
   clearTocCollapseTimer()
 }
 
-watch(showChatPanel, (open) => {
-  if (open) {
-    tocCollapsed.value = true
-    tocPinnedOpen.value = false
-    clearTocCollapseTimer()
-  }
-})
-
 watch(documentId, () => {
   loadDocument()
 })
 
-async function onRewriteDone(payload: { documentIds: number[] }) {
-  const cur = Number(documentId.value)
-  if (payload.documentIds.includes(cur)) {
-    await loadDocument()
-    ElMessage.success('当前文档已按最新设定更新')
-  }
+function applyLoadedDocument() {
+  if (!document.value) return
+  documentTitle.value = document.value.title
+  content.value = JSON.parse(JSON.stringify(document.value.content || [])) as Block[]
+  editorBaseUpdatedAt.value = document.value.updated_at
+  hasChanges.value = false
+  saveConflict.value = false
+  aiPreviewId.value = null
 }
 
-async function loadDocument() {
-  await store.fetchDocument(Number(documentId.value))
-  if (document.value) {
-    documentTitle.value = document.value.title
-    content.value = JSON.parse(JSON.stringify(document.value.content || [])) as Block[]
-    editorBaseUpdatedAt.value = document.value.updated_at
-    hasChanges.value = false
-    saveConflict.value = false
-    if (document.value.project_id) {
-      await store.fetchProject(document.value.project_id)
-    }
+async function loadDocument(force = false) {
+  const id = Number(documentId.value)
+  const epoch = editorEpoch
+  const switching = document.value?.id !== id
+  await store.fetchDocument(id)
+  if (Number(documentId.value) !== id) return
+  if (!force && !switching && (epoch !== editorEpoch || hasChanges.value || saving.value || aiPreviewId.value)) {
+    saveConflict.value = true
+    ElMessage.warning('加载期间编辑器有新修改，本地内容已保留。')
+    return
   }
+  applyLoadedDocument()
+  if (document.value?.project_id) await store.fetchProject(document.value.project_id)
 }
 
 function onContentChange() {
+  editorEpoch += 1
   hasChanges.value = true
 }
 
-/** 打开 AI 面板并等待组件挂载后再调用（v-if 时单次 nextTick 可能拿不到 ref） */
-async function withAiChat(run: (api: NonNullable<typeof aiChatRef.value>) => void | Promise<void>) {
-  showChatPanel.value = true
-  await nextTick()
-  if (!aiChatRef.value) await nextTick()
-  const api = aiChatRef.value
-  if (!api) {
-    ElMessage.warning('小墨面板未就绪，请稍后重试')
-    return
-  }
-  await run(api)
+function resolveBlockIds(index?: number, indices?: number[]): string[] | undefined {
+  const idxs = indices?.length ? indices : (index != null ? [index] : [])
+  const ids = idxs.map(i => content.value[i]?.id).filter((id): id is string => !!id)
+  return ids.length ? ids : undefined
+}
+
+function askXiaoMo(
+  kind: 'action' | 'attach' | 'ask',
+  payload: { text: string; index?: number; indices?: number[]; instruction?: string; action?: string },
+) {
+  xiaoMo.requestAssist({
+    kind,
+    action: payload.action,
+    text: payload.text,
+    blockIndex: payload.index,
+    blockIndices: payload.indices,
+    blockIds: resolveBlockIds(payload.index, payload.indices),
+    instruction: payload.instruction,
+  })
 }
 
 function onPolish(payload: { index: number; text: string }) {
-  withAiChat(api => api.polishWithText(payload.text, payload.index))
+  askXiaoMo('ask', {
+    action: 'polish',
+    text: payload.text,
+    index: payload.index,
+    instruction:
+      '请只润色我选中的这些段落（不要通读或重读全文），让表达更流畅自然，保留原意与语气，直接改稿后 finish。',
+  })
 }
 
 function onPolishSelected(payload: { indices: number[]; text: string }) {
-  withAiChat(api => api.polishWithSelectedText(payload.text, payload.indices))
+  askXiaoMo('ask', {
+    action: 'polish',
+    text: payload.text,
+    indices: payload.indices,
+    instruction:
+      '请只润色我选中的这些段落（不要通读或重读全文），让表达更流畅自然，保留原意与语气，直接改稿后 finish。',
+  })
 }
 
 function onFormatStyle(payload: { index: number; text: string }) {
-  withAiChat(api => api.formatStyleWithText(payload.text, payload.index))
+  askXiaoMo('ask', {
+    action: 'format_style',
+    text: payload.text,
+    index: payload.index,
+    instruction: '请只调整这段的结构与排版层次，不要改写措辞内容本身。',
+  })
 }
 
 function onFormatStyleSelected(payload: { indices: number[]; text: string }) {
-  withAiChat(api => api.formatStyleWithSelectedText(payload.text, payload.indices))
+  askXiaoMo('ask', {
+    action: 'format_style',
+    text: payload.text,
+    indices: payload.indices,
+    instruction: '请只调整这些段落的结构与排版层次，不要改写措辞内容本身。',
+  })
 }
 
-/** 对整篇文档做仅排版优化 */
-function onFormatStyleDocument() {
-  const targets = content.value
-    .map((b, i) => ({ b, i }))
-    .filter(({ b }) => b && b.type !== 'image' && stripHtmlToText(b.content || '').trim())
-  const parts = targets.map(({ b }) => stripHtmlToText(b.content))
-  const text = parts.join('\n\n')
-  if (!text.trim()) {
-    ElMessage.warning('文档暂无内容可调整')
-    return
-  }
-  const indices = targets.map(({ i }) => i)
-  withAiChat(api => api.formatStyleWithSelectedText(text, indices))
-}
 
 function onReviseSelected(payload: { indices: number[]; text: string }) {
-  withAiChat(api => api.reviseWithSelectedText(payload.text, payload.indices))
+  askXiaoMo('ask', {
+    action: 'revise',
+    text: payload.text,
+    indices: payload.indices,
+    instruction: '请改写这些段落，修正生硬或不通顺处，提升可读性，保留核心信息。',
+  })
 }
 
 function onExpandSelected(payload: { indices: number[]; text: string }) {
-  withAiChat(api => api.expandWithSelectedText(payload.text, payload.indices))
+  askXiaoMo('ask', {
+    action: 'expand',
+    text: payload.text,
+    indices: payload.indices,
+    instruction: '请在这些段落基础上扩写，补充细节与画面感，风格与上下文一致。',
+  })
 }
 
-/** 把段落贴到 AI 对话框，便于自由提修改要求 */
+/** 把段落贴到小墨浮窗，便于自由提修改要求 */
 function onAskAi(payload: { text: string; index?: number; indices?: number[] }) {
-  withAiChat(api => {
-    api.attachContext({
-      text: payload.text,
-      blockIndex: payload.index,
-      blockIndices: payload.indices,
-    })
+  askXiaoMo('attach', {
+    text: payload.text,
+    index: payload.index,
+    indices: payload.indices,
   })
 }
 
@@ -604,29 +530,26 @@ defineExpose({ prepareProjectAgent, onAgentProjectChanged })
 async function reloadAfterConflict() {
   try {
     await ElMessageBox.confirm('将放弃当前编辑器里的未保存内容。请确认已复制需要保留的内容。', '加载最新版本', { type: 'warning' })
-    await loadDocument()
+    await loadDocument(true)
   } catch {
     // Cancellation keeps the local manuscript untouched.
   }
 }
 
 async function onAgentProjectChanged() {
+  // 小墨已自动写入服务器：以服务器结果为准，直接替换编辑器内容，不走「冲突备份」流程
   blockEditorRef.value?.flushPendingSync?.()
   await nextTick()
-  if (hasChanges.value || saving.value) {
-    saveConflict.value = true
-    ElMessage.warning('项目已更新，当前未保存修改已保留；请先复制本地修改再重新加载，避免覆盖。')
-    const pid = document.value?.project_id
-    if (pid) await store.fetchProject(pid)
-    return
+  if (saving.value) {
+    // 等在途保存结束，避免本地 PUT 覆盖刚写入的智能体结果
+    for (let i = 0; i < 40 && saving.value; i++) {
+      await new Promise(r => setTimeout(r, 50))
+    }
   }
-  await loadDocument()
-}
-
-async function onProjectFromArticleCreated(projectId: number, documentId: number) {
-  showExtractDrawer.value = false
-  ElMessage.success('项目创建成功，正在导入原文并进入新文档...')
-  router.push(`/document/${documentId}`)
+  aiPreviewId.value = null
+  hasChanges.value = false
+  saveConflict.value = false
+  await loadDocument(true)
 }
 
 function goBack() {
@@ -640,7 +563,9 @@ function goBack() {
 function goProjectSettings() {
   const pid = document.value?.project_id || project.value?.id
   if (!pid) return
-  router.push(`/project/${pid}/settings`)
+  import('@/stores/projectSettingsDrawer').then(({ useProjectSettingsDrawerStore }) => {
+    useProjectSettingsDrawerStore().show(Number(pid))
+  })
 }
 
 function goWritingStyle() {
@@ -650,22 +575,10 @@ function goWritingStyle() {
 }
 
 function handleMoreCommand(command: string) {
-  if (command === 'format-style') {
-    onFormatStyleDocument()
-  } else if (command === 'split-sections') {
+  if (command === 'split-sections') {
     openSplitDialog()
-  } else if (command === 'extract') {
-    showExtractDrawer.value = true
-  } else if (command === 'generate') {
-    showGenerateDrawer.value = true
-  } else if (command === 'rewrite-settings') {
-    showRewriteDrawer.value = true
   } else if (command === 'publish') {
     showPublishDialog.value = true
-  } else if (command === 'video-script') {
-    showVideoScriptDialog.value = true
-  } else if (command === 'film-script') {
-    void convertToFilmScript()
   } else if (command === 'rename' || command === 'delete') {
     handleDocCommand(command)
   }
@@ -698,7 +611,7 @@ async function onSplitDone(payload: { created: import('@/api/types').Document[];
   }
   // 原文档改为目录时，重新加载当前文档内容
   if (documentId.value) {
-    await loadDocument()
+    await loadDocument(true)
     hasChanges.value = false
   }
 }
@@ -718,6 +631,7 @@ async function handleDocCommand(command: string) {
         title: value, expected_updated_at: editorBaseUpdatedAt.value,
       })
       editorBaseUpdatedAt.value = saved.updated_at
+      editorEpoch += 1
       documentTitle.value = value
       ElMessage.success('已重命名')
     } catch {
@@ -792,58 +706,6 @@ function insertBlocksFromAi(blocks: Block[], position: InsertPos = 'cursor') {
   nextTick(() => {
     blockEditorRef.value?.focusBlock?.(at, { cursor: 'end', align: 'nearest' })
   })
-}
-
-function blocksSnapshot(): Block[] {
-  try {
-    return JSON.parse(JSON.stringify(content.value)) as Block[]
-  } catch {
-    return [...content.value]
-  }
-}
-
-const convertingFilmScript = ref(false)
-
-async function convertToFilmScript() {
-  if (convertingFilmScript.value) return
-  if (!content.value.length) {
-    ElMessage.warning('文档内容为空，无法转换')
-    return
-  }
-  convertingFilmScript.value = true
-  const loading = ElMessage({ message: '正在转换为影视脚本，请稍候...', type: 'info', duration: 0 })
-  try {
-    if (hasChanges.value) await saveDocument()
-    const res = await aiApi.convertToFilmScript({
-      document_id: Number(documentId.value),
-      blocks: blocksSnapshot(),
-    })
-    const data = res.data?.data
-    if (!data?.script_text) throw new Error('empty script')
-    const projectId = document.value?.project_id
-    if (!projectId) throw new Error('no project')
-    const title = (data.script_title || `${documentTitle.value}·影视脚本`).slice(0, 100)
-    const blocks = parseFormattedTextToBlocks(data.script_text, 'doc')
-    const newDoc = await store.createDocument(projectId, { title, content: blocks })
-    ElMessage.success('已生成影视脚本文档')
-    router.push(`/document/${newDoc.id}`)
-  } catch (e) {
-    console.error(e)
-    ElMessage.error(messageFromAxiosError(e, '转换影视脚本失败，请稍后重试'))
-  } finally {
-    loading.close()
-    convertingFilmScript.value = false
-  }
-}
-
-function messageFromAxiosError(e: unknown, fallback: string): string {
-  const ax = e as { response?: { data?: { detail?: unknown } } }
-  const d = ax.response?.data?.detail
-  if (typeof d === 'string') return d
-  if (Array.isArray(d) && d.length && typeof (d[0] as { msg?: string }).msg === 'string') {
-    return (d[0] as { msg: string }).msg
-  }
-  return fallback
 }
 
 function removeAiPreviewBlocks() {
@@ -1031,6 +893,24 @@ function handleDocumentKeydown(event: KeyboardEvent) {
 
 onMounted(() => {
   loadDocument()
+  xiaoMo.registerDocumentBridge({
+    insert: (text, position) => insertText(text, position),
+    insertBlocks: (blocks, position) => insertBlocksFromAi(blocks, position),
+    replace: (oldText, newText, blockIndex, blocks, blockIndices) =>
+      replaceText(oldText, newText, blockIndex, blocks, blockIndices),
+    preview: (payload) => onAiPreview(payload),
+    previewCancel: () => onAiPreviewCancel(),
+    getEditFocus: () => {
+      const focus = blockEditorRef.value?.getEditFocus?.()
+      if (!focus?.text?.trim()) return null
+      return {
+        text: focus.text,
+        blockIndex: focus.blockIndex,
+        blockIndices: focus.blockIndices,
+        blockIds: resolveBlockIds(focus.blockIndex, focus.blockIndices),
+      }
+    },
+  })
   // 启动自动保存
   autoSaveInterval = window.setInterval(() => {
     if (hasChanges.value && documentId.value) {
@@ -1042,6 +922,7 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  xiaoMo.registerDocumentBridge(null)
   if (autoSaveInterval) {
     clearInterval(autoSaveInterval)
   }
@@ -1282,7 +1163,6 @@ onUnmounted(() => {
 }
 
 .editor-content {
-  max-width: 800px;
   width: 100%;
   margin: 0 auto;
   background: var(--coffee-bg-card);
@@ -1294,6 +1174,7 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  transition: max-width 0.2s ease;
 }
 
 @media (max-width: 768px) {
