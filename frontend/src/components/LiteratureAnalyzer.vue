@@ -237,7 +237,7 @@
     <!-- 步骤四：创建成功 -->
     <div v-if="step === 'success' && createdProject" class="step-panel success">
       <div class="success-content">
-        <el-icon class="success-icon" :size="80" color="#67c23a"><CircleCheck /></el-icon>
+        <el-icon class="success-icon" :size="80" color="var(--coffee-success)"><CircleCheck /></el-icon>
         <h4>项目创建成功！</h4>
         <p class="success-desc">{{ createdProject.message }}</p>
         
@@ -640,7 +640,7 @@ function resetAndClose() {
         &.active {
           background: var(--el-color-primary-light-9);
           color: var(--el-color-primary);
-          font-weight: 500;
+          font-weight: 400;
         }
 
         &.completed {
@@ -695,7 +695,7 @@ function resetAndClose() {
       :deep(.el-collapse-item__header) {
         padding: 16px;
         font-size: 15px;
-        font-weight: 500;
+        font-weight: 400;
       }
 
       :deep(.el-collapse-item__content) {

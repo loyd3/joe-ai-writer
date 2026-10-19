@@ -1230,9 +1230,9 @@ onMounted(() => {
   }
 
   &.active {
-    background: #409eff;
+    background: var(--coffee-primary);
     color: #fff;
-    border-color: #409eff;
+    border-color: var(--coffee-primary);
   }
 }
 
@@ -1359,7 +1359,7 @@ onMounted(() => {
       .category-badge {
         display: inline-block;
         padding: 4px 12px;
-        background: #409eff;
+        background: var(--coffee-primary);
         color: #fff;
         border-radius: 4px;
         font-size: 12px;
@@ -1663,7 +1663,7 @@ onMounted(() => {
   }
 
   .section-title {
-    font-weight: 500;
+    font-weight: 400;
     margin-bottom: 12px;
     color: var(--coffee-text);
   }
@@ -1753,8 +1753,8 @@ onMounted(() => {
   font-size: 12px;
 
   &:hover {
-    border-color: #f56c6c;
-    color: #f56c6c;
+    border-color: var(--coffee-danger);
+    color: var(--coffee-danger);
   }
 }
 

@@ -706,7 +706,7 @@ onMounted(() => {
 .section-title {
   font-size: 24px;
   font-weight: 600;
-  color: #303133;
+  color: var(--coffee-text);
   margin-bottom: 8px;
   display: flex;
   align-items: center;
@@ -719,7 +719,7 @@ onMounted(() => {
 }
 
 .section-desc {
-  color: #909399;
+  color: var(--coffee-text-muted);
   font-size: 14px;
 }
 
@@ -744,7 +744,7 @@ onMounted(() => {
 
 .type-card {
   padding: 12px;
-  border: 2px solid #e4e7ed;
+  border: 2px solid var(--coffee-border);
   border-radius: 8px;
   cursor: pointer;
   text-align: center;
@@ -752,23 +752,23 @@ onMounted(() => {
 }
 
 .type-card:hover {
-  border-color: #409eff;
+  border-color: var(--coffee-primary);
 }
 
 .type-card.active {
-  border-color: #409eff;
-  background: #ecf5ff;
+  border-color: var(--coffee-primary);
+  background: var(--coffee-primary-tint);
 }
 
 .type-name {
   display: block;
-  font-weight: 500;
+  font-weight: 400;
   margin-bottom: 4px;
 }
 
 .type-range {
   font-size: 12px;
-  color: #909399;
+  color: var(--coffee-text-muted);
 }
 
 .word-count-section {
@@ -783,17 +783,17 @@ onMounted(() => {
 .count-number {
   font-size: 24px;
   font-weight: 600;
-  color: #409eff;
+  color: var(--coffee-primary);
 }
 
 .count-unit {
   margin-left: 5px;
-  color: #606266;
+  color: var(--coffee-text-secondary);
 }
 
 .chapter-estimate {
   margin-left: 20px;
-  color: #909399;
+  color: var(--coffee-text-muted);
 }
 
 .style-tags {
@@ -817,19 +817,19 @@ onMounted(() => {
   align-items: flex-start;
   margin-bottom: 25px;
   padding: 20px;
-  background: #f5f7fa;
+  background: var(--coffee-bg-warm);
   border-radius: 10px;
 }
 
 .plan-title {
   font-size: 20px;
   font-weight: 600;
-  color: #303133;
+  color: var(--coffee-text);
   margin-bottom: 8px;
 }
 
 .plan-subtitle {
-  color: #606266;
+  color: var(--coffee-text-secondary);
   margin-bottom: 12px;
 }
 
@@ -852,11 +852,11 @@ onMounted(() => {
   display: flex;
   justify-content: space-between;
   margin-bottom: 10px;
-  font-weight: 500;
+  font-weight: 400;
 }
 
 .progress-text {
-  color: #409eff;
+  color: var(--coffee-primary);
 }
 
 .chapters-section {
@@ -882,13 +882,13 @@ onMounted(() => {
 }
 
 .chapter-number {
-  font-weight: 500;
-  color: #909399;
+  font-weight: 400;
+  color: var(--coffee-text-muted);
 }
 
 .chapter-title-text {
   flex: 1;
-  font-weight: 500;
+  font-weight: 400;
 }
 
 .chapter-status {
@@ -896,7 +896,7 @@ onMounted(() => {
 }
 
 .chapter-word-count {
-  color: #909399;
+  color: var(--coffee-text-muted);
   font-size: 13px;
 }
 
@@ -909,19 +909,19 @@ onMounted(() => {
 .chapter-preview h5 {
   font-size: 14px;
   font-weight: 600;
-  color: #303133;
+  color: var(--coffee-text);
   margin-bottom: 8px;
 }
 
 .chapter-summary p {
-  color: #606266;
+  color: var(--coffee-text-secondary);
   line-height: 1.6;
 }
 
 .chapter-key-points ul {
   margin: 0;
   padding-left: 20px;
-  color: #606266;
+  color: var(--coffee-text-secondary);
 }
 
 .chapter-key-points li {
@@ -941,10 +941,10 @@ onMounted(() => {
 }
 
 .preview-text {
-  background: #f5f7fa;
+  background: var(--coffee-bg-warm);
   padding: 15px;
   border-radius: 6px;
-  color: #606266;
+  color: var(--coffee-text-secondary);
   font-size: 14px;
   line-height: 1.6;
   max-height: 150px;
@@ -1013,9 +1013,9 @@ onMounted(() => {
 
 .content-text {
   line-height: 1.8;
-  color: #303133;
+  color: var(--coffee-text);
   padding: 20px;
-  background: #f5f7fa;
+  background: var(--coffee-bg-warm);
   border-radius: 8px;
 }
 
@@ -1025,7 +1025,7 @@ onMounted(() => {
 
 .generating-chapter {
   font-size: 16px;
-  font-weight: 500;
+  font-weight: 400;
   margin-bottom: 15px;
 }
 
@@ -1033,7 +1033,7 @@ onMounted(() => {
   margin-top: 20px;
   max-height: 200px;
   overflow-y: auto;
-  background: #f5f7fa;
+  background: var(--coffee-bg-warm);
   padding: 15px;
   border-radius: 6px;
 }
@@ -1044,15 +1044,15 @@ onMounted(() => {
 }
 
 .generation-log .info {
-  color: #409eff;
+  color: var(--coffee-primary);
 }
 
 .generation-log .success {
-  color: #67c23a;
+  color: var(--coffee-success);
 }
 
 .generation-log .error {
-  color: #f56c6c;
+  color: var(--coffee-danger);
 }
 
 @media (max-width: 768px) {

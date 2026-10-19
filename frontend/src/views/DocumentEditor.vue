@@ -1037,7 +1037,7 @@ onUnmounted(() => {
   }
   
   &.saved {
-    color: #67c23a;
+    color: var(--coffee-success);
   }
 }
 

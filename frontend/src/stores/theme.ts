@@ -22,12 +22,13 @@ export interface ThemePreset {
 }
 
 export const THEME_PRESETS: ThemePreset[] = [
-  { id: 'ink', name: '墨蓝', primary: '#3E4BC4', primaryLight: '#5C68D4', primaryDark: '#323D8F' },
-  { id: 'coffee', name: '咖啡棕', primary: '#8F4E22', primaryLight: '#A65E2E', primaryDark: '#633510' },
-  { id: 'rose', name: '樱花粉', primary: '#B04F6A', primaryLight: '#C46B83', primaryDark: '#8A3A52' },
-  { id: 'mint', name: '薄荷绿', primary: '#3F9575', primaryLight: '#5AAF8F', primaryDark: '#2D7560' },
-  { id: 'lavender', name: '香芋紫', primary: '#6B5899', primaryLight: '#8574B2', primaryDark: '#524275' },
-  { id: 'sky', name: '天空蓝', primary: '#457FA0', primaryLight: '#5E9AB8', primaryDark: '#336682' },
+  // 墨蓝：暖灰底 + 带蓝倾向的主色，避免纯冷灰
+  { id: 'ink', name: '墨蓝', primary: '#4A5BB8', primaryLight: '#6B78C9', primaryDark: '#3A4894' },
+  { id: 'coffee', name: '咖啡棕', primary: '#9A5C32', primaryLight: '#B07348', primaryDark: '#734422' },
+  { id: 'rose', name: '樱花粉', primary: '#B86178', primaryLight: '#C97F93', primaryDark: '#944A5E' },
+  { id: 'mint', name: '薄荷绿', primary: '#4A9A7C', primaryLight: '#66B396', primaryDark: '#387A61' },
+  { id: 'lavender', name: '香芋紫', primary: '#7463A3', primaryLight: '#8F80B8', primaryDark: '#5A4C82' },
+  { id: 'sky', name: '天空蓝', primary: '#5089A8', primaryLight: '#6BA0BC', primaryDark: '#3D6D88' },
 ]
 
 function hexToRgb(hex: string): [number, number, number] {
@@ -101,21 +102,22 @@ function deriveDarkPalette(hex: string) {
 }
 
 function getPresetPalette(preset: ThemePreset): Record<string, string> {
+  // 各预设文字灰阶统一降对比，避免「主色柔和、正文过黑」
   if (preset.id === 'ink') {
     return {
       primary: preset.primary,
       primaryLight: preset.primaryLight,
       primaryDark: preset.primaryDark,
-      bg: '#f5f5f7',
-      bgWarm: '#ececf1',
+      bg: '#f4f5f8',
+      bgWarm: '#eceef4',
       bgCard: '#ffffff',
-      text: '#15181d',
-      textSecondary: '#3a3e45',
-      textMuted: '#6b7078',
-      textLight: '#8e939a',
-      border: '#d5d6dc',
-      borderLight: '#e3e4e8',
-      divider: '#ececef',
+      text: '#3a3f4a',
+      textSecondary: '#5c6370',
+      textMuted: '#848b98',
+      textLight: '#a4abb6',
+      border: '#d8dae2',
+      borderLight: '#e6e7ed',
+      divider: '#eef0f4',
     }
   }
   if (preset.id === 'coffee') {
@@ -124,15 +126,15 @@ function getPresetPalette(preset: ThemePreset): Record<string, string> {
       primaryLight: preset.primaryLight,
       primaryDark: preset.primaryDark,
       bg: '#faf7f3',
-      bgWarm: '#f2ebe2',
+      bgWarm: '#f3ece4',
       bgCard: '#ffffff',
-      text: '#2a1c12',
-      textSecondary: '#4a3828',
-      textMuted: '#7d664d',
-      textLight: '#a58c6e',
-      border: '#d9cbb8',
-      borderLight: '#e8ddd0',
-      divider: '#f0e8dd',
+      text: '#4a3c30',
+      textSecondary: '#6b5a4a',
+      textMuted: '#948270',
+      textLight: '#b5a490',
+      border: '#ddd0c0',
+      borderLight: '#ebe1d4',
+      divider: '#f3ebe2',
     }
   }
   if (preset.id === 'rose') {
@@ -140,16 +142,16 @@ function getPresetPalette(preset: ThemePreset): Record<string, string> {
       primary: preset.primary,
       primaryLight: preset.primaryLight,
       primaryDark: preset.primaryDark,
-      bg: '#faf4f5',
-      bgWarm: '#f2e4e8',
+      bg: '#faf5f6',
+      bgWarm: '#f3e8eb',
       bgCard: '#ffffff',
-      text: '#2a141c',
-      textSecondary: '#4a2c37',
-      textMuted: '#7a5764',
-      textLight: '#9a7d87',
-      border: '#d9c4cb',
-      borderLight: '#e8d6dc',
-      divider: '#f0e6e9',
+      text: '#4a3840',
+      textSecondary: '#6d5560',
+      textMuted: '#947a85',
+      textLight: '#b59da6',
+      border: '#ddcdd3',
+      borderLight: '#ebe0e4',
+      divider: '#f3eaed',
     }
   }
   if (preset.id === 'mint') {
@@ -157,16 +159,16 @@ function getPresetPalette(preset: ThemePreset): Record<string, string> {
       primary: preset.primary,
       primaryLight: preset.primaryLight,
       primaryDark: preset.primaryDark,
-      bg: '#f3f7f5',
-      bgWarm: '#e4efe9',
+      bg: '#f4f8f6',
+      bgWarm: '#e8f1ec',
       bgCard: '#ffffff',
-      text: '#14261e',
-      textSecondary: '#2a4436',
-      textMuted: '#5a7a6a',
-      textLight: '#84a394',
-      border: '#bdd4c8',
-      borderLight: '#d2e2da',
-      divider: '#e4efe9',
+      text: '#354840',
+      textSecondary: '#547064',
+      textMuted: '#7e978a',
+      textLight: '#a3b8ac',
+      border: '#c5d8ce',
+      borderLight: '#d8e6de',
+      divider: '#e8f1ec',
     }
   }
   if (preset.id === 'lavender') {
@@ -174,16 +176,16 @@ function getPresetPalette(preset: ThemePreset): Record<string, string> {
       primary: preset.primary,
       primaryLight: preset.primaryLight,
       primaryDark: preset.primaryDark,
-      bg: '#f5f4f8',
-      bgWarm: '#eae6f1',
+      bg: '#f6f5f9',
+      bgWarm: '#ece9f3',
       bgCard: '#ffffff',
-      text: '#1c1728',
-      textSecondary: '#3a334d',
-      textMuted: '#6f6688',
-      textLight: '#948cac',
-      border: '#cdc5d9',
-      borderLight: '#ddd7e5',
-      divider: '#eae6f1',
+      text: '#3f3a4c',
+      textSecondary: '#5f5870',
+      textMuted: '#8a839a',
+      textLight: '#aaa4b8',
+      border: '#d2cbdc',
+      borderLight: '#e2dce8',
+      divider: '#ece9f3',
     }
   }
   if (preset.id === 'sky') {
@@ -191,16 +193,16 @@ function getPresetPalette(preset: ThemePreset): Record<string, string> {
       primary: preset.primary,
       primaryLight: preset.primaryLight,
       primaryDark: preset.primaryDark,
-      bg: '#f2f6f9',
-      bgWarm: '#e3ecf2',
+      bg: '#f3f7fa',
+      bgWarm: '#e6eef4',
       bgCard: '#ffffff',
-      text: '#142430',
-      textSecondary: '#2e4452',
-      textMuted: '#5c7a8c',
-      textLight: '#849eb0',
-      border: '#bcd0db',
-      borderLight: '#d0dde4',
-      divider: '#e3ecf2',
+      text: '#364854',
+      textSecondary: '#556e7c',
+      textMuted: '#7f96a4',
+      textLight: '#a3b5c1',
+      border: '#c4d4de',
+      borderLight: '#d6e2e9',
+      divider: '#e6eef4',
     }
   }
   return deriveFullPalette(preset.primary) as unknown as Record<string, string>
@@ -208,7 +210,7 @@ function getPresetPalette(preset: ThemePreset): Record<string, string> {
 
 function getPrimaryOfCurrent(presetId: ThemePresetId, customColor: string): string {
   if (presetId === 'custom') return customColor
-  return THEME_PRESETS.find((p) => p.id === presetId)?.primary ?? '#3E4BC4'
+  return THEME_PRESETS.find((p) => p.id === presetId)?.primary ?? '#4A5BB8'
 }
 
 function setCssVars(palette: Record<string, string>, mode: 'light' | 'dark') {
@@ -267,13 +269,36 @@ function setCssVars(palette: Record<string, string>, mode: 'light' | 'dark') {
   root.style.setProperty('--el-color-primary-light-8', light(8))
   root.style.setProperty('--el-color-primary-light-9', light(9))
   root.style.setProperty('--el-color-primary-dark-2', mixHex(p, BLACK, 0.2))
+
+  // 主色 tint 层次：浅色为主色+白，深色为主色+黑，用于选中行/标签底/统计卡底色
+  const tintTarget = dark ? BLACK : WHITE
+  root.style.setProperty('--coffee-primary-tint', mixHex(p, tintTarget, dark ? 0.8 : 0.93))
+  root.style.setProperty('--coffee-primary-tint-strong', mixHex(p, tintTarget, dark ? 0.6 : 0.8))
+
+  // 低饱和语义色（按模式改写）+ 同步到 Element Plus，消灭默认绿/橙/红/灰
+  const semantic = dark
+    ? { success: '#5cbf9a', warning: '#e0b35c', danger: '#e08585', info: '#7ba3c4' }
+    : { success: '#4a9e7f', warning: '#d9a03f', danger: '#d96a6a', info: '#6b8cae' }
+  for (const [name, hex] of Object.entries(semantic)) {
+    const [sr, sg, sb] = hexToRgb(hex)
+    const srgb = hexToRgb(hex)
+    root.style.setProperty(`--coffee-${name}`, hex)
+    root.style.setProperty(`--coffee-${name}-rgb`, `${sr}, ${sg}, ${sb}`)
+    root.style.setProperty(`--el-color-${name}`, hex)
+    root.style.setProperty(`--el-color-${name}-light-3`, mixHex(srgb, mixTarget, 0.3))
+    root.style.setProperty(`--el-color-${name}-light-5`, mixHex(srgb, mixTarget, 0.5))
+    root.style.setProperty(`--el-color-${name}-light-7`, mixHex(srgb, mixTarget, 0.7))
+    root.style.setProperty(`--el-color-${name}-light-8`, mixHex(srgb, mixTarget, 0.8))
+    root.style.setProperty(`--el-color-${name}-light-9`, mixHex(srgb, mixTarget, 0.9))
+    root.style.setProperty(`--el-color-${name}-dark-2`, mixHex(srgb, BLACK, 0.2))
+  }
 }
 
 const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)')
 
 export const useThemeStore = defineStore('theme', () => {
   const presetId = ref<ThemePresetId>('ink')
-  const customColor = ref('#3E4BC4')
+  const customColor = ref('#4A5BB8')
   const mode = ref<ThemeMode>('system')
   /** 系统当前是否为暗色（mode 为 system 时生效） */
   const systemDark = ref(mediaQuery.matches)

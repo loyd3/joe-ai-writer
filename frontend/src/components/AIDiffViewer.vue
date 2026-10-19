@@ -356,11 +356,11 @@ watch(() => props.visible, (visible) => {
   }
 
   &.removed {
-    background: color-mix(in srgb, #ef4444 16%, var(--coffee-bg-card));
+    background: color-mix(in srgb, var(--coffee-danger) 16%, var(--coffee-bg-card));
     color: var(--coffee-text);
 
     .mark {
-      color: #f87171;
+      color: var(--coffee-danger);
       font-weight: bold;
       margin-right: 8px;
     }

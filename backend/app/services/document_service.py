@@ -89,3 +89,18 @@ class DocumentService:
             raise ValueError(f"文档不存在: {document_id}")
         doc.content = _markdown_to_blocks(content)
         self.db.commit()
+
+
+def delete_document_with_dependents(db: Session, document: Document) -> int:
+    """先删版本和 AI 流水，再删文档。否则 MySQL 外键会拒绝删除。"""
+    from app.models.models import AIInteraction, DocumentVersion
+
+    doc_id = document.id
+    db.query(DocumentVersion).filter(DocumentVersion.document_id == doc_id).delete(
+        synchronize_session=False
+    )
+    db.query(AIInteraction).filter(AIInteraction.document_id == doc_id).delete(
+        synchronize_session=False
+    )
+    db.delete(document)
+    return doc_id

@@ -266,11 +266,17 @@ const agentProjectId = computed(() => {
   if (route.name === 'project' || route.name === 'project-settings') {
     const id = Number(route.params.id)
     if (!Number.isInteger(id) || id <= 0) return null
-    return projectStore.currentProject?.id === id ? id : null
+    // 用路由上的项目编号，避免新项目尚未写入 store 时闪成无项目会话并带上旧 conversation
+    return id
   }
   if (route.name === 'document') {
+    const routeDocId = Number(route.params.id)
     const doc = projectStore.currentDocument
-    return doc?.id === Number(route.params.id) ? doc.project_id : null
+    if (doc?.id === routeDocId && doc.project_id) return doc.project_id
+    // 新文档尚未载入时沿用当前项目，避免智能体闪成无项目会话并取消请求
+    const projectId = projectStore.currentProject?.id
+    if (projectId && projectId > 0) return projectId
+    return null
   }
   return null
 })
@@ -534,7 +540,7 @@ async function handleUserCommand(command: string) {
   &.active {
     background: var(--coffee-selection);
     color: var(--coffee-primary);
-    font-weight: 500;
+    font-weight: 400;
   }
 }
 
@@ -606,7 +612,7 @@ async function handleUserCommand(command: string) {
   background: transparent;
   color: var(--coffee-text-secondary);
   font-size: 13px;
-  font-weight: 500;
+  font-weight: 400;
   cursor: pointer;
   transition: background 0.15s, color 0.15s;
 

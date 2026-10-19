@@ -87,7 +87,7 @@
 .coffee-dropdown-menu .el-dropdown-menu__item.is-danger {
   .dd-icon {
     color: var(--el-color-danger);
-    background: rgba(245, 108, 108, 0.1);
+    background: rgba(var(--coffee-danger-rgb), 0.1);
   }
 
   .dd-title {
@@ -96,7 +96,7 @@
 
   &:not(.is-disabled):hover,
   &:not(.is-disabled):focus {
-    background: rgba(245, 108, 108, 0.08) !important;
+    background: rgba(var(--coffee-danger-rgb), 0.08) !important;
     color: var(--el-color-danger);
 
     .dd-icon {

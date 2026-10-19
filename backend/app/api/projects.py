@@ -3,7 +3,11 @@ from sqlalchemy.orm import Session, joinedload
 from typing import List
 from datetime import datetime, timedelta, timezone
 from app.database import get_db
-from app.models.models import Project, Document, AIMemory, AIInteraction
+from app.models.models import (
+    Project, Document, AIMemory, AIInteraction, DocumentVersion,
+    Article, ArticleChapter, ArticleOutline,
+)
+from app.models.project_agent import AgentRun
 from app.schemas.schemas import (
     ProjectCreate, ProjectUpdate, ProjectResponse,
     DocumentCreate, DocumentUpdate, DocumentResponse,
@@ -104,7 +108,7 @@ def delete_project(
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
 ):
-    """删除项目（检查所有权）- 先删除关联数据再删除项目"""
+    """删除项目（检查所有权）- 先按外键顺序清掉关联，再删项目。"""
     project = db.query(Project).filter(
         Project.id == project_id,
         Project.owner_id == current_user["id"]
@@ -112,14 +116,48 @@ def delete_project(
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
 
-    document_ids = [doc.id for doc in project.documents]
+    document_ids = [
+        row[0] for row in db.query(Document.id).filter(Document.project_id == project_id).all()
+    ]
+    article_ids = [
+        row[0] for row in db.query(Article.id).filter(Article.project_id == project_id).all()
+    ]
+    # 已加载的项目/文档不要再参与级联删除，否则会跳过下面的清理顺序
+    db.expunge_all()
 
     if document_ids:
+        db.query(DocumentVersion).filter(
+            DocumentVersion.document_id.in_(document_ids)
+        ).delete(synchronize_session=False)
         db.query(AIInteraction).filter(
             AIInteraction.document_id.in_(document_ids)
         ).delete(synchronize_session=False)
+        db.query(Document).filter(Document.id.in_(document_ids)).update(
+            {Document.parent_id: None},
+            synchronize_session=False,
+        )
+        db.query(Document).filter(Document.id.in_(document_ids)).delete(
+            synchronize_session=False
+        )
 
-    db.delete(project)
+    if article_ids:
+        db.query(ArticleChapter).filter(
+            ArticleChapter.article_id.in_(article_ids)
+        ).delete(synchronize_session=False)
+        db.query(ArticleOutline).filter(
+            ArticleOutline.article_id.in_(article_ids)
+        ).delete(synchronize_session=False)
+        db.query(Article).filter(Article.id.in_(article_ids)).delete(
+            synchronize_session=False
+        )
+
+    db.query(AIMemory).filter(AIMemory.project_id == project_id).delete(
+        synchronize_session=False
+    )
+    db.query(AgentRun).filter(AgentRun.project_id == project_id).delete(
+        synchronize_session=False
+    )
+    db.query(Project).filter(Project.id == project_id).delete(synchronize_session=False)
     db.commit()
     
     background_tasks.add_task(
@@ -294,7 +332,8 @@ def delete_document(
     
     doc_id = document.id
     
-    db.delete(document)
+    from app.services.document_service import delete_document_with_dependents
+    delete_document_with_dependents(db, document)
     db.commit()
     
     background_tasks.add_task(

@@ -79,6 +79,24 @@ def test_merge_memory_field_upserts_characters_and_key_points():
     assert points[1]["title"] == "告白"
 
 
+def test_merge_drops_blank_key_points_and_outline_placeholders():
+    blanks = [{"title": "", "summary": ""} for _ in range(10)]
+    merged = merge_memory_field(
+        "key_points",
+        blanks,
+        [{"title": "雨天相遇", "summary": "借伞"}, {"title": "告白", "summary": "文化祭"}],
+    )
+    assert [p["title"] for p in merged] == ["雨天相遇", "告白"]
+
+    outline = merge_memory_field(
+        "outline",
+        [{"title": "", "description": ""}],
+        [{"title": "第一章", "description": "相遇"}, {"title": "第一章", "description": "雨天相遇"}],
+    )
+    assert len(outline) == 1
+    assert outline[0]["description"] == "雨天相遇"
+
+
 def test_merge_memory_field_storyline_stages():
     current = {"summary": "校园恋", "stages": [{"title": "初遇", "summary": "雨"}]}
     patch = {"stages": [{"title": "初遇", "summary": "雨天伞下"}, {"title": "告白", "summary": "祭典"}]}

@@ -194,9 +194,9 @@
             }"
           >
             <div class="chapter-status-icon">
-              <el-icon v-if="idx < completedChapters" color="#67c23a"><CircleCheck /></el-icon>
-              <el-icon v-else-if="idx === currentChapterIndex" class="spinning" color="#409eff"><Loading /></el-icon>
-              <el-icon v-else color="#c0c4cc"><Clock /></el-icon>
+              <el-icon v-if="idx < completedChapters" color="var(--coffee-success)"><CircleCheck /></el-icon>
+              <el-icon v-else-if="idx === currentChapterIndex" class="spinning" color="var(--coffee-primary)"><Loading /></el-icon>
+              <el-icon v-else color="var(--coffee-text-light)"><Clock /></el-icon>
             </div>
             <div class="chapter-info">
               <span class="chapter-title">第 {{ idx + 1 }} 章：{{ chapter.title }}</span>
@@ -224,7 +224,7 @@
     <div v-if="step === 'completed'">
       <el-card class="step-card complete-card">
         <div class="complete-content">
-          <el-icon class="complete-icon" color="#67c23a"><CircleCheck /></el-icon>
+          <el-icon class="complete-icon" color="var(--coffee-success)"><CircleCheck /></el-icon>
           <h2>文章生成完成！</h2>
           <div class="complete-stats">
             <el-statistic title="总章节数" :value="completedChapters" />
@@ -549,7 +549,7 @@ onUnmounted(() => {
 }
 
 .subtitle {
-  color: #666;
+  color: var(--coffee-text-secondary);
   margin: 0;
 }
 
@@ -576,7 +576,7 @@ onUnmounted(() => {
   gap: 12px;
   padding: 40px;
   justify-content: center;
-  color: #666;
+  color: var(--coffee-text-secondary);
   font-size: 16px;
 }
 
@@ -589,7 +589,7 @@ onUnmounted(() => {
 }
 
 .outline-intro {
-  color: #666;
+  color: var(--coffee-text-secondary);
   margin-bottom: 12px;
 }
 
@@ -598,7 +598,7 @@ onUnmounted(() => {
 }
 
 .chapter-words {
-  color: #409eff;
+  color: var(--coffee-primary);
   font-size: 13px;
   margin-bottom: 8px;
 }
@@ -606,7 +606,7 @@ onUnmounted(() => {
 .chapter-detail ul {
   margin: 0;
   padding-left: 20px;
-  color: #555;
+  color: var(--coffee-text-secondary);
 }
 
 .chapter-detail li {
@@ -633,7 +633,7 @@ onUnmounted(() => {
 .stat-value {
   font-size: 28px;
   font-weight: bold;
-  color: #409eff;
+  color: var(--coffee-primary);
 }
 
 .stat-label {
@@ -663,7 +663,7 @@ onUnmounted(() => {
   gap: 12px;
   padding: 10px 12px;
   border-radius: 6px;
-  background: #f5f7fa;
+  background: var(--coffee-bg-warm);
   transition: all 0.3s;
 }
 
@@ -672,7 +672,7 @@ onUnmounted(() => {
 }
 
 .chapter-progress-item.active {
-  background: #ecf5ff;
+  background: var(--coffee-primary-tint);
   border: 1px solid #b3d8ff;
 }
 
@@ -698,11 +698,11 @@ onUnmounted(() => {
 
 .chapter-words {
   font-size: 13px;
-  color: #67c23a;
+  color: var(--coffee-success);
 }
 
 .chapter-words.generating {
-  color: #409eff;
+  color: var(--coffee-primary);
 }
 
 /* 内容预览 */

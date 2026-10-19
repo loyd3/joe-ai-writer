@@ -72,17 +72,21 @@
               v-for="change in run.changes"
               :key="change.id"
               class="change"
-              :open="run.status === 'applied' || run.status === 'proposed'"
+              :open="run.status === 'proposed'"
             >
               <summary>{{ change.title }}</summary>
               <p v-if="change.reason" class="plain-text muted">{{ change.reason }}</p>
               <div class="previews">
-                <div class="after-block">
+                <div v-if="change.kind === 'delete_document'" class="after-block delete-block">
+                  <h4>{{ deleteAfterLabel(run.status) }}</h4>
+                  <pre>将从项目中移除该文档（确认前不会执行）</pre>
+                </div>
+                <div v-else class="after-block">
                   <h4>{{ afterLabel(run.status) }}</h4>
                   <pre>{{ preview(change.after) }}</pre>
                 </div>
                 <div class="before-block">
-                  <h4>{{ run.status === 'reverted' ? '已恢复原文' : '原文' }}</h4>
+                  <h4>{{ beforeLabel(run, change) }}</h4>
                   <pre>{{ preview(change.before) }}</pre>
                 </div>
               </div>
@@ -91,8 +95,8 @@
           <div class="toolbar response-actions">
             <el-button v-if="isActive(run)" size="small" :disabled="busy" @click="performAction('cancel', run)">停止</el-button>
             <el-button v-if="['failed', 'cancelled'].includes(run.status)" size="small" :disabled="busy" @click="performAction('resume', run)">重新尝试</el-button>
-            <el-button v-if="run.status === 'proposed' && run.changes.length" size="small" type="primary" :disabled="busy || conversationActive" @click="performAction('apply', run)">确认写入</el-button>
-            <el-button v-if="run.status === 'applied'" size="small" type="warning" plain :disabled="busy || conversationActive" @click="performAction('revert', run)">撤销替换</el-button>
+            <el-button v-if="run.status === 'proposed' && run.changes.length" size="small" :type="hasDeleteChange(run) ? 'danger' : 'primary'" :disabled="busy || conversationActive" @click="performAction('apply', run)">{{ hasDeleteChange(run) ? '确认删除' : '确认写入' }}</el-button>
+            <el-button v-if="run.status === 'applied'" size="small" type="warning" plain :disabled="busy || conversationActive" @click="performAction('revert', run)">{{ hasDeleteChange(run) ? '撤销删除' : '撤销替换' }}</el-button>
           </div>
         </div>
       </article>
@@ -161,7 +165,7 @@ import {
   PROJECT_WRITING_SHORTCUTS,
   writingToolInstruction,
 } from '@/utils/xiaoMoIntent'
-import { projectAgentApi, type ProjectAgentFocus, type ProjectAgentRun, type ProjectAgentStatus, type ProjectAgentAction } from '@/api/project-agent'
+import { projectAgentApi, type ProjectAgentChange, type ProjectAgentFocus, type ProjectAgentRun, type ProjectAgentStatus, type ProjectAgentAction } from '@/api/project-agent'
 
 marked.setOptions({ gfm: true, breaks: true })
 
@@ -300,6 +304,25 @@ const composerShortcuts = computed(() => {
   }
   return writing
 })
+const settingsEditShortcuts = [
+  {
+    label: '修改文章大纲',
+    description: '增改章节标题与简述',
+    instruction:
+      '请修改文章大纲 outline。每章用 {title, description}。'
+      + '调用 propose_memory_patch(field="outline", mode="merge", after=[{title, description}])，'
+      + '只传新增或改动的章节；空占位不用保留。改完 finish。',
+  },
+  {
+    label: '补全关键情节点',
+    description: '按故事线提炼 key_points',
+    instruction:
+      '请对照 storyline 补全 key_points，每条 {title, summary}。'
+      + '调用 propose_memory_patch(field="key_points", mode="merge", after=[{title, summary}])；'
+      + '空占位请填实或替换，不要另起一堆空白项。改完 finish。',
+  },
+]
+
 const shortcuts = computed(() => {
   const id = props.documentId
   const writing = writingShortcuts.value
@@ -323,6 +346,7 @@ const shortcuts = computed(() => {
         description: item.description,
         instruction: documentToolInstruction(item.tool, id),
       })),
+      ...settingsEditShortcuts,
       ...writing,
     ]
   }
@@ -345,13 +369,7 @@ const shortcuts = computed(() => {
         '请丰富 characters：深化主角内心与成长弧，必要时新增配角/关系。'
         + '用 propose_memory_patch(field="characters", mode="merge", after=[...]) 只传新增或改动角色。改完 finish。',
     },
-    {
-      label: '补全关键情节点',
-      description: '按故事线提炼 key_points',
-      instruction:
-        '请对照 storyline 补全 key_points（title+summary）。'
-        + '用 propose_memory_patch(field="key_points", mode="merge", after=[...])；空占位请填实。改完 finish。',
-    },
+    ...settingsEditShortcuts,
     {
       label: '丰富故事线',
       description: '加入冲突、感情转折与高潮',
@@ -412,17 +430,42 @@ const labels: Record<ProjectAgentStatus, string> = {
 }
 const statusLabel = (status: ProjectAgentStatus) => labels[status] || status
 const isActive = (run: ProjectAgentRun) => run.status === 'queued' || run.status === 'running'
+function hasDeleteChange(run: ProjectAgentRun) {
+  return run.changes.some(c => c.kind === 'delete_document')
+}
 function changesHeadline(run: ProjectAgentRun) {
   const n = run.changes.length
-  if (run.status === 'applied') return `已自动替换 · ${n} 项（可撤销）`
-  if (run.status === 'reverted') return `本次修改已撤销 · ${n} 项`
-  if (run.status === 'proposed') return `替换未完成 · ${n} 项（可点确认写入）`
+  const deleting = hasDeleteChange(run)
+  if (run.status === 'applied') {
+    return deleting ? `已删除 · ${n} 项（可撤销）` : `已自动替换 · ${n} 项（可撤销）`
+  }
+  if (run.status === 'reverted') {
+    return deleting ? `删除已撤销 · ${n} 项` : `本次修改已撤销 · ${n} 项`
+  }
+  if (run.status === 'proposed') {
+    return deleting
+      ? `待确认删除 · ${n} 项（须手动确认，不会自动执行）`
+      : `替换未完成 · ${n} 项（可点确认写入）`
+  }
   return `修改 · ${n} 项`
 }
 function afterLabel(status: ProjectAgentStatus) {
   if (status === 'reverted') return '曾替换为'
   if (status === 'proposed') return '将替换为'
   return '已替换为'
+}
+function deleteAfterLabel(status: ProjectAgentStatus) {
+  if (status === 'reverted') return '曾计划删除'
+  if (status === 'proposed') return '将删除'
+  return '已删除'
+}
+function beforeLabel(run: ProjectAgentRun, change: ProjectAgentChange) {
+  if (change.kind === 'delete_document') {
+    if (run.status === 'reverted') return '已恢复的文档内容'
+    if (run.status === 'applied') return '已删除的原文'
+    return '待删除原文'
+  }
+  return run.status === 'reverted' ? '已恢复原文' : '原文'
 }
 watch(
   () => runs.value.some(isActive),
@@ -732,6 +775,11 @@ async function refreshHistory() {
     const history = await projectAgentApi.list(props.projectId, controller.signal)
     if (context !== generation || disposed) return
     reconcileHistory(history)
+    const known = new Set(history.map(run => run.conversation_id))
+    if (conversationId.value && !known.has(conversationId.value)) {
+      conversationId.value = ''
+      selectedId.value = ''
+    }
     if (!historyLoaded && !selectedId.value && !conversationId.value && history.length) {
       const latest = [...history].sort((a, b) => b.created_at.localeCompare(a.created_at))[0]
       selectedId.value = latest.id
@@ -776,7 +824,9 @@ async function submit() {
   const context = generation
   const draft = instruction.value
   const stashedSystem = hiddenSystemNotes.value
-  const conversation = conversationId.value || undefined
+  const knownConversation = conversations.value.some(item => item.id === conversationId.value)
+  const conversation = knownConversation ? conversationId.value : undefined
+  if (!knownConversation) conversationId.value = ''
   const focus = buildFocus()
   // 输入框只有用户可见短句；把快捷功能藏起的（系统：…）拼回再发给后端
   const text = bindCurrentArticle(
@@ -820,10 +870,12 @@ async function submit() {
 }
 const autoApplying = new Set<string>()
 
-/** 兜底：后端自动写入失败时仍为 proposed，前端静默再试一次 */
+/** 兜底：后端自动写入失败时仍为 proposed，前端静默再试一次；删除提案永不自动 apply */
 async function autoApplyPending(history: ProjectAgentRun[]) {
   if (!ready.value || busy.value || preparing.value || disposed) return
-  const pending = history.find(run => run.status === 'proposed' && run.changes.length > 0)
+  const pending = history.find(
+    run => run.status === 'proposed' && run.changes.length > 0 && !hasDeleteChange(run),
+  )
   if (!pending || autoApplying.has(pending.id)) return
   autoApplying.add(pending.id)
   const context = generation
@@ -871,12 +923,38 @@ async function performAction(action: ProjectAgentAction, target?: ProjectAgentRu
     }
   }
   await mutate(async (project, signal) => {
-    if (action === 'revert') {
+    if (action === 'apply' && hasDeleteChange(run)) {
+      const titles = run.changes
+        .filter(c => c.kind === 'delete_document')
+        .map(c => c.title || '文档')
+        .join('、')
       try {
         await ElMessageBox.confirm(
-          `撤销本次已写入的 ${run.changes.length} 项替换，恢复原文？`,
-          '撤销替换',
-          { type: 'warning', confirmButtonText: '撤销替换', cancelButtonText: '保留', closeOnClickModal: false },
+          `确认删除以下文档？此操作可在对话中撤销恢复。\n${titles}`,
+          '确认删除',
+          {
+            type: 'warning',
+            confirmButtonText: '确认删除',
+            cancelButtonText: '取消',
+            closeOnClickModal: false,
+          },
+        )
+      } catch { return undefined }
+    }
+    if (action === 'revert') {
+      const deleting = hasDeleteChange(run)
+      try {
+        await ElMessageBox.confirm(
+          deleting
+            ? `撤销本次删除，恢复 ${run.changes.filter(c => c.kind === 'delete_document').length} 篇文档？`
+            : `撤销本次已写入的 ${run.changes.length} 项替换，恢复原文？`,
+          deleting ? '撤销删除' : '撤销替换',
+          {
+            type: 'warning',
+            confirmButtonText: deleting ? '撤销删除' : '撤销替换',
+            cancelButtonText: '保留',
+            closeOnClickModal: false,
+          },
         )
       } catch { return undefined }
     }
@@ -910,10 +988,10 @@ async function mutate(
     notifyProjectCreated(run)
     if (action === 'apply' && run.status === 'applied') {
       emit('changed', run.project_id ?? props.projectId)
-      ElMessage.success('已写入正文')
+      ElMessage.success(hasDeleteChange(run) ? '已删除文档' : '已写入正文')
     } else if (action === 'revert' && run.status === 'reverted') {
       emit('changed', run.project_id ?? props.projectId)
-      ElMessage.success('已撤销替换，原文已恢复')
+      ElMessage.success(hasDeleteChange(run) ? '已撤销删除，文档已恢复' : '已撤销替换，原文已恢复')
     }
     succeeded = true
   } catch (cause) {
@@ -1129,7 +1207,7 @@ onBeforeUnmount(() => {
 }
 .thinking > summary {
   cursor: pointer;
-  font-weight: 500;
+  font-weight: 400;
   line-height: 1.6;
   list-style: none;
   display: flex;
@@ -1235,7 +1313,7 @@ h4 { font-size: 12px; margin: 8px 0; color: var(--coffee-text-muted); }
 .muted, small { color: var(--coffee-text-muted); font-size: 13px; }
 .plain-text { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.8; }
 .change { padding-top: 12px; margin-top: 12px; border-top: 1px solid var(--coffee-border); font-size: 13px; }
-summary { cursor: pointer; font-weight: 500; overflow-wrap: anywhere; line-height: 1.7; }
+summary { cursor: pointer; font-weight: 400; overflow-wrap: anywhere; line-height: 1.7; }
 .previews { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; }
 .previews > div { min-width: 0; }
 .after-block h4 { color: var(--coffee-primary); }

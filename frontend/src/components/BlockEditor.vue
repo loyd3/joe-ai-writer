@@ -3418,11 +3418,11 @@ defineExpose({ flushPendingSync, focusBlock, getInsertAfterIndex, getEditFocus }
   &[data-type="code"] {
     font-family: 'Fira Code', 'Monaco', 'Consolas', monospace;
     font-size: 14px;
-    background: #f5f5f5;
+    background: var(--coffee-bg-warm);
     padding: 16px;
     border-radius: 8px;
     white-space: pre-wrap;
-    color: #333;
+    color: var(--coffee-text);
     
     &:empty::before {
       content: '// 代码块';
@@ -3498,11 +3498,11 @@ defineExpose({ flushPendingSync, focusBlock, getInsertAfterIndex, getEditFocus }
   &.active {
     background: var(--coffee-shadow-hover);
     color: var(--coffee-primary);
-    font-weight: 500;
+    font-weight: 400;
   }
   &.delete:hover:not(:disabled) {
-    background: rgba(245, 108, 108, 0.12);
-    color: #f56c6c;
+    background: rgba(var(--coffee-danger-rgb), 0.12);
+    color: var(--coffee-danger);
   }
   &:disabled {
     opacity: 0.4;
@@ -3619,7 +3619,7 @@ defineExpose({ flushPendingSync, focusBlock, getInsertAfterIndex, getEditFocus }
 
 .slash-label {
   font-size: 14px;
-  font-weight: 500;
+  font-weight: 400;
   color: var(--coffee-text);
 }
 
@@ -3708,7 +3708,7 @@ defineExpose({ flushPendingSync, focusBlock, getInsertAfterIndex, getEditFocus }
 }
 
 :deep(.delete-item) {
-  color: #f56c6c;
+  color: var(--coffee-danger);
 }
 
 :deep(.el-dropdown-menu__item) {
@@ -3843,7 +3843,7 @@ defineExpose({ flushPendingSync, focusBlock, getInsertAfterIndex, getEditFocus }
 .context-item.active {
   background: rgba(var(--coffee-primary-rgb), 0.12);
   color: var(--coffee-primary);
-  font-weight: 500;
+  font-weight: 400;
 }
 .context-item.ai-item {
   color: var(--coffee-primary);
@@ -3853,7 +3853,7 @@ defineExpose({ flushPendingSync, focusBlock, getInsertAfterIndex, getEditFocus }
 }
 .context-item.danger:hover:not(:disabled) {
   background: rgba(245, 108, 108, 0.12);
-  color: #f56c6c;
+  color: var(--coffee-danger);
 }
 .context-item:disabled {
   opacity: 0.45;
@@ -3958,7 +3958,7 @@ defineExpose({ flushPendingSync, focusBlock, getInsertAfterIndex, getEditFocus }
 
 .slash-label {
   font-size: 14px;
-  font-weight: 500;
+  font-weight: 400;
   color: var(--coffee-text);
 }
 
@@ -4026,7 +4026,7 @@ defineExpose({ flushPendingSync, focusBlock, getInsertAfterIndex, getEditFocus }
 
 .multi-select-toolbar .toolbar-btn.delete:hover {
   background: rgba(245, 108, 108, 0.12);
-  color: #f56c6c;
+  color: var(--coffee-danger);
 }
 
 .multi-batch-style-dropdown {

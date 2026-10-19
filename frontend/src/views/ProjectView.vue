@@ -818,7 +818,7 @@ async function onProjectFromLiteratureCreated(projectId: number) {
     }
 
     span {
-      font-weight: 500;
+      font-weight: 400;
     }
 
     &:hover {
@@ -844,9 +844,9 @@ async function onProjectFromLiteratureCreated(projectId: number) {
       color: var(--coffee-text-muted);
 
       &:hover {
-        background: rgba(245, 108, 108, 0.1);
-        border-color: rgba(245, 108, 108, 0.28);
-        color: #f56c6c;
+        background: rgba(var(--coffee-danger-rgb), 0.1);
+        border-color: rgba(var(--coffee-danger-rgb), 0.28);
+        color: var(--coffee-danger);
         box-shadow: none;
       }
     }
@@ -858,7 +858,7 @@ async function onProjectFromLiteratureCreated(projectId: number) {
 }
 
 :deep(.delete-item) {
-  color: #f56c6c;
+  color: var(--coffee-danger);
 }
 
 /* 拖拽相关样式 */

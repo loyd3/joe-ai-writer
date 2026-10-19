@@ -115,7 +115,7 @@ defineExpose({ reload: load, agents })
 .picker-label {
   font-size: 13px;
   color: var(--coffee-text-muted, #8a7a6a);
-  font-weight: 500;
+  font-weight: 400;
 }
 
 .picker-chips {

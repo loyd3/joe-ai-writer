@@ -28,7 +28,10 @@ from app.services.project_agent_phases import (
     advance_work_plan,
     current_phase_nudge,
     enable_narrow_mode,
+    generation_forbids_settings_edits,
     infer_work_plan,
+    looks_like_read_all_plan,
+    looks_like_settings_edit_instruction,
     work_plan_system_note,
 )
 from app.services.project_agent_tools import (
@@ -47,22 +50,31 @@ STEP_FINISH_NUDGE_AT = (20, 40, 80, 160, 320)  # 提醒模型尽快收尾，不�
 MAX_EVENTS = 500
 MAX_CONSECUTIVE_TEXT_TURNS = 3  # 漏发工具动作可纠正，但不允许无限空转
 MAX_VIOLATION_RETRIES = 2  # 可纠正违规（未先读、参数错误等）反馈重试次数，第 3 次判失败
-MAX_EMPTY_MODEL_RETRIES = 4  # 模型空响应（与工具违规分开计数）；耗尽后软结束而非 failed
+MAX_EMPTY_MODEL_RETRIES = 2  # 空响应：1 次压缩重试 + 1 次极简救援；再空则安全结束（不标 failed）
 
-SYSTEM_PROMPT = """你是「墨心」写作项目的智能编辑搭档「小墨」。你像一位懂故事的编辑：先理解用户意图，再动手改稿或改设定；不要像功能菜单那样机械应答。
+SYSTEM_PROMPT = """你是「墨心」写作项目的智能编辑搭档「小墨」。按用户这条指令执行，不自行加任务。
+
+## 只执行当前指令
+- 本轮唯一任务是最后一条用户指令。历史只作参考，不能追加、改写或续做上一轮没说完的步骤。
+- 只做指令里写明的事。不要顺手改大纲、人物、故事线、世界观、正文，也不要额外检查、整理或新建章节。
+- 没点名的设定字段不要改。只说生成文章，就只生成文章。只说改人物，就只改人物。只说检查或讨论，就只汇报，不要直接改。
+- 预读和工作队列都不能把任务扩大。做完指令里的事就 finish。
 
 ## 交互方式
+- 每轮先用一两句说明你准备执行指令的哪一部分。仅当系统未给出目标文档/段落时才提问澄清。
 - 每轮先用自然语言说明你理解了什么、打算怎么做；仅当系统未给出目标文档/段落时才提问澄清。
 - 需要操作时，在回复末尾给出一个 ```json 工具动作（每轮仅一个）：
 ```json
 {"tool": "工具名", "args": { ... }}
 ```
 - 说要读、查、改、扩写时必须真正调用工具，不要停在计划上。
-- JSON 字符串值里的引号优先写成「」『』，避免未转义的英文双引号弄坏 JSON。
+- JSON 字符串里的引号用普通英文双引号，并正确转义。正文对话也用普通引号，不要写成「」『』。
 - 最终答复或只需聊天时调用 finish(answer)。用户看不到工具原始返回，用自己的话总结。
 
 ## 可用工具
 - list_project()：列出文档与可改设定字段。
+- document_map(document_id=0, limit=40)：长文目录地图（标题/块数/字数/headings+offset）。document_id=0 扫全项目。不返回正文。
+- digest_document(document_id, max_chars=1600)：单篇抽取摘要（类子任务隔离：全文不进主对话）。改稿前仍须定点 read_document。
 - read_document(document_id, offset=0, limit=12)：分页读正文（默认每页约 12 块，上限 20）。complete=false 时用 next_offset 继续，切勿一次读完全文。
 - read_memory(field="")：读取项目设定。默认返回各字段概览；指定 field（如 key_points）返回该字段较完整内容。
 - search_project(query, offset=0, limit=10)：字面量检索正文与设定。
@@ -73,7 +85,9 @@ SYSTEM_PROMPT = """你是「墨心」写作项目的智能编辑搭档「小墨�
   · mode="merge"：增量合并（人物/情节点按 name·title upsert；故事线合并 stages；文本追加）。只传新增或改动项即可，不必回传整字段。
   · mode="replace"：整字段覆盖（慎用，大字段易截断）。
   · before 可省略（服务端用暂存基线）。每次只改 1 个 field。
-- propose_create_document(title, text, reason="")：新建文档提案。
+- propose_create_document(title, text, reason="")：新建一篇短文档提案。不要用它一次写多章正文。
+- generate_documents_from_settings(custom_instruction="", max_tokens_per_chapter=4000)：按现有大纲逐章生成文章并写入文档。只读项目设定，禁止同时改大纲或任何设定字段。正文不回灌进对话。用户要「根据大纲/设定生成文章」时只用它，然后 finish。
+- propose_delete_document(document_id, reason="")：删除文档提案。仅暂存，不会自动执行；须用户在对话中确认后才真正删除。有子文档时不可删。
 - create_project(title, description="", reason="")：无项目时即时创建并绑定本轮；已有项目勿调用。
 - list_hot_topics(limit=20, category="", refresh=false)：拉取热点选题。
 - hot_topic_write(topic_title, article_type="评论", word_count=1500, style="专业", additional_requirements="")：热点写作，返回 draft_id。
@@ -104,12 +118,19 @@ SYSTEM_PROMPT = """你是「墨心」写作项目的智能编辑搭档「小墨�
 3. 润色/改写长文：采用「读一页 → 立刻改 1～3 块 → 再读下一页」。禁止先把全文读完再改；读完全文极易导致空响应失败。
 4. 焦点文档若已预读，直接对已给出的 block_id 调用 propose_block_rewrite，不要重复 read_document(offset=0)。
 5. 改名、统一用词等跨处修改：先 search_project，再逐处 patch。
-6. 更新设定：优先 propose_memory_patch(mode="merge") 只传改动项；大字段不要 replace 整包。每次 1 个 field。文本引号优先「」『』。
-7. 「根据设定生成/重写」：用已预读/ read_memory 的设定改正文；「智能扩展」可补设定并 propose_create_document 新建章节。
+6. 更新设定：只有用户明确要求修改设定（大纲、人物、故事线、世界观、文风、要点、备注）时才调用 propose_memory_patch。优先 mode="merge"，每次 1 个 field。正文和设定里的引号用普通引号，不要用「」『』。
+7. 「根据大纲/设定生成文章、多篇、多章」：只调用 generate_documents_from_settings()，然后 finish。禁止 propose_memory_patch，禁止改大纲或任何项目设定，禁止为了“对齐生成结果”回写设定。每一章按现有设定来写。单篇短章或改已有文档仍用 propose_create_document / propose_block_rewrite。
 8. 「转视频文案 / 影视脚本」：读原文后用 propose_create_document 新建文档，不要覆盖原文档。
-9. 用户只要讨论时 finish；有改动则改完 finish。
-10. 工具动作必须是完整闭合的 ```json … ```；写不完就缩小范围分多轮，切勿输出半截代码块。
-11. 用户说「丰富/补充/更新设定」：按字段分轮 merge（人设→故事线→情节点→世界观），不要一次塞多个 field。"""
+9. 用户要求删除文档时：用 propose_delete_document；先 list_project / 焦点确认 document_id。告知用户须在对话里点确认才会真正删除。勿与同轮正文补丁混用。
+10. 需要看长文结构时用 document_map → digest_document，再按指令定点 read_document。不要因此去改设定。
+    【严禁】把 storyline、outline「完整全文」和全部章节正文读进对话。
+11. 指令做完就 finish。只讨论、只检查时不要改稿、不要改设定。
+12. 工具动作必须是完整闭合的 ```json … ```；写不完就缩小范围分多轮，切勿输出半截代码块。
+13. 用户要求改设定时，只改点名的字段，每次 1 个 field。不要按人设→故事线→大纲的顺序把没点名的字段也改掉。
+14. 文章大纲 outline 与关键情节点 key_points 都可改，形状不同：
+   · outline：[{{"title":"章名","description":"本章简述"}}]，mode="merge" 按 title 合并；空占位会被丢掉。
+   · key_points：[{{"title":"情节点","summary":"发生了什么"}}]，同样 mode="merge"。
+   只传本次新增或改动的条目，不要回传整表。"""
 
 
 def _extract_fenced_json(text: str) -> Optional[str]:
@@ -237,7 +258,7 @@ def _focus_targets_reminder(ctx: ProjectAgentContext) -> str:
         snippet = content if len(content) <= 400 else content[:400] + "…"
         lines.append(f"- block_id={bid} [{block.get('type')}]\n{snippet}")
     lines.append(
-        "JSON 里 new_content 的引号请用「」『』，不要用不转义的英文双引号。"
+        "JSON 里 new_content 的引号用普通英文双引号并转义，正文不要写成「」『』。"
     )
     return "\n".join(lines)
 
@@ -258,8 +279,13 @@ def _parse_action_and_message(raw: Any):
     text = raw.strip()
     if not text:
         raise ToolViolation("模型输出为空")
-    # 形态一：整段纯 JSON
+    # 形态一：整段以 JSON 开头。可能是一个动作，也可能是连续多个裸 JSON。
+    # 整段 json.loads 失败时不要丢掉后面的动作。
     if text.startswith("{"):
+        found = _collect_tool_actions(text)
+        if found:
+            prose = _strip_embedded_tool_json(text).strip() or None
+            return found[0], prose
         action = _try_loads_json(text)
         if action is not None:
             return _require_tool_action(action, source="模型输出"), None
@@ -278,7 +304,7 @@ def _parse_action_and_message(raw: Any):
                 detail = f"动作代码块不是合法 JSON: {e}"
             raise ToolViolation(
                 f"{detail}。请重写整个 ```json 代码块；"
-                f"new_content/answer 内的引号改用「」『』或正确转义，"
+                f"new_content/answer 内的引号请正确转义，正文不要改成「」『』，"
                 f"不要省略逗号与引号。"
             )
         return _require_tool_action(action, source=source), _message_before_fence()
@@ -308,8 +334,123 @@ def _parse_action_and_message(raw: Any):
             "（设定每次只改 1 个字段；新建章节先写短大纲），"
             "重写完整的 ```json … ``` 并确保闭合。"
         )
+    # 形态四：正文里直接嵌了 {"tool": ...}（没写 ```json）。先执行，不要当成闲聊丢掉。
+    inline = _collect_tool_actions(text)
+    if inline:
+        prose = _strip_embedded_tool_json(text).strip() or None
+        return inline[0], prose
     # 形态三：纯自然语言（say 轮）
     return None, text
+
+
+def _iter_balanced_objects(text: str):
+    """按花括号配对切出顶层 JSON 对象切片（忽略字符串内的括号）。"""
+    i = 0
+    n = len(text)
+    while i < n:
+        if text[i] != "{":
+            i += 1
+            continue
+        depth = 0
+        in_str = False
+        escape = False
+        end = None
+        for j in range(i, n):
+            ch = text[j]
+            if in_str:
+                if escape:
+                    escape = False
+                elif ch == "\\":
+                    escape = True
+                elif ch == '"':
+                    in_str = False
+                continue
+            if ch == '"':
+                in_str = True
+            elif ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    end = j + 1
+                    break
+        if end is None:
+            return
+        yield i, end
+        i = end
+
+
+def _collect_tool_actions(text: str) -> List[dict]:
+    """从一段回复里按出现顺序捞出全部完整工具动作（围栏内或裸 JSON）。"""
+    actions: List[dict] = []
+    seen = set()
+    for start, end in _iter_balanced_objects(text or ""):
+        raw = text[start:end]
+        if '"tool"' not in raw and "'tool'" not in raw:
+            continue
+        if not _json_object_structurally_complete(raw):
+            continue
+        obj = _try_loads_json(raw)
+        if not isinstance(obj, dict) or not isinstance(obj.get("tool"), str):
+            continue
+        key = json.dumps(obj, ensure_ascii=False, sort_keys=True, default=str)
+        if key in seen:
+            continue
+        seen.add(key)
+        actions.append(obj)
+    return actions
+
+
+def _strip_embedded_tool_json(text: str) -> str:
+    """展示用：去掉已识别的工具 JSON，只留自然语言。"""
+    spans = []
+    for start, end in _iter_balanced_objects(text or ""):
+        raw = text[start:end]
+        if '"tool"' not in raw:
+            continue
+        obj = _try_loads_json(raw) if _json_object_structurally_complete(raw) else None
+        if isinstance(obj, dict) and isinstance(obj.get("tool"), str):
+            spans.append((start, end))
+    if not spans:
+        return text
+    out = []
+    cursor = 0
+    for start, end in spans:
+        out.append(text[cursor:start])
+        cursor = end
+    out.append(text[cursor:])
+    return re.sub(r"\n{3,}", "\n\n", "".join(out)).strip()
+
+
+def _split_memory_patch_actions(action: dict) -> List[dict]:
+    """storyline/outline 等过大时，按条目拆成多次 merge，而不是整包失败。"""
+    args = action.get("args") if isinstance(action.get("args"), dict) else {}
+    # 顶层 field/after 也认
+    field = args.get("field") or action.get("field")
+    after = args.get("after") if "after" in args else action.get("after")
+    if not isinstance(after, dict):
+        return []
+    stages = after.get("stages")
+    if not isinstance(stages, list) or len(stages) < 2:
+        return []
+    mode = args.get("mode") or action.get("mode") or "merge"
+    reason = args.get("reason") or action.get("reason") or "分批更新设定"
+    pieces: List[dict] = []
+    summary = after.get("summary")
+    for index, stage in enumerate(stages):
+        payload: Dict[str, Any] = {"stages": [stage]}
+        if index == 0 and summary:
+            payload["summary"] = summary
+        pieces.append({
+            "tool": "propose_memory_patch",
+            "args": {
+                "field": field,
+                "mode": mode,
+                "reason": f"{reason}（{index + 1}/{len(stages)}）",
+                "after": payload,
+            },
+        })
+    return pieces
 
 
 # ---------------------------------------------------------------------------
@@ -612,20 +753,72 @@ def _is_usable_model_text(text: Any) -> bool:
     return not (stripped.startswith("[错误]") or stripped.startswith("[配置错误]"))
 
 
+# 智能体单次调用等待：普通模型 240s；ai_client 对推理/本地还会再抬到 300s/600s
+AGENT_MODEL_TIMEOUT_SEC = 240.0
+
+
+class PartialModelError(RuntimeError):
+    """超时/中断时若已有部分正文，带着草稿抛出，供上层续写而非从头来。"""
+
+    def __init__(self, message: str, partial: str = ""):
+        super().__init__(message)
+        self.partial = partial or ""
+
+
 async def default_model(messages, **kwargs) -> str:
-    """生产模型：流式优先；空响应/瞬时失败时重试，再回退非流式，避免整次 run 直接失败。"""
+    """智能体模型调用：非流式优先，再流式兜底；加长等待；保留半成品供续写。"""
     from app.core.ai_client import ai_client
 
     on_delta = kwargs.get("on_delta")
+    on_heartbeat = kwargs.get("on_heartbeat")
+    partial_out = kwargs.get("partial_out")  # 可变 dict，写入已生成草稿
     temperature = kwargs.get("temperature")
     max_tokens = kwargs.get("max_tokens") or 8192
+    timeout = float(kwargs.get("timeout") or AGENT_MODEL_TIMEOUT_SEC)
     last_error = "[错误] 模型未返回内容"
+    partial_acc = ""
     mode = getattr(ai_client, "preferred_mode", "?")
     print(
         f"[project_agent] 调用模型 mode={mode} "
         f"provider={getattr(ai_client, 'provider', '?')} "
-        f"model={getattr(ai_client, 'model', '?')}"
+        f"model={getattr(ai_client, 'model', '?')} timeout={timeout}s"
     )
+
+    def _beat():
+        if on_heartbeat is None:
+            return True
+        try:
+            return bool(on_heartbeat())
+        except Exception:
+            return True
+
+    def _remember(text: str) -> str:
+        nonlocal partial_acc
+        text = (text or "").strip()
+        if text:
+            partial_acc = text
+            if isinstance(partial_out, dict):
+                partial_out["text"] = text
+        return text
+
+    def _emit(text: str) -> None:
+        if on_delta is None or not text:
+            return
+        try:
+            on_delta(text)
+        except Exception:
+            pass
+
+    async def _non_stream_once() -> str:
+        text = await ai_client.chat_completion(
+            messages,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            timeout=timeout,
+            enable_network_test=False,
+            retry_attempts=2,
+        )
+        return _remember((text or "").strip())
 
     async def _stream_once() -> str:
         chunks: List[str] = []
@@ -633,61 +826,68 @@ async def default_model(messages, **kwargs) -> str:
             messages,
             temperature=temperature,
             max_tokens=max_tokens,
+            timeout=timeout,
         ):
             if not chunk:
                 continue
             chunks.append(chunk)
-            if on_delta is not None:
-                try:
-                    on_delta(chunk)
-                except Exception:
-                    pass  # 增量落盘失败不影响生成本身
-        return "".join(chunks).strip()
+            _emit(chunk)
+            _remember("".join(chunks))
+            if len(chunks) == 1 or len(chunks) % 8 == 0:
+                _beat()
+        return _remember("".join(chunks).strip())
 
-    stream_attempts = 3
-    for attempt in range(1, stream_attempts + 1):
-        try:
-            text = await _stream_once()
-            if _is_usable_model_text(text):
-                return text
-            last_error = text or "[错误] 模型未返回内容"
-        except Exception as e:
-            last_error = str(e) or last_error
-        print(
-            f"[project_agent] 流式调用未产出正文，重试 {attempt}/{stream_attempts}: "
-            f"{last_error[:200]}"
-        )
-        await asyncio.sleep(1.0 * attempt)
-
-    # 流式连续空响应时，回退非流式（部分网关流式偶发只返回 reasoning / 空 choices）
+    # 1) 非流式优先
+    if not _beat():
+        raise PartialModelError("[错误] 任务租约已失效，请重试", partial_acc)
     try:
-        text = await ai_client.chat_completion(
-            messages,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            timeout=300.0,
-            enable_network_test=False,
-            retry_attempts=3,
-        )
-        text = (text or "").strip()
+        text = await _non_stream_once()
         if _is_usable_model_text(text):
-            if on_delta is not None:
-                try:
-                    on_delta(text)
-                except Exception:
-                    pass
+            _emit(text)
             return text
         last_error = text or last_error
+        print(f"[project_agent] 非流式未产出正文: {last_error[:200]}")
     except Exception as e:
         last_error = str(e) or last_error
-        print(f"[project_agent] 非流式兜底仍失败: {last_error[:200]}")
+        print(f"[project_agent] 非流式调用异常: {last_error[:200]}")
+        if partial_acc:
+            raise PartialModelError(last_error, partial_acc) from e
 
+    # 2) 流式兜底
+    if not _beat():
+        raise PartialModelError(
+            last_error if last_error.startswith("[") else f"[错误] {last_error}",
+            partial_acc,
+        )
+    try:
+        text = await _stream_once()
+        if _is_usable_model_text(text):
+            return text
+        last_error = text or last_error
+        print(f"[project_agent] 流式兜底仍空: {last_error[:200]}")
+    except Exception as e:
+        last_error = str(e) or last_error
+        print(f"[project_agent] 流式兜底异常: {last_error[:200]}")
+        if partial_acc:
+            raise PartialModelError(last_error, partial_acc) from e
+
+    if partial_acc:
+        raise PartialModelError(
+            last_error if last_error.startswith("[") else f"[错误] {last_error}",
+            partial_acc,
+        )
     raise RuntimeError(last_error if last_error.startswith("[") else f"[错误] {last_error}")
 
 
 async def _call_model(model, messages, **kwargs) -> str:
-    # 设定补丁 JSON 较大；给足正文额度，减少空响应 / 截断
-    result = model(messages, temperature=0.5, max_tokens=8192, **kwargs)
+    # 设定补丁 JSON 较大；给足等待时间，避免长思考被过早掐断
+    result = model(
+        messages,
+        temperature=0.5,
+        max_tokens=8192,
+        timeout=AGENT_MODEL_TIMEOUT_SEC,
+        **kwargs,
+    )
     if inspect.isawaitable(result):
         result = await result
     return result
@@ -718,13 +918,27 @@ def _collect_input_versions(db, project_id: Optional[int]) -> Dict[str, Any]:
     return versions
 
 
-MAX_CONTEXT_MESSAGES = 24  # 继承同会话历史消息的上限
-MAX_CONTEXT_CHARS = 24000  # 继承上下文的字符上限
+MAX_CONTEXT_MESSAGES = 12  # 继承同会话历史消息的上限（按条，不是按轮）
+MAX_CONTEXT_CHARS = 4000  # 继承上下文的字符上限；长文设定不随对话回放
+_HISTORY_TEXT_CHARS = 360  # 单条历史发言只留摘要
+# 单轮执行中的上下文预算（借鉴 Kimi auto-compact：逼近上限则压缩旧观察）
+LIVE_CONTEXT_BUDGET_CHARS = 28000
+LIVE_COMPACT_TRIGGER_RATIO = 0.72
+LIVE_COMPACT_TAIL_MESSAGES = 8
 STREAM_FLUSH_INTERVAL = 1.2  # 流式回复增量落盘的最小间隔（秒）
 
 
-def _load_conversation_messages(db, run: AgentRun) -> List[Dict[str, str]]:
-    """同一会话中、本次 run 之前的历史消息，供模型像连续对话一样延续上下文。"""
+def _clip_history_text(content: str) -> str:
+    """历史只留结论，不把上一轮的整段设定 JSON 再塞进本轮。"""
+    text = _strip_embedded_tool_json(content or "")
+    text = re.sub(r"\s+", " ", text).strip()
+    if len(text) <= _HISTORY_TEXT_CHARS:
+        return text
+    return text[:_HISTORY_TEXT_CHARS] + "…（更早长文已省略，设定以当前暂存为准）"
+
+
+def _load_conversation_messages(db, run: AgentRun, instruction: str = "") -> List[Dict[str, str]]:
+    """同一会话的历史摘要。整段超出长度上限时整段丢弃，只执行当前指令。"""
     scope = run.scope or "project"
     query = db.query(AgentRun).filter(
         AgentRun.conversation_id == run.conversation_id,
@@ -739,7 +953,7 @@ def _load_conversation_messages(db, run: AgentRun) -> List[Dict[str, str]]:
     prior = query.order_by(AgentRun.created_at.asc(), AgentRun.id.asc()).all()
     history: List[Dict[str, str]] = []
     for prev in prior:
-        history.append({"role": "user", "content": prev.instruction})
+        history.append({"role": "user", "content": _clip_history_text(prev.instruction or "")})
         status_note = {
             "proposed": "仅为提案，未应用；不能作为项目已修改的事实。",
             "applied": "修改已应用；当前内容仍需重新读取核实。",
@@ -756,13 +970,17 @@ def _load_conversation_messages(db, run: AgentRun) -> List[Dict[str, str]]:
                 continue
             if m["content"] not in turn_contents:
                 history.append(status_message)
-                history.append({"role": "assistant", "content": m["content"]})
+                history.append({"role": "assistant", "content": _clip_history_text(m["content"])})
                 turn_contents.add(m["content"])
         answer = _safe_assistant_content(prev.answer)
         if answer and answer not in turn_contents:
             history.append(status_message)
-            history.append({"role": "assistant", "content": answer})
-    # 只保留尾部，控制上下文长度
+            history.append({"role": "assistant", "content": _clip_history_text(answer)})
+    # 历史加上当前指令超出上限：不带任何上下文，只执行当前命令
+    history_chars = sum(len(m.get("content") or "") for m in history)
+    if history_chars + len(instruction or "") > MAX_CONTEXT_CHARS:
+        return []
+    # 条数过多时只留最近几条（总字数已在上限内）
     trimmed: List[Dict[str, str]] = []
     total = 0
     index = len(history) - 1
@@ -848,7 +1066,7 @@ def _focus_system_note(focus: Optional[Dict[str, Any]]) -> Optional[str]:
             [
                 "【强制】用户已给出选区/目标块：禁止 read_document，禁止「先通读全文」，禁止追问目标段落。",
                 "立刻对目标 block_id 调用 propose_block_rewrite（每次 1～3 块），改完 finish。",
-                "propose_block_rewrite 的 new_content 内引号用「」『』，避免 JSON 非法。",
+                "propose_block_rewrite 的 new_content 内引号用普通引号并转义，避免 JSON 非法。",
             ]
         )
     else:
@@ -977,6 +1195,25 @@ def _observation_for_model(tool: str, data: Any) -> Any:
     """写入模型上下文的观察再压一刀，防止大 JSON 撑爆后续轮次。"""
     if not isinstance(data, dict):
         return data
+    if tool == "document_map":
+        clipped = json.loads(json.dumps(data, ensure_ascii=False, default=str))
+        docs = clipped.get("documents")
+        if isinstance(docs, list) and len(docs) > 24:
+            clipped["documents"] = docs[:24]
+            clipped["message"] = (
+                (clipped.get("message") or "")
+                + f" 目录仅展示前 24 篇，其余 {len(docs) - 24} 篇请再 document_map(document_id=…)。"
+            ).strip()
+        return clipped
+    if tool == "digest_document":
+        clipped = json.loads(json.dumps(data, ensure_ascii=False, default=str))
+        digest = clipped.get("digest")
+        if isinstance(digest, str) and len(digest) > 2000:
+            clipped["digest"] = digest[:2000] + "…"
+        headings = clipped.get("headings") or []
+        if isinstance(headings, list) and len(headings) > 20:
+            clipped["headings"] = headings[:20]
+        return clipped
     if tool == "read_document":
         clipped = json.loads(json.dumps(data, ensure_ascii=False, default=str))
         blocks = clipped.get("blocks") or []
@@ -989,13 +1226,14 @@ def _observation_for_model(tool: str, data: Any) -> Any:
         return clipped
     if tool == "read_memory":
         clipped = json.loads(json.dumps(data, ensure_ascii=False, default=str))
-        if clipped.get("coverage") == "single_field":
-            # 单字段精读：允许更长，仍截断极端大字段
-            if "value" in clipped:
-                clipped["value"] = _clip_memory_value(clipped.get("value"), 6000)
+        coverage = clipped.get("coverage")
+        if coverage in ("single_field", "single_field_digest"):
+            # 单字段：严控进对话体积（大 storyline 已在工具层改成 digest）
+            if "value" in clipped and coverage == "single_field":
+                clipped["value"] = _clip_memory_value(clipped.get("value"), 2200)
             return clipped
         fields = clipped.get("fields") or {}
-        if isinstance(fields, dict) and clipped.get("coverage") != "overview":
+        if isinstance(fields, dict) and coverage != "overview":
             # 兼容旧版「全字段全文」观察
             clipped["fields"] = {
                 key: _clip_memory_value(val, 800) for key, val in fields.items()
@@ -1004,6 +1242,29 @@ def _observation_for_model(tool: str, data: Any) -> Any:
             (clipped.get("message") or "")
             + " 完整设定在服务端暂存。更新请 propose_memory_patch(field, after, mode=\"merge\")；"
             "before 可省略。"
+        ).strip()
+        return clipped
+    if tool == "propose_memory_patch":
+        clipped = {
+            key: data.get(key)
+            for key in ("field", "mode", "change_count", "complete", "message", "corrected_before")
+            if key in data
+        }
+        staged = data.get("staged_value")
+        if isinstance(staged, list):
+            clipped["count"] = len(staged)
+            clipped["names"] = [
+                item.get("name") for item in staged if isinstance(item, dict) and item.get("name")
+            ][:16]
+        elif isinstance(staged, dict):
+            stages = staged.get("stages") if isinstance(staged.get("stages"), list) else []
+            clipped["summary"] = str(staged.get("summary") or "")[:160]
+            clipped["stage_titles"] = [
+                item.get("title") for item in stages if isinstance(item, dict) and item.get("title")
+            ][:12]
+        clipped["message"] = (
+            (clipped.get("message") or "")
+            + " 全文已在服务端暂存，不要为了核对再 read_memory 整字段。"
         ).strip()
         return clipped
     return data
@@ -1019,44 +1280,141 @@ def _is_empty_model_error(err: str) -> bool:
         "均为空",
         "空响应",
         "content 为空",
+        "模型未返回",
+        "模型输出为空",
+        "输出为空",
+        "租约已失效",
     )
-    return any(k in text for k in keys)
+    if any(k in text for k in keys):
+        return True
+    # 兜底：带 [错误] 且提到空/内容的瞬时失败，一律软收尾
+    if "[错误]" in text and ("空" in text or "内容" in text or "正文" in text):
+        return True
+    return False
 
 
-def _compact_messages_for_retry(messages: List[Dict[str, str]]) -> List[Dict[str, str]]:
-    """空响应时压缩历史：保留系统提示与最近几轮，丢掉巨型 observation。"""
-    if len(messages) <= 8:
+_EMERGENCY_SYSTEM = """你是写作助手小墨。当前处于「空响应救援」模式：上下文已压到最小。
+规则：只输出一个完整闭合的 ```json 工具动作，不要长文。
+优先 finish(answer=一两句说明)；若必须改设定，只允许一次短的 propose_memory_patch(mode="merge")。
+禁止 read_document / list_project / 通读全文。"""
+
+
+def _build_emergency_messages(
+    instruction: str,
+    ctx: ProjectAgentContext,
+    *,
+    focus_note: Optional[str] = None,
+) -> List[Dict[str, str]]:
+    """极简救援上下文：丢掉巨型观察，只留指令 + 摘要便笺 + 当前步骤。"""
+    messages: List[Dict[str, str]] = [{"role": "system", "content": _EMERGENCY_SYSTEM}]
+    if focus_note:
+        messages.append({"role": "system", "content": focus_note[:1500]})
+    scratch = _digest_scratchpad(ctx)
+    if scratch:
+        messages.append({"role": "system", "content": scratch[:3500]})
+    phase = current_phase_nudge(ctx)
+    if phase:
+        messages.append({"role": "system", "content": phase})
+    if ctx.changes:
+        messages.append({
+            "role": "system",
+            "content": f"已有 {len(ctx.changes)} 处暂存修改。请 finish 说明已准备的改动即可。",
+        })
+    messages.append({
+        "role": "user",
+        "content": (instruction or "请继续")[:2000],
+    })
+    messages.append({
+        "role": "system",
+        "content": (
+            "请立刻给出唯一工具动作。推荐：\n"
+            "```json\n"
+            "{\"tool\":\"finish\",\"args\":{\"answer\":\"本轮先安全结束，请把任务拆小后继续。\"}}\n"
+            "```"
+        ),
+    })
+    return messages
+
+
+def _estimate_messages_chars(messages: List[Dict[str, str]]) -> int:
+    return sum(len((m.get("content") or "") if isinstance(m, dict) else "") for m in messages)
+
+
+def _should_auto_compact(messages: List[Dict[str, str]]) -> bool:
+    """Kimi-style：字符预算逼近上限时触发压缩（启发式，偏保守）。"""
+    used = _estimate_messages_chars(messages)
+    return used >= int(LIVE_CONTEXT_BUDGET_CHARS * LIVE_COMPACT_TRIGGER_RATIO)
+
+
+def _digest_scratchpad(ctx: ProjectAgentContext) -> str:
+    """把服务端暂存的章节摘要浓缩进压缩后的系统提示，避免丢关键事实。"""
+    digests = getattr(ctx, "document_digests", None) or {}
+    if not digests:
+        return ""
+    lines = ["【已生成的文档摘要（服务端保留，正文未进对话）】"]
+    for doc_id, item in list(digests.items())[:8]:
+        if not isinstance(item, dict):
+            continue
+        title = item.get("title") or f"文档{doc_id}"
+        digest = (item.get("digest") or "")[:500]
+        headings = item.get("headings") or []
+        head_bits = "；".join(
+            (h.get("text") or "")[:40] for h in headings[:6] if isinstance(h, dict)
+        )
+        lines.append(f"- id={doc_id}《{title}》摘要：{digest}")
+        if head_bits:
+            lines.append(f"  标题：{head_bits}")
+    return "\n".join(lines)
+
+
+def _compact_messages(
+    messages: List[Dict[str, str]],
+    *,
+    reason: str,
+    ctx: Optional[ProjectAgentContext] = None,
+    tail: int = 6,
+) -> List[Dict[str, str]]:
+    """压缩历史：保留系统提示与最近几轮，巨型 observation 换成短桩；可选注入 digest 便笺。"""
+    if len(messages) <= tail + 2:
         return messages
     head: List[Dict[str, str]] = []
-    tail_start = max(len(messages) - 6, 0)
+    tail_start = max(len(messages) - tail, 0)
     for i, msg in enumerate(messages):
         if i < 3 and msg.get("role") == "system":
             content = msg.get("content") or ""
-            # 预读系统消息也可能很长：截断保留要点
             if len(content) > 6000:
                 content = content[:6000] + "\n…（预读已截断，请对已给出的 block_id 直接改稿）"
             head.append({"role": "system", "content": content})
         elif i >= tail_start:
             content = msg.get("content") or ""
-            if "UNTRUSTED_OBSERVATION" in content and len(content) > 2000:
+            if "UNTRUSTED_OBSERVATION" in content and len(content) > 1600:
                 head.append({
                     "role": msg.get("role") or "user",
                     "content": (
                         '{"marker":"UNTRUSTED_OBSERVATION","note":'
-                        '"上一页正文已省略。请对已读块 propose_block_rewrite，'
-                        '或用更大的 offset 读下一页；不要重读全文。"}'
+                        '"旧观察已压缩省略。请用 document_map / digest_document / '
+                        '已给 block_id 继续；禁止重读全文。"}'
                     ),
                 })
             else:
                 head.append(msg)
-    head.append({
-        "role": "system",
-        "content": (
-            "上下文已压缩（因上次空响应）。请立刻对已知 block_id 调用 propose_block_rewrite，"
-            "或 finish 说明本批改了什么；禁止再通读全文。"
-        ),
-    })
+    scratch = _digest_scratchpad(ctx) if ctx is not None else ""
+    note = (
+        f"上下文已压缩（{reason}）。优先 document_map → digest_document → 定点 read_document → propose_*；"
+        "禁止再通读全文。若已有摘要，直接基于摘要更新 storyline/outline 或定点改稿。"
+    )
+    if scratch:
+        note = note + "\n" + scratch
+    head.append({"role": "system", "content": note})
     return head
+
+
+def _compact_messages_for_retry(
+    messages: List[Dict[str, str]],
+    ctx: Optional[ProjectAgentContext] = None,
+) -> List[Dict[str, str]]:
+    """空响应时压缩历史。"""
+    return _compact_messages(messages, reason="因上次空响应", ctx=ctx, tail=6)
 
 
 def _build_chat_messages(
@@ -1071,7 +1429,31 @@ def _build_chat_messages(
         messages.append({"role": "system", "content": focus_note})
     if preloaded:
         messages.append({"role": "system", "content": preloaded})
-    messages.extend(history)
+    if history:
+        messages.append({
+            "role": "system",
+            "content": (
+                "【上下文仅供参考】以下是同一会话里较早的发言，只用来理解背景。"
+                "不得把历史指令当成当前任务，不得续做历史里未完成的队列。"
+                "与最后一条用户指令冲突时，以最后一条为准。"
+            ),
+        })
+        for item in history:
+            content = (item.get("content") or "") if isinstance(item, dict) else ""
+            if not content:
+                continue
+            role = item.get("role")
+            if role == "user":
+                label = "【历史参考·用户曾说】"
+            elif role == "assistant":
+                label = "【历史参考·助手曾说】"
+            else:
+                label = "【历史参考】"
+            messages.append({"role": "system", "content": f"{label}{content}"})
+        messages.append({
+            "role": "system",
+            "content": "【当前指令】下面这条用户消息是本轮唯一要执行的任务。上下文不能改写、追加或替换它。",
+        })
     messages.append({"role": "user", "content": _bind_current_article(instruction, focus)})
     return messages
 
@@ -1124,7 +1506,7 @@ async def execute_run(session_factory: sessionmaker, claim: Optional[RunClaim], 
         run.input_versions = _collect_input_versions(db, project_id)
         run.changes = []
         run.events = []
-        history = _load_conversation_messages(db, run)
+        history = _load_conversation_messages(db, run, instruction or "")
         transcript: List[dict] = [{"role": "user", "content": instruction, "step": 0}]
         run.messages = json.loads(json.dumps(transcript, ensure_ascii=False))
         _append_event(run, "start", f"开始执行：{instruction[:100]}")
@@ -1152,6 +1534,7 @@ async def execute_run(session_factory: sessionmaker, claim: Optional[RunClaim], 
             print(f"[project_agent] 刷新 AI 客户端失败，继续用现有实例: {exc}")
 
     ctx = ProjectAgentContext(project_id=project_id, user_id=user_id)
+    ctx.instruction = instruction or ""
     ctx.scope = run_scope
     preloaded = None
     if focus and focus.get("document_id") and project_id:
@@ -1222,15 +1605,24 @@ async def execute_run(session_factory: sessionmaker, claim: Optional[RunClaim], 
                         ),
                     })
                     advance_work_plan(ctx, tool_name, tool_args)
-            messages.append({
-                "role": "system",
-                "content": (
-                    "【后台已预读】文档列表与设定字段概览已在上方观察中。"
-                    "不要再 list_project；若要改某字段可 read_memory(field=...) 精读，"
-                    "或直接 propose_memory_patch(field, after, mode=\"merge\")（before 可省，每次 1 个 field），"
-                    "完成后 finish。"
-                ),
-            })
+            if generation_forbids_settings_edits(instruction):
+                pre_note = (
+                    "【后台已预读】文档列表与设定概览只供生成文章使用。"
+                    "禁止 propose_memory_patch。请按当前指令生成文章，然后 finish。"
+                )
+            elif not looks_like_settings_edit_instruction(instruction):
+                pre_note = (
+                    "【后台已预读】文档列表与设定概览只供参考。"
+                    "当前指令没有要求改设定，禁止 propose_memory_patch。"
+                    "只执行用户这条指令，做完 finish。"
+                )
+            else:
+                pre_note = (
+                    "【后台已预读】文档列表与设定概览已在上方。"
+                    "只改当前指令点名的设定字段，每次 1 个 field，不要改其他字段。"
+                    "做完 finish。"
+                )
+            messages.append({"role": "system", "content": pre_note})
             nudge = current_phase_nudge(ctx)
             if nudge:
                 messages.append({"role": "system", "content": nudge})
@@ -1340,7 +1732,9 @@ async def execute_run(session_factory: sessionmaker, claim: Optional[RunClaim], 
                 current.changes = _dump_changes(ctx)
                 if ctx.changes:
                     current.status = "proposed"
-                    auto_apply_id = current.id
+                    # 含删除提案时禁止自动 apply，必须用户显式确认
+                    if not _changes_require_user_confirm(ctx.changes):
+                        auto_apply_id = current.id
                 else:
                     current.status = "completed"
                 _append_event(current, "finish", _safe_assistant_content(answer) or "完成")
@@ -1371,7 +1765,7 @@ async def execute_run(session_factory: sessionmaker, claim: Optional[RunClaim], 
             )
         elif "不是合法 JSON" in message or "动作代码块" in message:
             fix_hint = (
-                "请原样重写末尾 ```json 动作；字符串字段内的引号改用「」『』或 \\ \" 转义；"
+                "请原样重写末尾 ```json 动作；字符串字段内的引号用 \\ \" 转义，正文不要改成「」『』；"
                 "不要省略逗号。选区已锁定时直接 propose_block_rewrite，不要 read_document。"
             )
         elif has_selection:
@@ -1404,51 +1798,144 @@ async def execute_run(session_factory: sessionmaker, claim: Optional[RunClaim], 
         persist_progress("error", f"工具被拒绝：{message[:250]}")
         return True
 
-    def feedback_empty_model(err: str) -> bool:
-        """模型空响应：压缩上下文后提示继续；超限则返回 False 走软收尾。"""
+    def feedback_empty_model(err: str, partial: str = "") -> bool:
+        """空响应/超时救援：优先带着已生成草稿续写；勿丢掉 ctx.changes。"""
         nonlocal empty_model_turns, messages
         empty_model_turns += 1
         if empty_model_turns > MAX_EMPTY_MODEL_RETRIES:
             return False
-        messages = _compact_messages_for_retry(messages)
-        phase = current_phase_nudge(ctx)
-        phase_line = f"\n{phase}" if phase else ""
-        messages.append({
-            "role": "system",
-            "content": (
-                "上一轮模型未返回可用正文（常见原因：上下文过长或网关空响应）。"
-                "请用一两句中文说明下一步，并在末尾给出一个完整闭合的 ```json 工具动作。"
-                "若设定/文档列表已预读：直接 propose_memory_patch（每次 1 个 field）或 finish；"
-                "润色正文时优先 propose_block_rewrite，不要再通读全文。"
-                f"{phase_line}"
-            ),
-        })
-        persist_progress(
-            "error",
-            f"模型空响应，已压缩上下文并重试（{empty_model_turns}/{MAX_EMPTY_MODEL_RETRIES}）：{err[:160]}",
-        )
+
+        draft = (partial or "").strip()
+        # 草稿落进对话 UI，用户能看到「已生成、在续写」
+        if draft:
+            upsert_assistant(step, _safe_assistant_content(draft), streaming=False)
+            persist_transcript()
+
+        # 有半成品：不要核爆清空上下文，只轻量压缩后要求续写补全
+        if draft and empty_model_turns <= MAX_EMPTY_MODEL_RETRIES:
+            if _should_auto_compact(messages):
+                messages = _compact_messages(
+                    messages, reason="超时后续写前压缩", ctx=ctx, tail=LIVE_COMPACT_TAIL_MESSAGES,
+                )
+            messages.append({"role": "assistant", "content": draft})
+            keep = (
+                f"服务端已保留 {len(ctx.changes)} 处暂存修改。"
+                if ctx.changes else ""
+            )
+            messages.append({
+                "role": "system",
+                "content": (
+                    "上一轮因超时或不完整中断，上面是已生成的草稿。"
+                    "请【接着草稿继续】，补全并输出一个完整闭合的 ```json 工具动作；"
+                    f"不要从零重写已说的话。{keep}"
+                ),
+            })
+            persist_progress("info", f"超时续写：保留草稿 {len(draft)} 字（{empty_model_turns}/{MAX_EMPTY_MODEL_RETRIES}）")
+            return True
+
+        if empty_model_turns >= 2:
+            focus_note = _focus_system_note(focus) if focus else None
+            messages = _build_emergency_messages(
+                instruction, ctx, focus_note=focus_note,
+            )
+            if draft:
+                messages.insert(-1, {"role": "assistant", "content": draft[:4000]})
+            persist_progress(
+                "info",
+                f"空响应极简救援（{empty_model_turns}/{MAX_EMPTY_MODEL_RETRIES}）"
+                + (f"·保留草稿 {len(draft)} 字" if draft else ""),
+            )
+        else:
+            messages = _compact_messages_for_retry(messages, ctx=ctx)
+            phase = current_phase_nudge(ctx)
+            phase_line = f"\n{phase}" if phase else ""
+            keep = f"已保留 {len(ctx.changes)} 处暂存修改。" if ctx.changes else ""
+            messages.append({
+                "role": "system",
+                "content": (
+                    "上一轮模型未返回可用正文（可能是等待超时）。"
+                    f"{keep}"
+                    "请只输出一个短的 ```json 工具动作；优先 finish 或一次短 merge。"
+                    "禁止通读正文。"
+                    f"{phase_line}"
+                ),
+            })
+            persist_progress(
+                "info",
+                f"空响应已压缩重试（{empty_model_turns}/{MAX_EMPTY_MODEL_RETRIES}）",
+            )
         return True
 
     def soft_finish_after_empty(err: str) -> None:
-        """空响应耗尽重试：有提案则提交预览；无提案则友好结束，避免「执行失败」吓到用户。"""
-        persist_progress("error", f"空响应软结束：{err[:160]}")
+        """空响应耗尽：安全结束为 completed/proposed，绝不标 failed，不写 run.error。"""
+        persist_progress("info", f"空响应安全结束：{(err or '')[:120]}")
+        drafted = ""
+        for message in reversed(transcript):
+            if not isinstance(message, dict) or message.get("role") != "assistant":
+                continue
+            content = _safe_assistant_content(message.get("content") or "")
+            if len(content) >= 40 and "安全结束" not in content:
+                drafted = content
+                break
         if ctx.changes:
-            finalize_turn(
-                step,
-                f"模型中途空响应；已自动写入 {len(ctx.changes)} 处修改，可在对话里撤销。"
-                "未完成部分可以说「继续」或缩小范围再试。",
-                None,
+            answer = (
+                drafted
+                or (
+                    f"已准备 {len(ctx.changes)} 处修改（上下文较长，已拆开写入）。"
+                    "可在对话里确认或撤销；剩下的部分说「继续」即可。"
+                )
             )
-            return
-        finalize_turn(
-            step,
-            "模型暂时没有返回可用内容（多为网关空响应或上下文过长）。"
-            "请把任务拆小一点再试，例如「只补全 key_points」或「先更新故事线」；"
-            "也可稍后重试同一句。",
-            None,
-        )
+        elif drafted:
+            # 已有可用说明时，不要用「空响应」套话盖掉
+            answer = drafted
+        else:
+            answer = (
+                "本轮已安全结束（模型暂时没有返回可用内容，多半是上下文过长）。"
+                "请拆小再试：「先更新故事线」「只改 outline」「只润色第 1 章」。"
+                "不必先通读全部章节。"
+            )
+        upsert_assistant(step, _safe_assistant_content(answer), streaming=False)
+        finalize_turn(step, answer, None)
+        # finalize 若因租约瞬时失效未落盘，强制收尾并清空 error
+        with session_factory() as db:
+            current = db.get(AgentRun, run_id)
+            if current is None:
+                return
+            if current.lease_owner == claim.owner and current.status in (
+                "running", "failed",
+            ):
+                current.status = "proposed" if ctx.changes else "completed"
+                current.answer = answer
+                current.error = None  # 关键：不要让前端显示红色失败
+                current.changes = _dump_changes(ctx)
+                current.messages = json.loads(json.dumps(transcript, ensure_ascii=False, default=str))
+                release_lease(current)
+                _append_event(current, "finish", "空响应安全结束")
+                db.commit()
+                if current.status == "proposed" and not _changes_require_user_confirm(current.changes):
+                    _auto_apply_run(session_factory, run_id)
+            elif current.status == "failed" and "未返回" in (current.error or ""):
+                # 其它路径误标 failed 时纠偏
+                current.status = "completed"
+                current.error = None
+                current.answer = answer
+                release_lease(current)
+                db.commit()
+
+    def heartbeat() -> bool:
+        """模型长调用期间续租，防止 120s 租约过期后软收尾失败。"""
+        with session_factory() as db:
+            current = db.get(AgentRun, run_id)
+            if current is None or current.status != "running" or current.lease_owner != claim.owner:
+                return False
+            ok = renew_lease(db, current, claim.owner)
+            if ok:
+                db.commit()
+            return ok
 
     step = 0
+    # 同一条回复里的后续工具（如先 patch 再 finish）排队执行，不再另起一轮模型
+    pending_actions: List[dict] = []
     while True:
         step += 1
         with session_factory() as db:
@@ -1499,7 +1986,23 @@ async def execute_run(session_factory: sessionmaker, claim: Optional[RunClaim], 
                 )
             return
 
+        # Kimi-style 主动压缩：逼近上下文预算时折叠旧观察，保留 digest 便笺
+        if _should_auto_compact(messages):
+            before = _estimate_messages_chars(messages)
+            messages = _compact_messages(
+                messages,
+                reason="上下文预算将满",
+                ctx=ctx,
+                tail=LIVE_COMPACT_TAIL_MESSAGES,
+            )
+            after = _estimate_messages_chars(messages)
+            persist_progress(
+                "info",
+                f"上下文自动压缩：{before}→{after} 字（预算 {LIVE_CONTEXT_BUDGET_CHARS}）",
+            )
+
         stream_state = {"chunks": [], "last_flush": 0.0}
+        partial_bag: Dict[str, str] = {"text": ""}
 
         def _flush_stream(_step: int, _state: dict, final: bool) -> bool:
             content = _safe_assistant_content("".join(_state["chunks"]), streaming=not final)
@@ -1514,39 +2017,123 @@ async def execute_run(session_factory: sessionmaker, claim: Optional[RunClaim], 
                 if _flush_stream(_step, _state, final=False):
                     _state["last_flush"] = time.monotonic()
 
+        def _collect_partial(exc: Optional[BaseException] = None) -> str:
+            from_stream = "".join(stream_state["chunks"]).strip()
+            from_bag = (partial_bag.get("text") or "").strip()
+            from_exc = ""
+            if isinstance(exc, PartialModelError):
+                from_exc = (exc.partial or "").strip()
+            # 取最长的一份草稿
+            return max([from_stream, from_bag, from_exc], key=len)
+
+        queued = pending_actions.pop(0) if pending_actions else None
         raw = ""
-        try:
-            raw = await _call_model(model, messages, on_delta=on_delta)
-            action, said = _parse_action_and_message(raw)
-            empty_model_turns = 0  # 成功产出后重置空响应计数
-        except ToolViolation as e:
-            # 输出格式类违规：回传原文让模型自纠正；截断超限时保留已有提案软收尾
-            err = str(e)
-            truncated = ("未闭合" in err) or ("截断" in err) or ("提案过大" in err)
-            if truncated:
-                enable_narrow_mode(ctx)
-            if not feedback_violation(err, raw or None, None, None):
-                if truncated and ctx.changes:
+        action = None
+        said = None
+        if queued is not None:
+            # 同一条回复里拆出的后续任务，不再重新问模型
+            action = queued
+            raw = json.dumps(queued, ensure_ascii=False)
+        else:
+            # 长等待期间每 45s 续租，避免 120s 租约在模型思考时过期被当成失败
+            async def _lease_keepalive():
+                while True:
+                    await asyncio.sleep(45)
+                    if not heartbeat():
+                        return
+
+            keepalive = asyncio.create_task(_lease_keepalive())
+            try:
+                raw = await _call_model(
+                    model,
+                    messages,
+                    on_delta=on_delta,
+                    on_heartbeat=heartbeat,
+                    partial_out=partial_bag,
+                )
+                action, said = _parse_action_and_message(raw)
+                empty_model_turns = 0  # 成功产出后重置空响应计数
+            except ToolViolation as e:
+                err = str(e)
+                partial = _collect_partial(e)
+                if partial and not raw:
+                    raw = partial
+                if _is_empty_model_error(err) or "输出为空" in err:
+                    if feedback_empty_model(err, partial=partial):
+                        continue
                     soft_finish_after_empty(err)
                     return
-                fail(err, clear_changes=True)
-                return
-            # 截断后追加当前步骤钉扎，逼模型缩小单次动作
-            if truncated:
-                nudge = current_phase_nudge(ctx)
-                if nudge:
-                    messages.append({"role": "system", "content": nudge})
-            continue
-        except Exception as e:
-            # 空响应等瞬时失败：default_model 内已重试+非流式兜底；此处压缩上下文再试
-            err = str(e)
-            if _is_empty_model_error(err):
-                if feedback_empty_model(err):
+                truncated = ("未闭合" in err) or ("截断" in err) or ("提案过大" in err)
+                if truncated:
+                    enable_narrow_mode(ctx)
+                # 截断时把半成品当 raw 回传，下一轮可续写
+                if not feedback_violation(err, raw or partial or None, None, None):
+                    # 已有暂存或确为空响应时收尾；非法工具/坏 JSON 仍判失败
+                    if ctx.changes or _is_empty_model_error(err):
+                        soft_finish_after_empty(err)
+                    else:
+                        fail(err, clear_changes=True)
+                    return
+                if truncated:
+                    nudge = current_phase_nudge(ctx)
+                    if nudge:
+                        messages.append({"role": "system", "content": nudge})
+                continue
+            except Exception as e:
+                err = str(e)
+                partial = _collect_partial(e)
+                # 半成品若已是完整动作，直接采纳，不重来
+                if partial:
+                    try:
+                        action, said = _parse_action_and_message(partial)
+                        raw = partial
+                        empty_model_turns = 0
+                        upsert_assistant(step, _safe_assistant_content(said or partial), streaming=False)
+                        persist_transcript()
+                    except ToolViolation as ve:
+                        ve_err = str(ve)
+                        truncated = ("未闭合" in ve_err) or ("截断" in ve_err)
+                        if truncated:
+                            enable_narrow_mode(ctx)
+                            if feedback_violation(ve_err, partial, None, None):
+                                continue
+                        if _is_empty_model_error(err) and feedback_empty_model(err, partial=partial):
+                            continue
+                        if ctx.changes or _is_empty_model_error(err):
+                            soft_finish_after_empty(err)
+                        else:
+                            fail(ve_err, clear_changes=True)
+                        return
+                elif _is_empty_model_error(err) and feedback_empty_model(err):
                     continue
-                soft_finish_after_empty(err)
-                return
-            fail(f"模型调用失败: {err}", clear_changes=False)
-            return
+                elif ctx.changes or _is_empty_model_error(err):
+                    soft_finish_after_empty(err)
+                    return
+                else:
+                    fail(err, clear_changes=False)
+                    return
+            finally:
+                keepalive.cancel()
+                try:
+                    await keepalive
+                except (asyncio.CancelledError, Exception):
+                    pass
+
+        # 一条回复里的多个工具按顺序排队（先写入、再 finish），避免只执行第一个或整段被丢掉
+        if queued is None and isinstance(raw, str) and raw:
+            found = _collect_tool_actions(raw)
+            if action is None and found:
+                action = found[0]
+                said = _strip_embedded_tool_json(raw) or said
+            if isinstance(action, dict) and found:
+                primary_key = json.dumps(action, ensure_ascii=False, sort_keys=True, default=str)
+                skipped = False
+                for extra in found:
+                    key = json.dumps(extra, ensure_ascii=False, sort_keys=True, default=str)
+                    if not skipped and key == primary_key:
+                        skipped = True
+                        continue
+                    pending_actions.append(extra)
 
         if action is None:
             upsert_assistant(step, _safe_assistant_content(said), streaming=False)
@@ -1554,10 +2141,22 @@ async def execute_run(session_factory: sessionmaker, claim: Optional[RunClaim], 
                 return
             consecutive_text_turns += 1
             if consecutive_text_turns >= MAX_CONSECUTIVE_TEXT_TURNS:
-                fail("模型连续未提供工具动作，任务未完成；请重试或检查模型工具指令遵循能力", clear_changes=False)
+                if ctx.changes:
+                    soft_finish_after_empty("模型连续未提供工具动作")
+                else:
+                    fail("模型连续未提供工具动作", clear_changes=True)
                 return
             messages.append({"role": "assistant", "content": said or ""})
-            if getattr(ctx, "focus_block_ids", None) and (
+            if looks_like_read_all_plan(said or ""):
+                messages.append({
+                    "role": "system",
+                    "content": (
+                        "【打断】禁止通读全部章节，也禁止索要 storyline/outline「完整全文」。"
+                        "不要因此改设定。只做当前指令写明的事；"
+                        "长文需要目录时用 document_map → digest_document。末尾给出一个完整 ```json 工具动作。"
+                    ),
+                })
+            elif getattr(ctx, "focus_block_ids", None) and (
                 _asks_which_blocks(said) or consecutive_text_turns >= 1
             ):
                 messages.append({"role": "system", "content": _focus_targets_reminder(ctx)})
@@ -1567,7 +2166,8 @@ async def execute_run(session_factory: sessionmaker, claim: Optional[RunClaim], 
                     "content": "刚才仅为文字说明，任务尚未结束。请依据用户目标继续执行，"
                                "在回复末尾提供一个 JSON 工具动作；需要阅读就调用 read_document，"
                                "需要修改就实际提出提案。只有任务确已完成或必须等待用户澄清时，"
-                               "才调用 finish，并给出结果或具体问题。",
+                               "才调用 finish，并给出结果或具体问题。"
+                               "梳理故事线时不要先读完全部章节。",
                 })
             continue
 
@@ -1578,7 +2178,8 @@ async def execute_run(session_factory: sessionmaker, claim: Optional[RunClaim], 
             if not persist_transcript():
                 return
 
-        tool, args = action["tool"], action.get("args", {})
+        tool = action.get("tool")
+        args = action.get("args")
         if args is None:
             args = {}
         if not isinstance(args, dict):
@@ -1586,6 +2187,13 @@ async def execute_run(session_factory: sessionmaker, claim: Optional[RunClaim], 
                 fail("工具参数必须是对象", clear_changes=True)
                 return
             continue
+        # 模型常把参数写在顶层：{"tool":"read_memory","field":"storyline"}
+        args = dict(args)
+        for key, value in action.items():
+            if key in ("tool", "args"):
+                continue
+            if key not in args:
+                args[key] = value
         # finish 缺 answer / answer 为 null 时，用当轮自然语言兜底，避免整次 run 失败
         if tool == "finish":
             args = dict(args)
@@ -1651,11 +2259,47 @@ async def execute_run(session_factory: sessionmaker, claim: Optional[RunClaim], 
                 return
             continue
         try:
-            with session_factory() as db:
-                data = execute_tool(ctx, db, tool, args)
+            if tool == "generate_documents_from_settings":
+                from app.services.project_agent_tools import (
+                    _validate_args,
+                    generate_documents_from_settings,
+                )
+                resolved = _validate_args(tool, args)
+
+                async def _gen_keepalive():
+                    while True:
+                        await asyncio.sleep(45)
+                        if not heartbeat():
+                            return
+
+                gen_keepalive = asyncio.create_task(_gen_keepalive())
+                try:
+                    data = await generate_documents_from_settings(
+                        session_factory,
+                        ctx,
+                        resolved,
+                        on_progress=lambda note: persist_progress("tool", note),
+                    )
+                finally:
+                    gen_keepalive.cancel()
+                    try:
+                        await gen_keepalive
+                    except (asyncio.CancelledError, Exception):
+                        pass
+            else:
+                with session_factory() as db:
+                    data = execute_tool(ctx, db, tool, args)
         except ToolViolation as e:
             # 未先读、old_text 不匹配、越权等：反馈给模型自我修正，连续超限才判失败
             err = str(e)
+            if "提案过大" in err and tool == "propose_memory_patch":
+                pieces = _split_memory_patch_actions({"tool": tool, "args": args, **{
+                    k: action.get(k) for k in ("field", "after", "mode", "reason") if k not in args
+                }})
+                if len(pieces) > 1:
+                    pending_actions[:0] = pieces
+                    persist_progress("info", f"设定提案过大，已拆成 {len(pieces)} 个小任务继续")
+                    continue
             if "提案过大" in err:
                 enable_narrow_mode(ctx)
             if not feedback_violation(err, raw, tool, args):
@@ -1674,9 +2318,13 @@ async def execute_run(session_factory: sessionmaker, claim: Optional[RunClaim], 
             return
         violation_turns = 0
 
-        # 模型上下文保留实际动作；对用户展示仍仅通过 transcript 输出自然语言。
+        # 模型上下文只留「已执行某工具」，不回放整段设定 JSON，避免下一步被撑空。
         # read_document 观察写入前再截断，避免 90+ 块把后续轮次撑空。
-        messages.append({"role": "assistant", "content": raw})
+        model_said = raw if isinstance(raw, str) else ""
+        if len(model_said) > 500 and _collect_tool_actions(model_said):
+            prose = _strip_embedded_tool_json(model_said)
+            model_said = ((prose[:240] + "\n") if prose else "") + f"已执行 {tool}。"
+        messages.append({"role": "assistant", "content": model_said or f"已执行 {tool}。"})
         observation = {
             "marker": "UNTRUSTED_OBSERVATION",
             "tool": tool,
@@ -1765,6 +2413,14 @@ def _get_memory(db, run: AgentRun) -> AIMemory:
 
 # --- apply ---
 
+def _changes_require_user_confirm(changes: Optional[List]) -> bool:
+    """删除类提案必须用户显式确认，禁止自动 apply。"""
+    for change in changes or []:
+        if isinstance(change, dict) and change.get("kind") == "delete_document":
+            return True
+    return False
+
+
 def _check_change_apply(db, run: AgentRun, change: dict):
     kind = change.get("kind")
     if kind == "document_patch":
@@ -1788,6 +2444,31 @@ def _check_change_apply(db, run: AgentRun, change: dict):
     elif kind == "created_project":
         # 已在工具内即时创建，apply 仅作记录
         return
+    elif kind == "delete_document":
+        document = _owned_document(db, run, change["document_id"])
+        before = change.get("before") or {}
+        expected_title = before.get("title")
+        if expected_title is not None and document.title != expected_title:
+            raise HTTPException(
+                status_code=409,
+                detail=f"《{document.title}》在提案后被改名或替换，存在版本冲突，无法删除",
+            )
+        expected_content = before.get("content")
+        if expected_content is not None and _norm(document.content or []) != _norm(expected_content):
+            raise HTTPException(
+                status_code=409,
+                detail=f"《{document.title or change.get('title')}》在提案后被编辑，存在版本冲突，无法删除",
+            )
+        child_count = (
+            db.query(Document)
+            .filter(Document.parent_id == document.id, Document.project_id == run.project_id)
+            .count()
+        )
+        if child_count:
+            raise HTTPException(
+                status_code=409,
+                detail=f"《{document.title}》下还有 {child_count} 个子文档，无法删除",
+            )
     else:
         raise HTTPException(status_code=409, detail=f"未知修改类型: {kind}")
 
@@ -1821,6 +2502,11 @@ def _apply_change(db, run: AgentRun, change: dict):
             .order_by(Document.order_index.desc())
             .first()
         )
+        existing_id = change.get("target_id")
+        if existing_id:
+            existing = db.get(Document, existing_id)
+            if existing is not None and existing.project_id == run.project_id:
+                return
         document = Document(
             project_id=run.project_id,
             title=after.get("title", "未命名"),
@@ -1832,6 +2518,18 @@ def _apply_change(db, run: AgentRun, change: dict):
         db.add(document)
         db.flush()
         change["target_id"] = document.id
+    elif kind == "delete_document":
+        document = _owned_document(db, run, change["document_id"])
+        doc_id = document.id
+        from app.services.document_service import delete_document_with_dependents
+        delete_document_with_dependents(db, document)
+        db.flush()
+        try:
+            from app.services.fulltext_search_service import fulltext_search_service
+
+            fulltext_search_service.remove_document(doc_id)
+        except Exception as exc:
+            print(f"[project_agent] 删除文档后清理检索索引失败: {exc}")
 
 
 def _apply(db, run: AgentRun, *, auto: bool = False):
@@ -1842,6 +2540,9 @@ def _apply(db, run: AgentRun, *, auto: bool = False):
     # 深拷贝：_apply_change 会原地修改 change（如回填 create 的 target_id），
     # 若直接引用 run.changes 的实时 JSON 对象，赋值时会因值相等而被 ORM 判定未变更
     changes = json.loads(json.dumps(run.changes or [], ensure_ascii=False, default=str))
+    if auto and _changes_require_user_confirm(changes):
+        # 防御：自动路径绝不执行删除
+        return
     for change in changes:
         _check_change_apply(db, run, change)  # 第一遍全量校验，任一冲突即拒绝且不变更任何目标
     for change in changes:
@@ -1859,6 +2560,8 @@ def _auto_apply_run(session_factory: sessionmaker, run_id: str) -> None:
         with session_factory() as db:
             run = db.get(AgentRun, run_id)
             if run is None or run.status != "proposed" or not (run.changes or []):
+                return
+            if _changes_require_user_confirm(run.changes):
                 return
             _apply(db, run, auto=True)
     except HTTPException as exc:
@@ -1918,6 +2621,15 @@ def _check_change_revert(db, run: AgentRun, change: dict):
         after = change.get("after") or {}
         if document.title != after.get("title"):
             raise HTTPException(status_code=409, detail="该文档在创建后被人工修改，拒绝删除，无法撤销")
+    elif kind == "delete_document":
+        # 删除已生效：文档应不存在；若同 id 被重建则拒绝覆盖
+        doc_id = change.get("document_id") or change.get("target_id")
+        existing = db.get(Document, doc_id) if doc_id else None
+        if existing is not None and existing.project_id == run.project_id:
+            raise HTTPException(
+                status_code=409,
+                detail="该文档已被重新创建或恢复，无法自动撤销删除（避免覆盖）",
+            )
     else:
         raise HTTPException(status_code=409, detail=f"未知修改类型: {kind}")
 
@@ -1943,7 +2655,26 @@ def _revert_change(db, run: AgentRun, change: dict):
     elif kind == "create_document":
         document = db.get(Document, change.get("target_id")) if change.get("target_id") else None
         if document is not None:
-            db.delete(document)
+            from app.services.document_service import delete_document_with_dependents
+            delete_document_with_dependents(db, document)
+    elif kind == "delete_document":
+        before = change.get("before") or {}
+        original_id = change.get("document_id") or change.get("target_id")
+        document = Document(
+            project_id=run.project_id,
+            title=before.get("title") or "未命名",
+            content=json.loads(json.dumps(before.get("content") or [], ensure_ascii=False)),
+            parent_id=before.get("parent_id"),
+            order_index=before.get("order_index") or 0,
+        )
+        # 原 id 空闲时原样恢复，避免侧栏/编辑器仍指向已删 id
+        if original_id is not None and db.get(Document, original_id) is None:
+            document.id = int(original_id)
+        db.add(document)
+        db.flush()
+        change["restored_document_id"] = document.id
+        change["target_id"] = document.id
+        change["document_id"] = document.id
 
 
 def _revert(db, run: AgentRun):
@@ -1957,6 +2688,7 @@ def _revert(db, run: AgentRun):
         _check_change_revert(db, run, change)  # 逆向修改集不覆盖之后的人工作品
     for change in changes:
         _revert_change(db, run, change)
+    run.changes = json.loads(json.dumps(changes, ensure_ascii=False, default=str))
     run.status = "reverted"
     _append_event(run, "revert", f"已撤销 {len(changes)} 项修改")
     db.commit()

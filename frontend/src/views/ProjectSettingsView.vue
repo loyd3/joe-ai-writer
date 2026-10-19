@@ -142,7 +142,7 @@ function goWritingStyle() {
   .crumb {
     color: var(--coffee-text-muted);
     cursor: pointer;
-    font-weight: 500;
+    font-weight: 400;
 
     &:hover {
       color: var(--coffee-primary);

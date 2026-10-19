@@ -19,6 +19,10 @@ from app.services.project_agent_phases import (
     check_propose_payload_size,
     current_phase,
     enable_narrow_mode,
+    generation_forbids_settings_edits,
+    instruction_forbids_unsolicited_settings,
+    looks_like_generate_documents_instruction,
+    requested_setting_fields,
 )
 from app.services import writing_adapters
 
@@ -83,6 +87,10 @@ def _run_async(coro):
 
 _ARG_SPECS: Dict[str, Dict[str, Any]] = {
     "list_project": {},
+    # 长文：先看目录/结构，勿塞正文（借鉴 Kimi「先定位再深读」）
+    "document_map": {"document_id": (_int, 0), "limit": (_int, 40)},
+    # 长文：抽取引擎摘要进 ctx，observation 只回短 digest（主上下文隔离）
+    "digest_document": {"document_id": (_int, _REQUIRED), "max_chars": (_int, 1600)},
     # 默认每页 12 块：大文档整页塞进上下文会导致模型空响应
     "read_document": {"document_id": (_int, _REQUIRED), "offset": (_int, 0), "limit": (_int, 12)},
     # field 可空：返回全字段摘要；指定 field 时返回该字段较完整内容，便于精准改设定
@@ -111,6 +119,14 @@ _ARG_SPECS: Dict[str, Dict[str, Any]] = {
     "propose_create_document": {
         "title": (_str, _REQUIRED),
         "text": (_str, _REQUIRED),
+        "reason": (_str, ""),
+    },
+    "generate_documents_from_settings": {
+        "custom_instruction": (_str, ""),
+        "max_tokens_per_chapter": (_int, 4000),
+    },
+    "propose_delete_document": {
+        "document_id": (_int, _REQUIRED),
         "reason": (_str, ""),
     },
     "create_project": {
@@ -177,18 +193,26 @@ _DEFAULT_REASONS = {
     "propose_block_rewrite": "整块改写",
     "propose_memory_patch": "更新项目设定",
     "propose_create_document": "新建文档",
+    "propose_delete_document": "删除文档",
     "propose_writing_draft": "写入专项写作草稿",
     "propose_story_settings": "写入故事设定",
     "create_project": "用户请求创建项目",
 }
 
 
+# 模型常瞎加的无害多余参数；丢掉即可，勿整轮失败
+_IGNORABLE_EXTRA_ARGS = frozenset({
+    "reason", "mode", "full", "complete", "force", "verbose", "stream",
+    "offset", "limit", "max_chars", "preview", "detailed", "detail",
+})
+
+
 def _validate_args(tool: str, args: Any) -> Dict[str, Any]:
     if not isinstance(args, dict):
         raise ToolViolation(f"工具 {tool} 的参数必须是对象")
+    args = dict(args)
     # finish / reason 常被模型写成 null 或缺省 —— 先归一化再校验
     if tool == "finish" or "reason" in (_ARG_SPECS.get(tool) or {}):
-        args = dict(args)
         if tool == "finish":
             raw_answer = args.get("answer")
             if raw_answer is None:
@@ -201,12 +225,28 @@ def _validate_args(tool: str, args: Any) -> Dict[str, Any]:
                 args["reason"] = ""
             elif not isinstance(raw_reason, str):
                 args["reason"] = str(raw_reason)
-    spec = _ARG_SPECS.get(tool)
-    if spec is None:
+    # read_memory：field 别名 / 非字符串容错（避免「不支持参数 field」类假失败）
+    if tool == "read_memory":
+        if "field" not in args:
+            for alias in ("name", "memory_field", "key", "字段"):
+                if alias in args:
+                    args["field"] = args.pop(alias)
+                    break
+        if "field" in args and not isinstance(args["field"], str):
+            args["field"] = "" if args["field"] is None else str(args["field"])
+    if tool not in _ARG_SPECS:
         raise ToolViolation(f"未知工具: {tool}")
+    spec = dict(_ARG_SPECS[tool])
+    # 防御：即便规格表异常，read_memory 也必须接受 field
+    if tool == "read_memory" and "field" not in spec:
+        spec["field"] = (_str, "")
     extra = set(args) - set(spec)
-    if extra:
-        raise ToolViolation(f"工具 {tool} 不支持参数: {sorted(extra)}")
+    benign = extra & _IGNORABLE_EXTRA_ARGS
+    real_extra = extra - _IGNORABLE_EXTRA_ARGS
+    for key in benign:
+        args.pop(key, None)
+    if real_extra:
+        raise ToolViolation(f"工具 {tool} 不支持参数: {sorted(real_extra)}")
     resolved = {}
     for name, (checker, default) in spec.items():
         if name not in args:
@@ -278,6 +318,13 @@ class ProjectAgentContext:
         self.work_plan: List[dict] = []
         self.work_plan_index: int = 0
         self.narrow_mode: bool = False
+        self.instruction: str = ""
+        # 连续读正文计数：防止「先通读全部章节」把上下文撑空
+        self.read_document_pages: int = 0
+        self.read_document_ids: List[int] = []
+        # 长文摘要（主上下文只见短 digest；全文不进 messages）
+        self.document_digests: Dict[int, dict] = {}
+        self.document_maps: Dict[int, dict] = {}
 
     # --- 修改集（每个目标至多一条 change，多次补丁合并为 before→after） ---
     def _find_change(self, kind: str, **keys) -> Optional[dict]:
@@ -367,11 +414,217 @@ def _clip_obs_text(text: Any, limit: int = _OBS_BLOCK_CHARS) -> Any:
     return text[:limit] + "…"
 
 
+def _is_heading_block(block: dict) -> bool:
+    btype = str(block.get("type") or "").lower()
+    if "heading" in btype or btype in ("h1", "h2", "h3", "h4", "title"):
+        return True
+    props = block.get("props") if isinstance(block.get("props"), dict) else {}
+    level = props.get("level")
+    return isinstance(level, int) and level >= 1
+
+
+def _block_char_count(blocks: List[dict]) -> int:
+    total = 0
+    for block in blocks:
+        content = block.get("content") if isinstance(block, dict) else None
+        if isinstance(content, str):
+            total += len(content)
+    return total
+
+
+def _extract_headings(blocks: List[dict], limit: int = 40) -> List[dict]:
+    headings: List[dict] = []
+    for index, block in enumerate(blocks):
+        if not isinstance(block, dict) or not _is_heading_block(block):
+            continue
+        text = (block.get("content") or "").strip()
+        if not text:
+            continue
+        props = block.get("props") if isinstance(block.get("props"), dict) else {}
+        headings.append(
+            {
+                "block_id": block.get("id"),
+                "offset": index,
+                "level": props.get("level") or 2,
+                "text": text[:120],
+            }
+        )
+        if len(headings) >= limit:
+            break
+    return headings
+
+
+def _build_extractive_digest(
+    title: str, blocks: List[dict], max_chars: int = 1600
+) -> dict:
+    """无模型抽取引擎摘要：标题层级 + 段落首句，控制进主上下文的体积。"""
+    headings = _extract_headings(blocks, limit=30)
+    lines: List[str] = []
+    used = 0
+    for index, block in enumerate(blocks):
+        if not isinstance(block, dict):
+            continue
+        content = (block.get("content") or "").strip()
+        if not content:
+            continue
+        if _is_heading_block(block):
+            line = f"【{content[:80]}】"
+        else:
+            # 取首句/前 100 字，避免把整段塞进 digest
+            cut = content.find("。")
+            if 0 < cut < 100:
+                piece = content[: cut + 1]
+            else:
+                piece = content[:100] + ("…" if len(content) > 100 else "")
+            line = piece
+        if used + len(line) + 1 > max_chars:
+            remain = len(blocks) - index
+            if remain > 0:
+                lines.append(f"…（其后约 {remain} 块已省略；改稿请 read_document 定点深读）")
+            break
+        lines.append(line)
+        used += len(line) + 1
+    return {
+        "title": title,
+        "block_count": len(blocks),
+        "char_count": _block_char_count(blocks),
+        "headings": headings,
+        "digest": "\n".join(lines) if lines else "（空文档）",
+    }
+
+
+def _map_one_document(document: Document, heading_limit: int = 40) -> dict:
+    blocks = [b for b in (document.content or []) if isinstance(b, dict)]
+    return {
+        "document_id": document.id,
+        "title": document.title or "",
+        "parent_id": document.parent_id,
+        "order_index": document.order_index or 0,
+        "block_count": len(blocks),
+        "char_count": _block_char_count(blocks),
+        "headings": _extract_headings(blocks, limit=heading_limit),
+    }
+
+
+def tool_document_map(ctx: ProjectAgentContext, db: Session, args: Dict[str, Any]) -> dict:
+    """项目/单篇目录地图：只返回结构，不返回正文（长文定位入口）。"""
+    project_id = _require_project(ctx)
+    document_id = int(args.get("document_id") or 0)
+    heading_limit = int(args.get("limit") or 40)
+    heading_limit = max(5, min(heading_limit, 80))
+
+    if document_id:
+        document = _project_document(db, project_id, document_id)
+        mapped = _map_one_document(document, heading_limit=heading_limit)
+        ctx.document_maps[document.id] = mapped
+        ctx.document_titles[document.id] = document.title or ""
+        return {
+            "coverage": "single_document",
+            "document": mapped,
+            "complete": True,
+            "message": (
+                f"《{mapped['title'] or document_id}》目录已就绪（{mapped['block_count']} 块 / "
+                f"约 {mapped['char_count']} 字）。需要细节时 digest_document 或 "
+                f"read_document(offset=标题对应 offset)；禁止通读全文。"
+            ),
+        }
+
+    documents = (
+        db.query(Document)
+        .filter(Document.project_id == project_id)
+        .order_by(Document.order_index.asc(), Document.id.asc())
+        .all()
+    )
+    # 全项目地图：每篇标题数更紧，避免目录本身撑爆上下文
+    per_doc_heading_cap = 12 if len(documents) > 8 else heading_limit
+    items = []
+    for document in documents:
+        mapped = _map_one_document(document, heading_limit=per_doc_heading_cap)
+        ctx.document_maps[document.id] = mapped
+        ctx.document_titles[document.id] = document.title or ""
+        items.append(mapped)
+    total_chars = sum(item["char_count"] for item in items)
+    return {
+        "coverage": "project",
+        "document_count": len(items),
+        "total_chars": total_chars,
+        "documents": items,
+        "complete": True,
+        "message": (
+            f"项目目录已就绪：{len(items)} 篇，合计约 {total_chars} 字。"
+            "长文策略：document_map → digest_document（抽关键章）→ "
+            "定点 read_document / propose_*；不要连续 read_document 通读。"
+        ),
+    }
+
+
+def tool_digest_document(ctx: ProjectAgentContext, db: Session, args: Dict[str, Any]) -> dict:
+    """章节抽取引擎摘要：全文不进主上下文（类 Kimi 子任务隔离）；改稿仍须定点 read_document。"""
+    project_id = _require_project(ctx)
+    document = _project_document(db, project_id, args["document_id"])
+    max_chars = int(args.get("max_chars") or 1600)
+    max_chars = max(400, min(max_chars, 4000))
+    blocks = [b for b in (document.content or []) if isinstance(b, dict)]
+    ctx.document_titles[document.id] = document.title or ""
+    digest = _build_extractive_digest(document.title or "", blocks, max_chars=max_chars)
+    digest["document_id"] = document.id
+    ctx.document_digests[document.id] = digest
+    return {
+        "document_id": document.id,
+        "title": digest["title"],
+        "block_count": digest["block_count"],
+        "char_count": digest["char_count"],
+        "headings": digest["headings"],
+        "digest": digest["digest"],
+        "complete": True,
+        "message": (
+            f"《{digest['title'] or document.id}》摘要已生成（全文约 {digest['char_count']} 字未进入对话）。"
+            "主上下文只保留本摘要。要改某一段：用 headings 的 offset 调用 read_document，"
+            "再 propose_block_rewrite；禁止用摘要冒充全文通读。"
+        ),
+    }
+
+
+# 未提案前最多读几页正文；超出则拒读并要求先改设定/改当前页
+_MAX_READ_PAGES_WITHOUT_CHANGE = 3
+_MAX_DISTINCT_DOCS_WITHOUT_CHANGE = 2
+
+
 def tool_read_document(ctx: ProjectAgentContext, db: Session, args: Dict[str, Any]) -> dict:
     document = _project_document(db, _require_project(ctx), args["document_id"])
+    # 梳理设定类任务：已有 work_plan 且当前步不是读正文时，拦截通读
+    plan = getattr(ctx, "work_plan", None) or []
+    if plan and not ctx.changes:
+        from app.services.project_agent_phases import current_phase
+
+        step = current_phase(ctx)
+        if step and step.get("kind") in ("read_memory", "propose_memory_patch"):
+            raise ToolViolation(
+                "当前任务是梳理设定（storyline/outline），禁止通读章节正文。"
+                "请 read_memory(field=...) 或直接 propose_memory_patch；"
+                "章节正文等用户点名某一篇后再改。"
+            )
+    distinct = set(ctx.read_document_ids or [])
+    if (
+        not ctx.changes
+        and (
+            ctx.read_document_pages >= _MAX_READ_PAGES_WITHOUT_CHANGE
+            or (document.id not in distinct and len(distinct) >= _MAX_DISTINCT_DOCS_WITHOUT_CHANGE)
+        )
+    ):
+        raise ToolViolation(
+            f"已连续阅读 {ctx.read_document_pages} 页/"
+            f"{len(distinct)} 篇文档却尚未提出任何修改。"
+            "禁止继续通读。请立刻 propose_memory_patch 或对本页块 propose_block_rewrite，"
+            "或 finish 说明需要用户缩小范围。"
+        )
+
     blocks = [b for b in (document.content or []) if isinstance(b, dict)]
     ctx.read_documents[document.id] = json.loads(json.dumps(blocks, ensure_ascii=False))
     ctx.document_titles[document.id] = document.title or ""
+    ctx.read_document_pages = int(getattr(ctx, "read_document_pages", 0) or 0) + 1
+    if document.id not in (ctx.read_document_ids or []):
+        ctx.read_document_ids = list(ctx.read_document_ids or []) + [document.id]
     offset, limit = args["offset"], args["limit"]
     page = blocks[offset : offset + limit]
     complete = offset + limit >= len(blocks)
@@ -429,6 +682,10 @@ def _memory_field_overview(value: Any) -> Dict[str, Any]:
     return {"empty": False, "preview": blob[:240] + ("…" if len(blob) > 240 else "")}
 
 
+# 单字段观察上限：完整值留 staged_memory，避免把大 storyline 塞进主对话导致空响应
+_MAX_MEMORY_FIELD_OBS_CHARS = 2200
+
+
 def tool_read_memory(ctx: ProjectAgentContext, db: Session, args: Dict[str, Any]) -> dict:
     memory = db.query(AIMemory).filter(AIMemory.project_id == _require_project(ctx)).first()
     ctx.memory_read = True
@@ -453,6 +710,26 @@ def tool_read_memory(ctx: ProjectAgentContext, db: Session, args: Dict[str, Any]
 
     if field:
         value = ctx.staged_memory.get(field)
+        try:
+            blob = json.dumps(value, ensure_ascii=False, default=str)
+        except Exception:
+            blob = str(value)
+        full_chars = len(blob)
+        if full_chars > _MAX_MEMORY_FIELD_OBS_CHARS:
+            # 大字段只回摘要；完整值已在 ctx.staged_memory，merge 不必再通读
+            return {
+                "memory_id": ctx.memory_row_id,
+                "field": field,
+                "value": _memory_field_overview(value),
+                "full_chars": full_chars,
+                "coverage": "single_field_digest",
+                "complete": True,
+                "message": (
+                    f"字段 {field} 约 {full_chars} 字，完整值已在服务端暂存，对话里只给概览。"
+                    f"请直接 propose_memory_patch(field=\"{field}\", mode=\"merge\", after=改动项)；"
+                    "before 可省略。禁止再索要「完整 storyline/outline 全文」。"
+                ),
+            }
         return {
             "memory_id": ctx.memory_row_id,
             "field": field,
@@ -460,7 +737,7 @@ def tool_read_memory(ctx: ProjectAgentContext, db: Session, args: Dict[str, Any]
             "coverage": "single_field",
             "complete": True,
             "message": (
-                f"已读取字段 {field} 的完整暂存值。请用 propose_memory_patch"
+                f"已读取字段 {field}。请用 propose_memory_patch"
                 f"(field=\"{field}\", mode=\"merge\"|\"replace\", after=...) 更新；"
                 "before 可省略。"
             ),
@@ -474,8 +751,8 @@ def tool_read_memory(ctx: ProjectAgentContext, db: Session, args: Dict[str, Any]
         "coverage": "overview",
         "complete": True,
         "message": (
-            "以上为各设定字段概览。改某一字段前请 read_memory(field=\"...\") 取完整值，"
-            "或直接 propose_memory_patch(mode=\"merge\") 只传新增/改动项。"
+            "以上为各设定字段概览。大字段不必再 read_memory 取全文；"
+            "直接 propose_memory_patch(mode=\"merge\") 只传新增/改动项即可。"
         ),
     }
 
@@ -618,12 +895,44 @@ def tool_propose_block_rewrite(ctx: ProjectAgentContext, db: Session, args: Dict
     }
 
 
+def _settings_edit_blocked(ctx: ProjectAgentContext, field: Optional[str] = None) -> Optional[dict]:
+    """指令没要求改设定，或没点名这个字段时，不写入项目设定。"""
+    instruction = getattr(ctx, "instruction", "") or ""
+    if generation_forbids_settings_edits(instruction):
+        message = (
+            "本轮只按现有大纲和设定生成文章，不修改大纲或任何项目设定。"
+            "请调用 generate_documents_from_settings()，完成后 finish。"
+        )
+    else:
+        allowed = requested_setting_fields(instruction)
+        if instruction_forbids_unsolicited_settings(instruction):
+            message = (
+                "当前指令是检查或讨论，没有要求修改项目设定。"
+                "只汇报结果，不要改大纲、人物、故事线或其他设定。"
+            )
+        elif field and allowed and field not in allowed:
+            message = (
+                f"当前指令没有要求修改 {field}。只改指令点名的设定字段，然后回到原任务。"
+            )
+        else:
+            return None
+    return {
+        "complete": True,
+        "skipped": True,
+        "change_count": len(ctx.changes),
+        "message": message,
+    }
+
+
 def tool_propose_memory_patch(ctx: ProjectAgentContext, db: Session, args: Dict[str, Any]) -> dict:
+    field = _coerce_memory_field_name(args.get("field")) or args.get("field")
+    blocked = _settings_edit_blocked(ctx, field if isinstance(field, str) else None)
+    if blocked:
+        return blocked
     _require_project(ctx)
     # 未读过设定时自动预读，避免「忘了 read_memory」整轮失败
     if not ctx.memory_read:
         tool_read_memory(ctx, db, {})
-    field = _coerce_memory_field_name(args.get("field")) or args.get("field")
     if field not in MEMORY_FIELDS:
         raise ToolViolation(f"设定字段不在可修改白名单: {field}。可选: {', '.join(MEMORY_FIELDS)}")
     mode = (args.get("mode") or "replace").strip().lower()
@@ -670,7 +979,7 @@ def tool_propose_memory_patch(ctx: ProjectAgentContext, db: Session, args: Dict[
                 "kind": "memory_patch",
                 "target_id": ctx.memory_row_id,
                 "field": field,
-                "title": f"项目设定 · {field}",
+                "title": _MEMORY_FIELD_TITLES.get(field, f"项目设定 · {field}"),
                 "before": args["before"],
                 "after": args["after"],
                 "reason": args["reason"],
@@ -698,6 +1007,12 @@ def tool_propose_memory_patch(ctx: ProjectAgentContext, db: Session, args: Dict[
 
 def tool_propose_create_document(ctx: ProjectAgentContext, db: Session, args: Dict[str, Any]) -> dict:
     _require_project(ctx)
+    if looks_like_generate_documents_instruction(getattr(ctx, "instruction", "") or ""):
+        raise ToolViolation(
+            "根据设定生成多篇请调用 generate_documents_from_settings()，"
+            "让写作模型按本项目的角色、故事线、文风和大纲逐章生成。"
+            "不要把整章正文塞进 propose_create_document。"
+        )
     ctx._append_change(
         {
             "id": str(uuid.uuid4()),
@@ -711,6 +1026,76 @@ def tool_propose_create_document(ctx: ProjectAgentContext, db: Session, args: Di
         }
     )
     return {"title": args["title"], "change_count": len(ctx.changes), "complete": True}
+
+
+def tool_propose_delete_document(ctx: ProjectAgentContext, db: Session, args: Dict[str, Any]) -> dict:
+    """提案删除文档：仅暂存，须用户确认后才真正删除（不会自动 apply）。"""
+    project_id = _require_project(ctx)
+    document_id = args["document_id"]
+    document = _project_document(db, project_id, document_id)
+    child_count = (
+        db.query(Document)
+        .filter(Document.parent_id == document_id, Document.project_id == project_id)
+        .count()
+    )
+    if child_count:
+        raise ToolViolation(
+            f"《{document.title or document_id}》下还有 {child_count} 个子文档，"
+            "请先删除子文档，或请用户在侧栏整理后再删。"
+        )
+    # 同轮已有针对该文档的补丁/新建冲突时拒绝，避免半改半删
+    for change in ctx.changes:
+        if not isinstance(change, dict):
+            continue
+        kind = change.get("kind")
+        if kind == "delete_document" and change.get("document_id") == document_id:
+            return {
+                "document_id": document_id,
+                "title": document.title,
+                "change_count": len(ctx.changes),
+                "complete": True,
+                "message": "该文档删除提案已暂存，等待用户确认。",
+            }
+        if kind == "document_patch" and change.get("document_id") == document_id:
+            raise ToolViolation(
+                f"本轮已有对文档 {document_id} 的正文修改提案，不能同时删除。"
+                "请 finish 当前修改后再另开一轮删除，或取消后再删。"
+            )
+        if kind == "create_document" and change.get("target_id") == document_id:
+            raise ToolViolation("不能删除本轮刚提案新建的文档；请取消该新建提案。")
+
+    title = (document.title or "").strip() or f"文档 {document_id}"
+    content = json.loads(json.dumps(document.content or [], ensure_ascii=False, default=str))
+    ctx._append_change(
+        {
+            "id": str(uuid.uuid4()),
+            "kind": "delete_document",
+            "target_id": document_id,
+            "document_id": document_id,
+            "title": f"删除《{title}》",
+            "before": {
+                "title": document.title,
+                "content": content,
+                "parent_id": document.parent_id,
+                "order_index": document.order_index or 0,
+            },
+            "after": None,
+            "reason": args.get("reason") or "删除文档",
+        }
+    )
+    # 同步标题缓存，便于后续 list 展示
+    ctx.document_titles[document_id] = title
+    return {
+        "document_id": document_id,
+        "title": title,
+        "change_count": len(ctx.changes),
+        "complete": True,
+        "message": (
+            f"已暂存删除《{title}》（document_id={document_id}）。"
+            "该操作不会自动执行，须用户在对话中确认后才会删除。"
+        ),
+        "requires_user_confirm": True,
+    }
 
 
 def tool_create_project(ctx: ProjectAgentContext, db: Session, args: Dict[str, Any]) -> dict:
@@ -967,6 +1352,9 @@ def tool_propose_writing_draft(ctx: ProjectAgentContext, db: Session, args: Dict
 
 
 def tool_propose_story_settings(ctx: ProjectAgentContext, db: Session, args: Dict[str, Any]) -> dict:
+    blocked = _settings_edit_blocked(ctx)
+    if blocked:
+        return blocked
     _require_project(ctx)
     draft_id = args["draft_id"]
     draft = _consume_draft(ctx, draft_id)
@@ -1009,6 +1397,290 @@ def tool_propose_story_settings(ctx: ProjectAgentContext, db: Session, args: Dic
     }
 
 
+def _outline_nodes_for_generation(ctx: ProjectAgentContext, db: Session) -> List[dict]:
+    """优先用本轮暂存大纲，否则读库。故事线 stages 仅在没有大纲时兜底。"""
+    outline = ctx.staged_memory.get("outline") if isinstance(ctx.staged_memory, dict) else None
+    if not isinstance(outline, list) or not outline:
+        memory = db.query(AIMemory).filter(AIMemory.project_id == ctx.project_id).first()
+        outline = memory.outline if memory is not None else None
+    nodes: List[dict] = []
+    if isinstance(outline, list):
+        for item in outline:
+            if not isinstance(item, dict):
+                continue
+            title = str(item.get("title") or "").strip()
+            if not title:
+                continue
+            nodes.append({
+                "title": title,
+                "description": str(item.get("description") or item.get("summary") or "").strip(),
+            })
+    if nodes:
+        return nodes[:12]
+    storyline = ctx.staged_memory.get("storyline") if isinstance(ctx.staged_memory, dict) else None
+    if not isinstance(storyline, dict):
+        memory = db.query(AIMemory).filter(AIMemory.project_id == ctx.project_id).first()
+        storyline = memory.storyline if memory is not None else None
+    stages = storyline.get("stages") if isinstance(storyline, dict) else None
+    if isinstance(stages, list):
+        for item in stages:
+            if not isinstance(item, dict):
+                continue
+            title = str(item.get("title") or "").strip()
+            if not title:
+                continue
+            nodes.append({
+                "title": title,
+                "description": str(item.get("summary") or item.get("description") or "").strip(),
+            })
+    return nodes[:12]
+
+
+def _project_rules_for_chapter(
+    ctx: ProjectAgentContext,
+    *,
+    node: dict,
+    index: int,
+    total: int,
+    previous_summary: str,
+    custom_instruction: str,
+) -> str:
+    """把项目设定收成写作约束。冲突时以本轮暂存设定为准。"""
+    lines = [
+        "写这一章时必须符合本项目的规则，由你按这些规则成文，不要另起一套设定：",
+        "- 人物使用设定中的姓名、关系、性格和目标，不要换名，不要改已写明的感情走向。",
+        "- 只写当前这一章，情节落在大纲和故事线的对应位置，不要跳写后文章节，不要推翻已定结局。",
+        "- 文风遵循项目写作风格；有文风智能体时以该智能体为准。",
+        "- 世界观、关键情节点和备注中的限制同样生效。",
+        f"- 这是第 {index + 1}/{total} 章「{node.get('title') or ''}」。",
+    ]
+    if node.get("description"):
+        lines.append(f"- 本章要完成：{node['description']}")
+    staged = ctx.staged_memory if isinstance(ctx.staged_memory, dict) else {}
+    bits = []
+    for field, label in (
+        ("characters", "角色"),
+        ("storyline", "故事线"),
+        ("outline", "大纲"),
+        ("world_building", "世界观"),
+        ("writing_style", "文风"),
+        ("key_points", "情节点"),
+        ("notes", "备注"),
+    ):
+        value = staged.get(field)
+        if value in (None, "", [], {}):
+            continue
+        try:
+            text = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
+        except Exception:
+            text = str(value)
+        text = text.strip()
+        if not text:
+            continue
+        if len(text) > 1200:
+            text = text[:1200] + "…"
+        bits.append(f"【{label}】{text}")
+    if bits:
+        lines.append("本轮项目设定（与旧稿冲突时以这里为准）：")
+        lines.extend(bits)
+    if previous_summary:
+        lines.append("上一章结尾，本章需接上，不要重写上一章：")
+        lines.append(previous_summary[:500])
+    if custom_instruction:
+        lines.append("用户本轮的额外要求（不能违背上面的项目规则）：")
+        lines.append(custom_instruction)
+    return "\n".join(lines)
+
+
+async def _generate_one_chapter_text(
+    db: Session,
+    *,
+    project_id: int,
+    document_id: int,
+    node: dict,
+    index: int,
+    total: int,
+    max_tokens: int,
+    custom_instruction: str,
+    user_id: Optional[int] = None,
+) -> str:
+    """复用设定页「创建文章」的 batch_generate：模型按项目设定写本章。"""
+    from app.services.ai_writing_service import AIWritingService
+
+    content = ""
+    streamed = ""
+    error = ""
+    async for raw in AIWritingService.batch_generate(
+        db,
+        project_id=project_id,
+        document_id=document_id,
+        outline_nodes=[node],
+        max_tokens_per_chapter=max_tokens,
+        continue_on_complete=False,
+        custom_instruction=custom_instruction,
+        user_id=user_id,
+        style_agent_id=None,
+    ):
+        try:
+            event = json.loads(raw) if isinstance(raw, str) else raw
+        except Exception:
+            continue
+        if not isinstance(event, dict):
+            continue
+        if event.get("type") == "error":
+            error = event.get("error_message") or event.get("message") or "生成失败"
+        elif event.get("type") == "chapter_complete" and event.get("chapter_content"):
+            content = str(event.get("chapter_content") or "")
+        elif event.get("type") == "content" and event.get("content") and not content:
+            streamed += str(event.get("content") or "")
+    if error and not content:
+        raise ToolViolation(error)
+    return (content or streamed).strip()
+
+
+async def generate_documents_from_settings(
+    session_factory,
+    ctx: ProjectAgentContext,
+    args: Dict[str, Any],
+    on_progress=None,
+) -> dict:
+    """按大纲逐篇调用既有生成接口并落库。正文不返回给模型。"""
+    project_id = _require_project(ctx)
+    max_tokens = int(args.get("max_tokens_per_chapter") or 4000)
+    max_tokens = max(800, min(max_tokens, 8000))
+    custom = str(args.get("custom_instruction") or "").strip()
+    with session_factory() as db:
+        nodes = _outline_nodes_for_generation(ctx, db)
+    if not nodes:
+        raise ToolViolation("项目大纲为空。请先把章节标题写入 outline，再生成多篇。")
+
+    from app.utils.document_format import parse_formatted_text_to_blocks
+
+    created: List[dict] = []
+    failed: List[dict] = []
+    total = len(nodes)
+    previous_summary = ""
+    for index, node in enumerate(nodes):
+        title = node["title"]
+        if on_progress:
+            on_progress(f"按项目规则生成 {index + 1}/{total}：{title}")
+        rules = _project_rules_for_chapter(
+            ctx,
+            node=node,
+            index=index,
+            total=total,
+            previous_summary=previous_summary,
+            custom_instruction=custom,
+        )
+        with session_factory() as db:
+            max_order = (
+                db.query(Document)
+                .filter(Document.project_id == project_id)
+                .order_by(Document.order_index.desc())
+                .first()
+            )
+            document = Document(
+                project_id=project_id,
+                title=title,
+                content=[],
+                parent_id=None,
+                order_index=(max_order.order_index + 1) if max_order and max_order.order_index is not None else index,
+            )
+            db.add(document)
+            db.commit()
+            db.refresh(document)
+            doc_id = document.id
+            try:
+                text = await _generate_one_chapter_text(
+                    db,
+                    project_id=project_id,
+                    document_id=doc_id,
+                    node=node,
+                    index=index,
+                    total=total,
+                    max_tokens=max_tokens,
+                    custom_instruction=rules,
+                    user_id=ctx.user_id,
+                )
+            except Exception as exc:
+                from app.services.document_service import delete_document_with_dependents
+                delete_document_with_dependents(db, document)
+                db.commit()
+                failed.append({"title": title, "error": str(exc)[:200]})
+                continue
+            if not text or text.startswith("[错误]") or text.startswith("[配置错误]"):
+                from app.services.document_service import delete_document_with_dependents
+                delete_document_with_dependents(db, document)
+                db.commit()
+                failed.append({"title": title, "error": (text or "未生成到有效内容")[:200]})
+                continue
+            blocks = parse_formatted_text_to_blocks(text, f"gen{doc_id}")
+            if not blocks or blocks[0].get("type") not in ("heading", "subheading"):
+                blocks.insert(0, {
+                    "id": f"gen-title-{doc_id}",
+                    "type": "heading",
+                    "content": title,
+                    "props": {"level": 2},
+                })
+            document.content = blocks
+            db.commit()
+        previous_summary = text.replace("\n", " ")[:400]
+        preview = previous_summary[:80]
+        ctx._append_change({
+            "id": str(uuid.uuid4()),
+            "kind": "create_document",
+            "target_id": doc_id,
+            "title": title,
+            "before": None,
+            "after": {"title": title, "text": preview},
+            "reason": "根据设定生成",
+        })
+        created.append({"document_id": doc_id, "title": title, "chars": len(text)})
+
+    if not created and failed:
+        raise ToolViolation("多篇生成均未成功：" + "；".join(
+            f"{item['title']}：{item['error']}" for item in failed[:4]
+        ))
+    return {
+        "complete": True,
+        "created": created,
+        "failed": failed,
+        "change_count": len(ctx.changes),
+        "message": (
+            f"已按项目的角色、故事线、文风和大纲生成 {len(created)} 篇。"
+            + (f" {len(failed)} 篇失败，可再说「继续生成剩下的」。" if failed else "")
+            + "正文在文档里，不要再把全文复制进对话。请 finish 列出篇名。"
+        ),
+    }
+
+
+def tool_generate_documents_from_settings(ctx: ProjectAgentContext, db: Session, args: Dict[str, Any]) -> dict:
+    """同步入口（测试 / execute_tool）。执行循环改走异步版本，避免长生成占住租约。"""
+    return _run_async(_generate_documents_on_session(ctx, db, args))
+
+
+async def _generate_documents_on_session(ctx: ProjectAgentContext, db: Session, args: Dict[str, Any]) -> dict:
+    """给已有 Session 用：测试里没有独立 sessionmaker 时走这条。"""
+    class _Factory:
+        def __call__(self):
+            return _SessionGuard(db)
+
+    return await generate_documents_from_settings(_Factory(), ctx, args)
+
+
+class _SessionGuard:
+    """让已有 Session 兼容 `with session_factory() as db`，且不在退出时关闭。"""
+
+    def __init__(self, db: Session):
+        self._db = db
+
+    def __enter__(self):
+        return self._db
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+
 def tool_finish(ctx: ProjectAgentContext, db: Session, args: Dict[str, Any]) -> dict:
     answer = args.get("answer") if isinstance(args, dict) else ""
     if not isinstance(answer, str):
@@ -1019,6 +1691,8 @@ def tool_finish(ctx: ProjectAgentContext, db: Session, args: Dict[str, Any]) -> 
 
 TOOLS = {
     "list_project": tool_list_project,
+    "document_map": tool_document_map,
+    "digest_document": tool_digest_document,
     "read_document": tool_read_document,
     "read_memory": tool_read_memory,
     "search_project": tool_search_project,
@@ -1026,6 +1700,8 @@ TOOLS = {
     "propose_block_rewrite": tool_propose_block_rewrite,
     "propose_memory_patch": tool_propose_memory_patch,
     "propose_create_document": tool_propose_create_document,
+    "generate_documents_from_settings": tool_generate_documents_from_settings,
+    "propose_delete_document": tool_propose_delete_document,
     "create_project": tool_create_project,
     "list_hot_topics": tool_list_hot_topics,
     "hot_topic_write": tool_hot_topic_write,
@@ -1079,14 +1755,29 @@ def _infer_memory_field_from_after(after: Any) -> Optional[str]:
         sample = next((x for x in after if isinstance(x, dict)), None)
         if isinstance(sample, dict):
             keys = {str(k).lower() for k in sample.keys()}
-            if keys & {"title", "summary"} and not (keys & {"name", "description"}):
-                return "key_points"
-            if keys & {"name", "description", "role", "personality"}:
+            if "name" in keys and keys & {"description", "role", "personality", "background"}:
                 return "characters"
+            # 文章大纲：章节标题 + 简述
+            if "title" in keys and "description" in keys and "name" not in keys:
+                return "outline"
+            # 关键情节点：标题 + summary
+            if "title" in keys and keys & {"summary", "point"} and "description" not in keys:
+                return "key_points"
             if keys & {"act", "beat", "chapter", "arc"}:
                 return "outline"
         return None
     return None
+
+
+_MEMORY_FIELD_TITLES = {
+    "outline": "文章大纲",
+    "storyline": "故事线",
+    "characters": "人物设定",
+    "world_building": "世界观",
+    "writing_style": "文风",
+    "key_points": "关键情节点",
+    "notes": "备注",
+}
 
 
 def _fill_memory_patch_args(ctx: ProjectAgentContext, args: Dict[str, Any]) -> Dict[str, Any]:

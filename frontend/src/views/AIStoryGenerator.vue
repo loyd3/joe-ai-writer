@@ -864,7 +864,7 @@ onMounted(() => {
   color: var(--coffee-primary);
 
   &.muted {
-    font-weight: 500;
+    font-weight: 400;
     color: var(--coffee-text-muted);
   }
 }
@@ -1067,7 +1067,7 @@ onMounted(() => {
 
   :deep(.el-radio__label) {
     font-size: 14px;
-    font-weight: 500;
+    font-weight: 400;
     line-height: 1.45;
     color: var(--coffee-text);
   }
@@ -1154,10 +1154,10 @@ onMounted(() => {
   border-left-width: 4px;
 
   &.protagonist {
-    border-left-color: #67c23a;
+    border-left-color: var(--coffee-success);
   }
   &.antagonist {
-    border-left-color: #f56c6c;
+    border-left-color: var(--coffee-danger);
   }
   &.supporting {
     border-left-color: var(--coffee-text-muted);

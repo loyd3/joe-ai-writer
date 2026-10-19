@@ -294,12 +294,13 @@ const weeklyGoalProgress = computed(() => {
   return Math.min(progress, 100)
 })
 
+/** 目标进度色：统一主色系层次，避免花哨多色 */
 const goalColors = [
-  { color: '#f56c6c', percentage: 20 },
-  { color: '#e6a23c', percentage: 40 },
-  { color: '#5cb87a', percentage: 60 },
-  { color: '#1989fa', percentage: 80 },
-  { color: '#6f7ad3', percentage: 100 }
+  { color: 'var(--coffee-primary-dark)', percentage: 20 },
+  { color: 'var(--coffee-primary)', percentage: 40 },
+  { color: 'var(--coffee-primary-light)', percentage: 60 },
+  { color: 'var(--coffee-info)', percentage: 80 },
+  { color: 'var(--coffee-success)', percentage: 100 },
 ]
 
 onMounted(async () => {
@@ -427,24 +428,25 @@ try {
       font-size: 28px;
     }
     
+    /* 四张卡统一主色系，用透明度区分层次 */
     &.projects {
-      background: linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%);
-      color: #1976d2;
+      background: var(--coffee-primary-tint);
+      color: var(--coffee-primary);
     }
-    
+
     &.documents {
-      background: linear-gradient(135deg, #f3e5f5 0%, #e1bee7 100%);
-      color: #7b1fa2;
+      background: rgba(var(--coffee-primary-rgb), .12);
+      color: var(--coffee-primary);
     }
-    
+
     &.words {
-      background: linear-gradient(135deg, #e8f5e9 0%, #c8e6c9 100%);
-      color: #388e3c;
+      background: var(--coffee-primary-tint-strong);
+      color: var(--coffee-primary-dark);
     }
-    
+
     &.ai {
-      background: linear-gradient(135deg, #fff3e0 0%, #ffe0b2 100%);
-      color: #f57c00;
+      background: rgba(var(--coffee-primary-rgb), .18);
+      color: var(--coffee-primary-light);
     }
   }
   
@@ -520,7 +522,7 @@ try {
     margin-bottom: 8px;
     
     .recent-title {
-      font-weight: 500;
+      font-weight: 400;
       color: var(--coffee-text);
     }
     
@@ -579,7 +581,7 @@ try {
     margin-bottom: 16px;
     
     .goal-title {
-      font-weight: 500;
+      font-weight: 400;
       color: var(--coffee-text);
     }
   }

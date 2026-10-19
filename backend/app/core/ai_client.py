@@ -763,13 +763,13 @@ class AIClient:
                     max_tokens=max_tokens,
                     stream=True,
                 )
-                # 本地 Ollama 首次拉模型 / 长提示加载可能较慢
+                # 首包等待：推理/本地更长；在线也提高到 90s（长上下文首 token 慢）
                 if self.is_reasoning_model():
-                    connect_timeout = 90.0
+                    connect_timeout = max(float(timeout), 120.0)
                 elif self._is_local_ollama():
-                    connect_timeout = 180.0
+                    connect_timeout = max(float(timeout), 180.0)
                 else:
-                    connect_timeout = 30.0
+                    connect_timeout = max(float(timeout), 90.0)
                 stream = await asyncio.wait_for(
                     self.client.chat.completions.create(**params),
                     timeout=connect_timeout,

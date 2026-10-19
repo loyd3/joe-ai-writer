@@ -148,6 +148,12 @@ def test_conversation_context_inherited_by_next_run(store):
         assert get_run(db, 1, 1, run2_id).status == 'completed'
     flattened = json.dumps(calls[0], ensure_ascii=False)
     assert '前轮结论：主角应改名为林远' in flattened
+    assert '上下文仅供参考' in flattened
+    assert '当前指令' in flattened
+    user_turns = [m for m in calls[0] if m.get('role') == 'user' and 'UNTRUSTED_OBSERVATION' not in (m.get('content') or '')]
+    assert user_turns
+    assert '第二轮' in user_turns[-1]['content']
+    assert '前轮结论' not in user_turns[-1]['content']
 
 
 def test_invalid_fence_json_fails_run(store):
@@ -453,8 +459,8 @@ def test_illegal_json_feedback_includes_raw_and_can_recover(store):
         assert db.get(Document, 1).content[0]['content'] == 'new hero expanded'
 
 
-def test_default_model_falls_back_to_non_stream_on_empty(monkeypatch):
-    """流式连续空响应时回退非流式，避免整次任务直接失败。"""
+def test_default_model_prefers_non_stream(monkeypatch):
+    """智能体优先非流式，减少推理模型流式空 content。"""
     from app.services import project_agent_service as svc
     import app.core.ai_client as ai_mod
 
@@ -465,7 +471,7 @@ def test_default_model_falls_back_to_non_stream_on_empty(monkeypatch):
 
         async def stream_completion(self, *args, **kwargs):
             self.stream_calls += 1
-            if False:  # keep async-generator type
+            if False:
                 yield ""
 
         async def chat_completion(self, *args, **kwargs):
@@ -475,15 +481,35 @@ def test_default_model_falls_back_to_non_stream_on_empty(monkeypatch):
     fake = _FakeClient()
     monkeypatch.setattr(ai_mod, "ai_client", fake)
 
-    async def _sleep(_):
-        return None
-
-    monkeypatch.setattr(svc.asyncio, "sleep", _sleep)
-
     text = asyncio.run(svc.default_model([{"role": "user", "content": "hi"}]))
     assert '"tool"' in text
-    assert fake.stream_calls == 3
     assert fake.chat_calls == 1
+    assert fake.stream_calls == 0
+
+
+def test_default_model_streams_when_non_stream_empty(monkeypatch):
+    from app.services import project_agent_service as svc
+    import app.core.ai_client as ai_mod
+
+    class _FakeClient:
+        def __init__(self):
+            self.stream_calls = 0
+            self.chat_calls = 0
+
+        async def stream_completion(self, *args, **kwargs):
+            self.stream_calls += 1
+            yield '{"tool":"finish","args":{"answer":"from-stream"}}'
+
+        async def chat_completion(self, *args, **kwargs):
+            self.chat_calls += 1
+            return ""
+
+    fake = _FakeClient()
+    monkeypatch.setattr(ai_mod, "ai_client", fake)
+    text = asyncio.run(svc.default_model([{"role": "user", "content": "hi"}]))
+    assert "from-stream" in text
+    assert fake.chat_calls == 1
+    assert fake.stream_calls == 1
 
 
 def test_empty_model_response_retries_then_can_finish(store):
@@ -516,7 +542,7 @@ def test_empty_model_response_retries_then_can_finish(store):
 
 
 def test_empty_model_exhausted_soft_finishes_not_failed(store):
-    """空响应耗尽重试应软结束（completed），不要 failed +「模型调用失败」。"""
+    """空响应耗尽：completed + 无 run.error，不出现「模型调用失败」。"""
     from app.services.project_agent_service import (
         MAX_EMPTY_MODEL_RETRIES,
         create_run,
@@ -537,10 +563,175 @@ def test_empty_model_exhausted_soft_finishes_not_failed(store):
     with store() as db:
         run = get_run(db, 1, 1, run_id)
         assert run.status == "completed"
-        assert not (run.error or "").startswith("模型调用失败")
-        assert "拆小" in (run.answer or "") or "空响应" in (run.answer or "") or "可用内容" in (run.answer or "")
-        # 预读后仍会多次空响应；次数应覆盖 MAX_EMPTY_MODEL_RETRIES+1
+        assert not (run.error or "")
+        assert "模型调用失败" not in (run.answer or "")
+        blob = (run.answer or "") + json.dumps(run.events or [], ensure_ascii=False)
+        assert "安全结束" in blob or "拆小" in blob or "故事线" in blob
         assert MAX_EMPTY_MODEL_RETRIES >= 1
+
+
+def test_empty_string_output_soft_finishes_not_failed(store):
+    """模型返回空串（解析为「输出为空」）也应安全结束，不标 failed。"""
+    from app.services.project_agent_service import create_run, claim_run, execute_run, get_run
+
+    with store() as db:
+        run = create_run(db, 1, 1, "随便聊聊", None)
+        run_id = run.id
+
+    async def model(messages, **kwargs):
+        return ""
+
+    claim = claim_run(store)
+    asyncio.run(execute_run(store, claim, model))
+    with store() as db:
+        run = get_run(db, 1, 1, run_id)
+        assert run.status == "completed"
+        assert not (run.error or "")
+        assert run.status != "failed"
+
+
+def test_partial_output_is_continued_not_restarted(store):
+    """超时半成品应带入下一轮续写，而不是丢掉重来。"""
+    from app.services.project_agent_service import (
+        PartialModelError,
+        create_run,
+        claim_run,
+        execute_run,
+        get_run,
+    )
+
+    draft = "好的，我先补故事线副线。\n```json\n{\"tool\": \"propose_memory_patch\", \"args\": {\"field\": \"storyline\""
+    with store() as db:
+        run = create_run(db, 1, 1, "补副线", None)
+        run_id = run.id
+    calls = {"n": 0}
+    saw_draft = {"ok": False}
+
+    async def model(messages, **kwargs):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            # 模拟超时但已有半成品
+            raise PartialModelError("超时", draft)
+        blob = json.dumps(messages, ensure_ascii=False)
+        if draft[:20] in blob or "接着草稿继续" in blob or "续写" in blob:
+            saw_draft["ok"] = True
+        return json.dumps(
+            {
+                "tool": "finish",
+                "args": {"answer": "已根据草稿收尾，请拆小后继续补 stages"},
+            },
+            ensure_ascii=False,
+        )
+
+    claim = claim_run(store)
+    asyncio.run(execute_run(store, claim, model))
+    with store() as db:
+        run = get_run(db, 1, 1, run_id)
+        assert run.status == "completed"
+        assert saw_draft["ok"], "续写轮应看到上一轮草稿或续写提示"
+        assert not (run.error or "")
+
+
+def test_read_all_plan_text_gets_interrupted_then_can_finish(store):
+    """模型口头说要通读全部章节时会被打断，随后仍可正常 finish。"""
+    from app.services.project_agent_service import create_run, claim_run, execute_run, get_run
+
+    sequence = [
+        "我先把当前 storyline、outline 和全部章节文档读一遍，再对照新故事线做梳理。",
+        json.dumps(action("finish", answer="已改为先更新故事线，章节稍后再逐篇对照。"), ensure_ascii=False),
+    ]
+    with store() as db:
+        run = create_run(db, 1, 1, "请对照新故事线梳理设定", None)
+        run_id = run.id
+    calls = {"n": 0}
+
+    async def model(messages, **kwargs):
+        idx = calls["n"]
+        calls["n"] += 1
+        # 第二轮应收到打断通读的系统提示
+        if idx >= 1:
+            blob = json.dumps(messages, ensure_ascii=False)
+            assert "打断" in blob or "禁止通读" in blob
+        return sequence[min(idx, len(sequence) - 1)]
+
+    claim = claim_run(store)
+    asyncio.run(execute_run(store, claim, model))
+    with store() as db:
+        run = get_run(db, 1, 1, run_id)
+        assert run.status == "completed"
+        assert "故事线" in (run.answer or "")
+
+
+def test_bare_json_tools_in_one_reply_are_split_and_executed(store):
+    """同一条回复里的裸 JSON（先 patch 再 finish）要拆开执行，不能当成空响应丢掉。"""
+    from app.services.project_agent_service import get_run
+
+    prose = (
+        "设定概览已确认：storyline 目前只有主线 summary 和 stages。"
+        "这一步只改 storyline，用 merge 把三段关系补进去。"
+    )
+    patch = {
+        "tool": "propose_memory_patch",
+        "args": {
+            "field": "storyline",
+            "mode": "merge",
+            "reason": "补写感情线",
+            "after": {
+                "summary": "主线双向暗恋，副线错位三角。",
+                "stages": [
+                    {"title": "青梅竹马", "description": "守了多年、从未说破。"},
+                    {"title": "天降", "description": "最早察觉却未闹未退。"},
+                ],
+            },
+        },
+    }
+    finish = {
+        "tool": "finish",
+        "args": {"answer": "故事线已更新完成：补入错位三角，下一步可同步角色。"},
+    }
+    raw = prose + "\n" + json.dumps(patch, ensure_ascii=False) + "\n" + json.dumps(finish, ensure_ascii=False)
+    run_id, _, calls = execute(store, [raw], instruction="补写涩琪感情线")
+    assert len(calls) == 1
+    with store() as db:
+        run = get_run(db, 1, 1, run_id)
+        assert run.status == "applied"
+        assert "安全结束" not in (run.answer or "")
+        assert "故事线已更新" in (run.answer or "")
+        memory = db.query(AIMemory).filter_by(project_id=1).one()
+        titles = [s.get("title") for s in (memory.storyline or {}).get("stages") or []]
+        assert titles == ["青梅竹马", "天降"]
+
+
+def test_oversized_storyline_patch_is_split_into_tasks(store):
+    """单次 storyline 提案过大时按 stage 拆开写入，并保留 finish 里的总结。"""
+    from app.services.project_agent_service import get_run
+
+    stages = [
+        {"title": f"第{i}段", "description": "情" * 2000}
+        for i in range(1, 4)
+    ]
+    patch = {
+        "tool": "propose_memory_patch",
+        "args": {
+            "field": "storyline",
+            "mode": "merge",
+            "reason": "一次写完",
+            "after": {"summary": "总述", "stages": stages},
+        },
+    }
+    finish = {"tool": "finish", "args": {"answer": "四段故事线已分批写入。"}}
+    raw = json.dumps(patch, ensure_ascii=False) + "\n" + json.dumps(finish, ensure_ascii=False)
+    run_id, _, calls = execute(store, [raw], instruction="补全故事线")
+    assert len(calls) == 1
+    with store() as db:
+        run = get_run(db, 1, 1, run_id)
+        assert run.status == "applied"
+        assert "分批写入" in (run.answer or "")
+        assert "安全结束" not in (run.answer or "")
+        memory = db.query(AIMemory).filter_by(project_id=1).one()
+        titles = [s.get("title") for s in (memory.storyline or {}).get("stages") or []]
+        assert titles == ["第1段", "第2段", "第3段"]
+        assert (memory.storyline or {}).get("summary") == "总述"
 
 
 def test_message_content_falls_back_to_reasoning():

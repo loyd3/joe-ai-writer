@@ -1017,7 +1017,7 @@ onMounted(() => {
   font-size: 12px;
   padding: 2px 8px;
   border-radius: 4px;
-  font-weight: 500;
+  font-weight: 400;
 
   &.weibo {
     background: #ff8200;
@@ -1040,7 +1040,7 @@ onMounted(() => {
   }
 
   &.default {
-    background: #909399;
+    background: var(--coffee-text-muted);
     color: white;
   }
 }
@@ -1071,7 +1071,7 @@ onMounted(() => {
   display: flex;
   align-items: center;
   gap: 4px;
-  color: #f56c6c;
+  color: var(--coffee-danger);
   font-size: 14px;
 }
 
@@ -1194,7 +1194,7 @@ onMounted(() => {
 .section-num {
   width: 24px;
   height: 24px;
-  background: #409eff;
+  background: var(--coffee-primary);
   color: white;
   border-radius: 50%;
   display: flex;
@@ -1227,7 +1227,7 @@ onMounted(() => {
   background: #fdf6ec;
   border-radius: 4px;
   font-size: 13px;
-  color: #e6a23c;
+  color: var(--coffee-warning);
 }
 
 .keyword-tag {

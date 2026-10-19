@@ -309,7 +309,7 @@
 
         <!-- 错误状态 -->
         <div v-else-if="generationError" class="error-state">
-          <el-icon :size="48" color="#f56c6c"><CircleClose /></el-icon>
+          <el-icon :size="48" color="var(--coffee-danger)"><CircleClose /></el-icon>
           <p class="error-title">生成失败</p>
           <div class="error-detail-box">
             <p>{{ generationError }}</p>
@@ -1528,7 +1528,7 @@ function resetAndClose() {
 }
 
 .node-title {
-  font-weight: 500;
+  font-weight: 400;
   color: var(--el-text-color-primary);
   font-size: 15px;
   transition: color 0.2s;
@@ -1661,7 +1661,7 @@ function resetAndClose() {
       font-size: 14px;
       color: var(--el-text-color-secondary);
       text-align: center;
-      font-weight: 500;
+      font-weight: 400;
     }
   }
 
@@ -1676,7 +1676,7 @@ function resetAndClose() {
       margin-top: 20px;
       color: var(--el-color-primary);
       font-size: 15px;
-      font-weight: 500;
+      font-weight: 400;
 
       .el-icon {
         margin-right: 10px;
@@ -1709,7 +1709,7 @@ function resetAndClose() {
         border-bottom: 1px solid var(--el-border-color-light);
         font-size: 14px;
         color: var(--el-text-color-secondary);
-        font-weight: 500;
+        font-weight: 400;
 
         span:first-child {
           display: flex;
@@ -1838,7 +1838,7 @@ function resetAndClose() {
 
       .retry-exhausted {
         color: var(--el-color-warning);
-        font-weight: 500;
+        font-weight: 400;
         margin-top: 8px;
       }
     }
@@ -1898,7 +1898,7 @@ function resetAndClose() {
     gap: 6px;
     font-size: 13px;
     color: var(--el-color-warning);
-    font-weight: 500;
+    font-weight: 400;
   }
 }
 
@@ -1924,7 +1924,7 @@ function resetAndClose() {
 
 .failed-count {
   color: var(--el-color-danger);
-  font-weight: 500;
+  font-weight: 400;
 }
 
 .error-detail {
@@ -2076,7 +2076,7 @@ function resetAndClose() {
     border-bottom: 1px solid var(--el-color-primary-light-7);
     font-size: 14px;
     color: var(--el-text-color-secondary);
-    font-weight: 500;
+    font-weight: 400;
 
     .char-count {
       color: var(--el-color-primary);
@@ -2121,7 +2121,7 @@ function resetAndClose() {
   padding: 32px 24px;
   color: var(--el-color-primary);
   font-size: 15px;
-  font-weight: 500;
+  font-weight: 400;
   background: var(--el-color-primary-light-9);
   border-radius: 12px;
   margin-top: 20px;
@@ -2145,7 +2145,7 @@ function resetAndClose() {
     justify-content: space-between;
     align-items: center;
     font-size: 14px;
-    font-weight: 500;
+    font-weight: 400;
     color: var(--el-color-success);
 
     .char-count {

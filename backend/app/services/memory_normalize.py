@@ -237,6 +237,23 @@ def _list_item_key(field: str, item: Any) -> str:
     return str(item.get("title") or item.get("name") or "").strip().lower()
 
 
+def _is_blank_memory_item(field: str, item: Any) -> bool:
+    """空占位（无标题且无正文）不参与合并，避免挡住真正的情节点/章节。"""
+    if item is None:
+        return True
+    if isinstance(item, str):
+        return not item.strip()
+    if not isinstance(item, dict):
+        return False
+    if field == "characters":
+        return not str(item.get("name") or "").strip()
+    if field == "outline":
+        return not str(item.get("title") or "").strip() and not str(item.get("description") or "").strip()
+    title = str(item.get("title") or item.get("name") or "").strip()
+    body = str(item.get("summary") or item.get("description") or item.get("content") or "").strip()
+    return not title and not body
+
+
 def _upsert_dict_list(current: List[Any], patch: List[Any], field: str) -> List[Any]:
     """按 name/title 合并列表：同名覆盖非空字段，新名追加。"""
     store: Dict[str, Any] = {}
@@ -285,6 +302,8 @@ def merge_memory_field(field: str, current: Any, patch: Any) -> Any:
             base = []
         if not isinstance(delta, list):
             delta = [delta] if delta not in (None, "", [], {}) else []
+        base = [item for item in base if not _is_blank_memory_item(field, item)]
+        delta = [item for item in delta if not _is_blank_memory_item(field, item)]
         return coerce_memory_field(field, _upsert_dict_list(base, delta, field))
 
     if field == "storyline" and isinstance(base, dict) and isinstance(delta, dict):

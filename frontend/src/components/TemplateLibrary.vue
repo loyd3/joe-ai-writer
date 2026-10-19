@@ -381,7 +381,7 @@ async function confirmApply() {
     flex: 1;
 
     .outline-title {
-      font-weight: 500;
+      font-weight: 400;
       color: var(--coffee-text);
       margin-bottom: 4px;
     }
@@ -404,7 +404,7 @@ async function confirmApply() {
     border-radius: 6px;
 
     .world-key {
-      font-weight: 500;
+      font-weight: 400;
       color: var(--coffee-primary);
       margin-right: 8px;
     }

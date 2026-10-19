@@ -399,7 +399,7 @@ async function saveProject() {
       gap: 12px;
       color: var(--coffee-text-muted);
       font-size: 15px;
-      font-weight: 500;
+      font-weight: 400;
       
       .create-icon {
         font-size: 40px;
@@ -585,7 +585,7 @@ async function saveProject() {
 }
 
 :deep(.delete-item) {
-  color: #f56c6c;
+  color: var(--coffee-danger);
 }
 
 .hidden-file-input {

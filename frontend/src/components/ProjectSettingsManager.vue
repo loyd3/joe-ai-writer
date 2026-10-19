@@ -1647,7 +1647,7 @@ defineExpose({ prepareProjectAgent, onAgentProjectChanged })
   color: var(--coffee-text-light);
   padding: 8px;
   &:hover {
-    color: #f56c6c;
+    color: var(--coffee-danger);
     background: rgba(245, 108, 108, 0.1);
   }
 }

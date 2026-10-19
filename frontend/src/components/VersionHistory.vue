@@ -313,7 +313,7 @@ const emit = defineEmits<{
 }
 
 .version-title {
-  font-weight: 500;
+  font-weight: 400;
   color: var(--coffee-text);
   margin-bottom: 6px;
 }

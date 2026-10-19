@@ -59,6 +59,54 @@ def patch(old='old', new='new'):
                   old_text=old, new_text=new, reason='Improve consistency')
 
 
+def test_generate_documents_from_settings_uses_batch_api(store, monkeypatch):
+    """多篇正文走既有 batch_generate，不把全文交回模型。"""
+    from app.services.ai_writing_service import AIWritingService
+    from app.services.project_agent_service import get_run
+
+    seen = []
+
+    async def fake_batch(db, **kwargs):
+        seen.append(kwargs.get("custom_instruction") or "")
+        title = kwargs["outline_nodes"][0]["title"]
+        yield json.dumps({
+            "type": "chapter_complete",
+            "chapter_title": title,
+            "chapter_content": f"## {title}\n\n本章正文。",
+        }, ensure_ascii=False)
+
+    monkeypatch.setattr(AIWritingService, "batch_generate", staticmethod(fake_batch))
+    with store() as db:
+        memory = db.query(AIMemory).filter_by(project_id=1).one()
+        memory.outline = [
+            {"title": "初遇", "description": "雨天"},
+            {"title": "靠近", "description": "琴房"},
+        ]
+        db.commit()
+    run_id, calls = execute(
+        store,
+        [
+            action("generate_documents_from_settings", custom_instruction="只写本章"),
+            action("finish", answer="已生成初遇和靠近"),
+        ],
+        instruction="根据设定生成多篇文章",
+    )
+    assert len(calls) == 2
+    with store() as db:
+        run = get_run(db, 1, 1, run_id)
+        assert run.status == "applied"
+        titles = {doc.title for doc in db.query(Document).filter_by(project_id=1)}
+        assert {"初遇", "靠近"} <= titles
+        body = json.dumps(
+            [doc.content for doc in db.query(Document).filter(Document.title.in_(["初遇", "靠近"]))],
+            ensure_ascii=False,
+        )
+        assert "本章正文" in body
+        assert "本章正文" not in json.dumps(calls[-1], ensure_ascii=False)
+        assert seen and all("必须符合本项目的规则" in item for item in seen)
+        assert any("只写本章" in item for item in seen)
+
+
 def test_arbitrary_multistep_staged_patch_memory_apply_revert(store):
     from app.services.project_agent_service import get_run, transition
     run_id, calls = execute(store, [
@@ -529,6 +577,59 @@ def test_history_scoped_deduplicated_and_status_aware(store):
             assert secret not in text
 
 
+def test_history_drops_prior_tool_json_and_long_prose(store):
+    from app.models.project_agent import AgentRun
+    from app.services.project_agent_service import _load_conversation_messages
+    now = datetime.utcnow()
+    long_story = "故事线阶段。" * 200
+    with store() as db:
+        previous = AgentRun(
+            user_id=1, project_id=1, conversation_id='long-history',
+            instruction='补写感情线', status='applied',
+            answer='故事线已更新完成。' + long_story,
+            created_at=now - timedelta(seconds=1),
+            messages=[{
+                'role': 'assistant',
+                'content': '先改角色。\n{"tool":"propose_memory_patch","args":{"field":"characters","after":[{"name":"不应回放"}]}}',
+                'streaming': False,
+            }],
+        )
+        current = AgentRun(user_id=1, project_id=1, conversation_id='long-history',
+                           instruction='继续', created_at=now)
+        db.add_all([previous, current])
+        db.commit()
+        history = _load_conversation_messages(db, current)
+        blob = json.dumps(history, ensure_ascii=False)
+        assert '不应回放' not in blob
+        assert 'propose_memory_patch' not in blob
+        assert '故事线已更新完成' in blob
+        assert len(blob) < 2500
+
+
+def test_overlong_history_is_dropped_for_current_instruction(store):
+    """历史总长超出上限时整段不带入，只留下当前指令给执行循环。"""
+    from app.models.project_agent import AgentRun
+    from app.services.project_agent_service import _load_conversation_messages, MAX_CONTEXT_CHARS
+    now = datetime.utcnow()
+    with store() as db:
+        rows = []
+        for index in range(12):
+            rows.append(AgentRun(
+                user_id=1, project_id=1, conversation_id='too-long',
+                instruction=f'第{index}轮去改故事线', status='applied',
+                answer='已写入。' + ('阶段说明。' * 80),
+                created_at=now - timedelta(seconds=20 - index),
+                messages=[{'role': 'assistant', 'content': '已写入。' + ('阶段说明。' * 80), 'streaming': False}],
+            ))
+        current = AgentRun(user_id=1, project_id=1, conversation_id='too-long',
+                           instruction='只改 outline', created_at=now)
+        db.add_all(rows + [current])
+        db.commit()
+        history = _load_conversation_messages(db, current, current.instruction)
+        assert history == []
+        assert MAX_CONTEXT_CHARS > 0
+
+
 def test_history_trimming_retains_status_with_claims_and_equal_timestamps(store):
     from app.models.project_agent import AgentRun
     from app.services.project_agent_service import _load_conversation_messages
@@ -774,6 +875,69 @@ def test_read_memory_overview_and_single_field(store):
         assert single["coverage"] == "single_field"
         assert single["field"] == "key_points"
         assert "value" in single
+
+
+def test_read_memory_accepts_field_and_ignores_benign_extras(store):
+    """field 必须可用；模型瞎加的 mode/full 等多余参数不致失败。"""
+    from app.services.project_agent_tools import ProjectAgentContext, execute_tool, _validate_args
+
+    resolved = _validate_args(
+        "read_memory",
+        {"field": "storyline", "mode": "full", "verbose": True},
+    )
+    assert resolved == {"field": "storyline"}
+
+    resolved2 = _validate_args("read_memory", {"字段": "故事线"})
+    assert resolved2.get("field") == "故事线"
+
+    with store() as db:
+        mem = db.query(AIMemory).filter_by(project_id=1).one()
+        mem.storyline = {
+            "summary": "很长" * 2000,
+            "stages": [{"title": f"S{i}", "summary": "x" * 200} for i in range(30)],
+        }
+        db.commit()
+        ctx = ProjectAgentContext(1, 1)
+        data = execute_tool(ctx, db, "read_memory", {"field": "storyline", "full": True})
+        assert data["field"] == "storyline"
+        assert data["coverage"] == "single_field_digest"
+        assert data["full_chars"] > 2200
+        assert ctx.staged_memory["storyline"]["summary"].startswith("很长")
+
+
+def test_action_top_level_field_merged_into_args(store):
+    """模型把 field 写在顶层而非 args 内时也应成功。"""
+    from app.services.project_agent_service import (
+        _parse_action_and_message,
+        create_run,
+        claim_run,
+        execute_run,
+        get_run,
+    )
+
+    raw = '好的\n```json\n{"tool":"read_memory","field":"storyline"}\n```'
+    action, said = _parse_action_and_message(raw)
+    assert action["tool"] == "read_memory"
+    assert action.get("field") == "storyline"
+
+    with store() as db:
+        run = create_run(db, 1, 1, "读 notes", None)
+        run_id = run.id
+    calls = {"n": 0}
+
+    async def model(messages, **kwargs):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return json.dumps({"tool": "read_memory", "field": "notes"}, ensure_ascii=False)
+        return json.dumps({"tool": "finish", "args": {"answer": "已读"}}, ensure_ascii=False)
+
+    claim = claim_run(store)
+    asyncio.run(execute_run(store, claim, model))
+    with store() as db:
+        run = get_run(db, 1, 1, run_id)
+        assert run.status in ("completed", "applied", "proposed")
+        assert run.status != "failed"
+        assert not (run.error or "").startswith("工具")
 
 
 def test_propose_memory_patch_merge_without_before(store):
@@ -1083,3 +1247,168 @@ def test_system_agent_api_contract(store):
             assert deny.status_code == 404
 
     asyncio.run(requests())
+
+
+def test_propose_delete_document_stays_proposed_until_confirm(store):
+    """删除提案禁止自动 apply，须用户确认后才删；可撤销恢复。"""
+    from app.services.project_agent_service import get_run, transition
+
+    run_id, _ = execute(
+        store,
+        [
+            action('list_project'),
+            action('propose_delete_document', document_id=1, reason='用户要求删除'),
+            action('finish', answer='已准备删除提案，请确认'),
+        ],
+        instruction='请删除文档 One',
+    )
+    with store() as db:
+        run = get_run(db, 1, 1, run_id)
+        assert run.status == 'proposed'  # 不得自动删除
+        assert len(run.changes) == 1
+        assert run.changes[0]['kind'] == 'delete_document'
+        assert db.get(Document, 1) is not None
+
+        transition(db, 1, 1, run_id, 'apply')
+        run = get_run(db, 1, 1, run_id)
+        assert run.status == 'applied'
+        assert db.get(Document, 1) is None
+
+        transition(db, 1, 1, run_id, 'revert')
+        run = get_run(db, 1, 1, run_id)
+        assert run.status == 'reverted'
+        restored_id = run.changes[0].get('restored_document_id')
+        assert restored_id == 1  # 原 id 恢复，侧栏/编辑器链接仍有效
+        restored = db.get(Document, restored_id)
+        assert restored is not None
+        assert restored.title == 'One'
+        assert restored.content[0]['content'] == 'old hero'
+
+
+def test_document_map_and_digest_keep_body_out_of_observation(store):
+    """长文：目录/摘要不把全文塞进工具返回；摘要不解锁 rewrite。"""
+    from app.services.project_agent_tools import ProjectAgentContext, execute_tool, ToolViolation
+
+    with store() as db:
+        doc = db.get(Document, 1)
+        doc.content = [
+            {"id": "h1", "type": "heading", "content": "第一章 起风了", "props": {"level": 1}},
+            {"id": "b1", "type": "paragraph", "content": "old hero walked into the storm." * 20, "props": {}},
+            {"id": "b2", "type": "paragraph", "content": "second beat of the chapter", "props": {}},
+        ]
+        db.commit()
+
+        ctx = ProjectAgentContext(1, 1)
+        mapped = execute_tool(ctx, db, "document_map", {})
+        assert mapped["coverage"] == "project"
+        assert mapped["documents"][0]["headings"]
+        assert "old hero" not in json.dumps(mapped, ensure_ascii=False)
+
+        digest = execute_tool(ctx, db, "digest_document", {"document_id": 1})
+        assert "digest" in digest
+        assert digest["block_count"] == 3
+        assert 1 in ctx.document_digests
+        assert 1 not in ctx.read_documents  # 摘要不解锁改稿
+
+        with pytest.raises(ToolViolation):
+            execute_tool(
+                ctx,
+                db,
+                "propose_block_rewrite",
+                {"document_id": 1, "block_id": "b1", "new_content": "x", "reason": "t"},
+            )
+
+
+def test_auto_compact_triggers_on_budget():
+    from app.services.project_agent_service import (
+        _should_auto_compact,
+        _compact_messages,
+        LIVE_CONTEXT_BUDGET_CHARS,
+        LIVE_COMPACT_TRIGGER_RATIO,
+    )
+    from app.services.project_agent_tools import ProjectAgentContext
+
+    fat = "字" * int(LIVE_CONTEXT_BUDGET_CHARS * LIVE_COMPACT_TRIGGER_RATIO // 2)
+    messages = [
+        {"role": "system", "content": "sys"},
+        {"role": "user", "content": fat},
+        {"role": "assistant", "content": fat},
+        {
+            "role": "user",
+            "content": '{"marker":"UNTRUSTED_OBSERVATION","data":"' + fat + '"}',
+        },
+        {"role": "assistant", "content": "ok"},
+        {"role": "user", "content": "next"},
+    ]
+    assert _should_auto_compact(messages)
+    ctx = ProjectAgentContext(1, 1)
+    ctx.document_digests[1] = {
+        "title": "One",
+        "digest": "英雄入场",
+        "headings": [{"text": "第一章"}],
+    }
+    compacted = _compact_messages(messages, reason="测试", ctx=ctx, tail=3)
+    blob = json.dumps(compacted, ensure_ascii=False)
+    assert "已压缩" in blob or "上下文已压缩" in blob
+    assert "英雄入场" in blob
+    assert len(blob) < len(json.dumps(messages, ensure_ascii=False))
+
+
+def test_propose_delete_apply_conflicts_on_content_edit(store):
+    """提案后正文被人工改动时，确认删除须 409，文档保留。"""
+    from app.services.project_agent_service import get_run, transition
+
+    run_id, _ = execute(
+        store,
+        [
+            action('propose_delete_document', document_id=1, reason='删'),
+            action('finish', answer='待确认'),
+        ],
+    )
+    with store() as db:
+        run = get_run(db, 1, 1, run_id)
+        assert run.status == 'proposed'
+        doc = db.get(Document, 1)
+        doc.content = [{'id': 'b1', 'type': 'paragraph', 'content': 'human edited', 'props': {}}]
+        db.commit()
+        with pytest.raises(HTTPException) as error:
+            transition(db, 1, 1, run_id, 'apply')
+        assert error.value.status_code == 409
+        assert db.get(Document, 1) is not None
+        assert db.get(Document, 1).content[0]['content'] == 'human edited'
+
+
+def test_propose_delete_document_cancel_keeps_document(store):
+    from app.services.project_agent_service import get_run, transition
+
+    run_id, _ = execute(
+        store,
+        [
+            action('propose_delete_document', document_id=1, reason='试删'),
+            action('finish', answer='待确认'),
+        ],
+    )
+    with store() as db:
+        run = get_run(db, 1, 1, run_id)
+        assert run.status == 'proposed'
+        transition(db, 1, 1, run_id, 'cancel')
+        run = get_run(db, 1, 1, run_id)
+        assert run.status == 'cancelled'
+        assert db.get(Document, 1) is not None
+
+
+def test_propose_delete_rejects_when_has_children(store):
+    from app.services.project_agent_service import get_run
+
+    with store() as db:
+        db.add(Document(id=3, project_id=1, title='Child', parent_id=1, content=[]))
+        db.commit()
+
+    run_id, _ = execute(
+        store,
+        [action('propose_delete_document', document_id=1, reason='有子文档也应失败')],
+    )
+    with store() as db:
+        run = get_run(db, 1, 1, run_id)
+        assert run.status == 'failed'
+        assert db.get(Document, 1) is not None

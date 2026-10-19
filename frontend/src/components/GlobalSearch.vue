@@ -463,10 +463,10 @@ function escapeHtml(text: string): string {
 }
 
 function getScoreColor(score: number): string {
-  if (score >= 0.8) return '#67c23a'
-  if (score >= 0.6) return '#e6a23c'
-  if (score >= 0.4) return '#909399'
-  return '#f56c6c'
+  if (score >= 0.8) return 'var(--coffee-success)'
+  if (score >= 0.6) return 'var(--coffee-warning)'
+  if (score >= 0.4) return 'var(--coffee-text-muted)'
+  return 'var(--coffee-danger)'
 }
 
 function getBlockTypeLabel(type: string): string {
@@ -689,7 +689,7 @@ watch(useSemanticSearch, () => {
   .empty-title,
   .initial-title {
     font-size: 16px;
-    font-weight: 500;
+    font-weight: 400;
     color: var(--coffee-text);
     margin-bottom: 8px;
   }
@@ -715,7 +715,7 @@ watch(useSemanticSearch, () => {
   
   .el-icon {
     font-size: 24px;
-    color: #e6a23c;
+    color: var(--coffee-warning);
   }
   
   span {
@@ -736,7 +736,7 @@ watch(useSemanticSearch, () => {
   color: var(--coffee-text-secondary);
   
   .el-icon {
-    color: #67c23a;
+    color: var(--coffee-success);
   }
 }
 
@@ -869,7 +869,7 @@ watch(useSemanticSearch, () => {
       
       .score-value {
         font-size: 12px;
-        font-weight: 500;
+        font-weight: 400;
         color: var(--coffee-text-light);
         min-width: 36px;
         text-align: right;
@@ -925,11 +925,11 @@ watch(useSemanticSearch, () => {
       
       .highlighted-content {
         :deep(.highlight) {
-          background: rgba(255, 193, 7, 0.4);
+          background: rgba(var(--coffee-warning-rgb), 0.4);
           color: inherit;
           padding: 1px 4px;
           border-radius: 3px;
-          font-weight: 500;
+          font-weight: 400;
         }
       }
     }

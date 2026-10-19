@@ -194,7 +194,7 @@ async function saveProject() {
     border-radius: 10px;
     background: var(--coffee-gradient-primary);
     border: none;
-    font-weight: 500;
+    font-weight: 400;
     transition: all 0.3s ease;
     
     &:hover {
@@ -357,7 +357,7 @@ async function saveProject() {
 }
 
 :deep(.delete-item) {
-  color: #f56c6c;
+  color: var(--coffee-danger);
 }
 
 /* AI工具列表样式 */

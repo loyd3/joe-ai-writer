@@ -269,7 +269,7 @@ async function doConvert() {
 
   .cta-line {
     margin-top: 10px;
-    color: #8a6d3b;
+    color: var(--coffee-warning);
   }
 
   .tag-list {
@@ -288,10 +288,10 @@ async function doConvert() {
   }
 
   .scene-card {
-    border: 1px solid #eee0d0;
+    border: 1px solid var(--coffee-border);
     border-radius: 10px;
     padding: 12px 14px;
-    background: #fffaf5;
+    background: var(--coffee-bg-warm);
 
     .scene-head {
       display: flex;
@@ -303,17 +303,17 @@ async function doConvert() {
     p {
       margin: 4px 0;
       line-height: 1.6;
-      color: #4a3b2a;
+      color: var(--coffee-text);
     }
 
     .en-prompt {
       font-size: 13px;
-      color: #6b5a45;
+      color: var(--coffee-text-secondary);
     }
   }
 
   .empty-scenes {
-    color: #999;
+    color: var(--coffee-text-muted);
     padding: 24px;
     text-align: center;
   }

@@ -289,7 +289,7 @@ async function handleSubmit() {
   }
   
   .el-button {
-    font-weight: 500;
+    font-weight: 400;
     color: var(--coffee-primary);
   }
 }

@@ -390,7 +390,7 @@ const emit = defineEmits<{
     color: var(--coffee-text-muted);
 
     .attr-label {
-      font-weight: 500;
+      font-weight: 400;
       color: var(--coffee-text);
     }
   }
@@ -428,7 +428,7 @@ const emit = defineEmits<{
     flex: 1;
 
     .outline-title {
-      font-weight: 500;
+      font-weight: 400;
       color: var(--coffee-text);
       margin-bottom: 2px;
     }
@@ -463,7 +463,7 @@ const emit = defineEmits<{
   border-radius: 6px;
 
   .world-key {
-    font-weight: 500;
+    font-weight: 400;
     color: var(--coffee-primary);
     margin-right: 8px;
   }

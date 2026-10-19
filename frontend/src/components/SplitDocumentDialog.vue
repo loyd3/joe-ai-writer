@@ -183,7 +183,7 @@ async function confirm() {
 <style scoped>
 .hint {
   margin: 0 0 16px;
-  color: #606266;
+  color: var(--coffee-text-secondary);
   font-size: 13px;
   line-height: 1.6;
 }
@@ -193,7 +193,7 @@ async function confirm() {
 .preview-title {
   font-size: 13px;
   font-weight: 600;
-  color: #303133;
+  color: var(--coffee-text);
   margin-bottom: 8px;
 }
 .section-list {
@@ -202,7 +202,7 @@ async function confirm() {
   list-style: none;
   max-height: 280px;
   overflow: auto;
-  border: 1px solid #ebeef5;
+  border: 1px solid var(--coffee-border-light);
   border-radius: 8px;
 }
 .section-list li {
@@ -210,14 +210,14 @@ async function confirm() {
   align-items: center;
   gap: 8px;
   padding: 10px 12px;
-  border-bottom: 1px solid #f2f3f5;
+  border-bottom: 1px solid var(--coffee-border-light);
   font-size: 13px;
 }
 .section-list li:last-child {
   border-bottom: none;
 }
 .idx {
-  color: #909399;
+  color: var(--coffee-text-muted);
   width: 28px;
   flex-shrink: 0;
 }
@@ -226,10 +226,10 @@ async function confirm() {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: #303133;
+  color: var(--coffee-text);
 }
 .meta {
-  color: #909399;
+  color: var(--coffee-text-muted);
   flex-shrink: 0;
 }
 </style>

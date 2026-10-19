@@ -11,27 +11,31 @@ useThemeStore()
 /* ===== 全局样式变量 - 默认「墨蓝」浅色主题（theme store 初始化后按当前主题改写） ===== */
 :root {
   /* 主色调 RGB 分量（用于灵活 rgba） */
-  --coffee-primary-rgb: 62, 75, 196;
+  --coffee-primary-rgb: 74, 91, 184;
   /* 主色调 */
-  --coffee-primary: #3E4BC4;
-  --coffee-primary-light: #5C68D4;
-  --coffee-primary-dark: #323D8F;
+  --coffee-primary: #4A5BB8;
+  --coffee-primary-light: #6B78C9;
+  --coffee-primary-dark: #3A4894;
 
   /* 背景色 */
-  --coffee-bg: #f5f5f7;
-  --coffee-bg-warm: #ececf1;
+  --coffee-bg: #f4f5f8;
+  --coffee-bg-warm: #eceef4;
   --coffee-bg-card: #ffffff;
 
-  /* 文字色 */
-  --coffee-text: #15181d;
-  --coffee-text-secondary: #3a3e45;
-  --coffee-text-muted: #6b7078;
-  --coffee-text-light: #8e939a;
+  /* 文字色（降对比） */
+  --coffee-text: #3a3f4a;
+  --coffee-text-secondary: #5c6370;
+  --coffee-text-muted: #848b98;
+  --coffee-text-light: #a4abb6;
 
   /* 边框/分隔线 */
-  --coffee-border: #d5d6dc;
-  --coffee-border-light: #e3e4e8;
-  --coffee-divider: #ececef;
+  --coffee-border: #d8dae2;
+  --coffee-border-light: #e6e7ed;
+  --coffee-divider: #eef0f4;
+
+  /* 主色 tint 层次（theme store 按模式改写） */
+  --coffee-primary-tint: #f0f2fa;
+  --coffee-primary-tint-strong: #d5daf0;
 
   /* 阴影 */
   --coffee-shadow: rgba(var(--coffee-primary-rgb), 0.08);
@@ -55,14 +59,30 @@ useThemeStore()
   --coffee-gradient-light: linear-gradient(135deg, var(--coffee-bg-warm) 0%, var(--coffee-divider) 100%);
 
   /* Element Plus 主色初值 */
-  --el-color-primary: #3E4BC4;
-  --el-color-primary-rgb: 62, 75, 196;
-  --el-color-primary-light-3: #6e78d3;
-  --el-color-primary-light-5: #9ea4e2;
-  --el-color-primary-light-7: #c6c9ef;
-  --el-color-primary-light-8: #dbddf5;
-  --el-color-primary-light-9: #eff0fb;
-  --el-color-primary-dark-2: #323d8f;
+  --el-color-primary: #4A5BB8;
+  --el-color-primary-rgb: 74, 91, 184;
+  --el-color-primary-light-3: #7884ca;
+  --el-color-primary-light-5: #a5addc;
+  --el-color-primary-light-7: #c9cee9;
+  --el-color-primary-light-8: #dde0f1;
+  --el-color-primary-light-9: #f0f2fa;
+  --el-color-primary-dark-2: #3a4894;
+
+  /* 语义色（低饱和，theme store 按模式改写） */
+  --coffee-success: #4a9e7f;
+  --coffee-success-rgb: 74, 158, 127;
+  --coffee-warning: #d9a03f;
+  --coffee-warning-rgb: 217, 160, 63;
+  --coffee-danger: #d96a6a;
+  --coffee-danger-rgb: 217, 106, 106;
+  --coffee-info: #6b8cae;
+  --coffee-info-rgb: 107, 140, 174;
+
+  /* Element Plus 语义色初值（与 coffee-* 对齐） */
+  --el-color-success: var(--coffee-success);
+  --el-color-warning: var(--coffee-warning);
+  --el-color-danger: var(--coffee-danger);
+  --el-color-info: var(--coffee-info);
 }
 
 * {
@@ -75,7 +95,7 @@ body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
   background: var(--coffee-bg);
   color: var(--coffee-text);
-  font-weight: 500;
+  font-weight: 400;
   line-height: 1.6;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -136,7 +156,7 @@ body {
 .el-dialog__body {
   padding: 24px;
   color: var(--coffee-text-secondary);
-  font-weight: 500;
+  font-weight: 400;
 }
 
 .el-dialog__footer {

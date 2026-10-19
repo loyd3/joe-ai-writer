@@ -483,7 +483,7 @@ onMounted(async () => {
     margin-bottom: 8px;
   }
   .subtitle {
-    color: #666;
+    color: var(--coffee-text-secondary);
     font-size: 14px;
   }
 }
@@ -509,7 +509,7 @@ onMounted(async () => {
 }
 
 .slider-value {
-  color: #409eff;
+  color: var(--coffee-primary);
   font-weight: 600;
   margin-top: 8px;
   display: inline-block;
@@ -521,7 +521,7 @@ onMounted(async () => {
   gap: 16px;
   margin-top: 18px;
   padding-top: 16px;
-  border-top: 1px solid #e4e7ed;
+  border-top: 1px solid var(--coffee-border);
   flex-wrap: wrap;
 }
 
@@ -533,16 +533,16 @@ onMounted(async () => {
   .article-title {
     font-size: 24px;
     font-weight: 700;
-    color: #303133;
+    color: var(--coffee-text);
     margin: 8px 0 12px;
   }
   .article-body {
-    background: #fafafa;
+    background: var(--coffee-bg-warm);
     border-radius: 8px;
     padding: 18px;
     line-height: 1.9;
     font-size: 15px;
-    color: #303133;
+    color: var(--coffee-text);
 
     :deep(h2) {
       font-size: 19px;

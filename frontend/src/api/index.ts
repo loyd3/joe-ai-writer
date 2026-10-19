@@ -165,6 +165,10 @@ const getErrorMessage = (error: AxiosError): string => {
 api.interceptors.response.use(
   (response) => response,
   (error: AxiosError) => {
+    // 切换文档/停止轮询会主动取消请求，不是网络故障
+    if (error.code === 'ERR_CANCELED' || error.name === 'CanceledError') {
+      return Promise.reject(error)
+    }
     const customMessage = getErrorMessage(error)
 
     // 网络错误或超时
@@ -213,8 +217,14 @@ api.interceptors.response.use(
       return Promise.reject(error)
     }
 
+    // 会话过期由智能体面板自行新开对话，不弹出英文 Conversation not found
+    const detail = typeof data?.detail === 'string' ? data.detail : ''
+    if (status === 404 && detail === 'Conversation not found') {
+      return Promise.reject(error)
+    }
+
     // 业务错误，显示后端返回的消息
-    const message = data?.detail || data?.message || '操作失败'
+    const message = detail || data?.message || '操作失败'
     ElMessage.error(message)
 
     return Promise.reject(error)
